@@ -95,6 +95,17 @@ final class BluetoothRadio: NSObject {
     /// that did not move is a redraw nobody asked for. Every raw value is still in the trace.
     var onFace: ((UUID, Int?) -> Void)?
 
+    /// Called with the PIN a cube accepted, at the moment it accepts one.
+    ///
+    /// **The only thing that can say which PIN a cube is actually on.** This app can hold two -- the Keychain's and
+    /// the config file's -- and they disagree exactly when a Keychain write has failed, so the launch that finds them
+    /// disagreeing waits for this before promoting either (`DevicePINSource.reconcile`).
+    ///
+    /// **Fired before any rotation**, so it names the PIN that got in rather than the one about to replace it. The
+    /// two cannot be confused: a rotation only ever follows the vendor default (`DevicePINRules.rotates`), which is
+    /// not a PIN either store holds.
+    var onPINAccepted: ((UUID, String) -> Void)?
+
     /// Called when the cube reports what it is called, a second or two into a connection.
     ///
     /// **The only confirmation a rename gets**, and the only way a rename made in somebody else's app is ever noticed:
@@ -617,7 +628,7 @@ final class BluetoothRadio: NSObject {
     /// than added to.
     ///
     /// - Parameter rotatingTo: the PIN the cube should end up on, or `nil` to leave it on whichever one let the app
-    ///   in. Only a developer build has one to give (`DeveloperMode.devicePIN`).
+    ///   in. What that is, and whether it is fixed or random, is `DevicePINRules.target`'s answer.
     func connect(to id: UUID, presenting candidates: [String], rotatingTo: String? = nil) {
         guard peripherals[id] != nil else {
             debugLog?.record(.login, "Asked to connect to \(id.uuidString), which is not a device this scan found")
@@ -1267,6 +1278,10 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
             // A reset confirmation asks nothing about the cube: it is proving a wipe and letting go.
             staysWithTheCube: resetConfirmation == nil,
             rotated: { [weak self] pin in self?.onPINChanged?(pin) },
+            // **No guard on this being still the app's cube**, unlike the reads below: it fires during the login
+            // itself, before anything else can have taken the link, and what it reports is a fact about the cube in
+            // front of the app rather than a reading to be filed against a pairing.
+            accepted: { [weak self] pin in self?.onPINAccepted?(attempt.id, pin) },
             // **Only while this is still the cube the app is holding.** These reads land seconds after the login, by
             // which time the window may have been closed or another device chosen -- and a report acted on then would
             // write down what one cube says under a pairing that now names a different one.

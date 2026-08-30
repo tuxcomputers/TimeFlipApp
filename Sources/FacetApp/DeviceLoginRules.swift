@@ -16,19 +16,21 @@ enum DeviceLoginRules {
     /// Six characters, which the protocol fixes: the password characteristic is six bytes wide.
     static let length = 6
 
-    /// The PINs to try, in order, and there are never more than two.
+    /// The PINs to try, in order.
     ///
-    /// They are the two states a cube in front of this app can be in: on the **vendor default**, because it is new
-    /// here or has been power-cycled, or on a **PIN this app set** and has kept. Neither accepted means the cube is
-    /// on a PIN nobody can name, and searching for that would be a lockout dressed up as a feature -- so there is
-    /// deliberately no third guess.
+    /// They are the states a cube in front of this app can be in: on the **vendor default**, because it is new here
+    /// or has been power-cycled, or on a **PIN this app set** and wrote down. A PIN outside that set is one nobody
+    /// can name, and searching for it would be a lockout dressed up as a feature -- so nothing is ever guessed here.
     ///
-    /// Deduplicated, so a stored PIN that *is* the default is presented once. The second attempt costs a whole
-    /// reconnect (see `BluetoothRadio`), which is a long way to go to learn nothing.
-    static func candidates(stored: String?) -> [String] {
+    /// **`stored` is a list now, where it used to be one value, and there can be two of them.** The app keeps a
+    /// cube's PIN in the Keychain and, when the Keychain has refused a write, in `config.json` as well -- so the two
+    /// disagreeing is a real state with a known cause, and the app genuinely does not know which of them the cube
+    /// took. `DevicePINSource.stored` puts them in order and `reconcile` ends the disagreement the next time a cube
+    /// answers one. Every candidate costs a whole connect (see `BluetoothRadio`), which is why the list is
+    /// deduplicated and why nothing speculative is ever added to it.
+    static func candidates(stored: [String]) -> [String] {
         var seen: Set<String> = []
-        return [defaultPIN, stored]
-            .compactMap { $0 }
+        return ([defaultPIN] + stored)
             .filter { isWellFormed($0) && seen.insert($0).inserted }
     }
 
@@ -51,10 +53,9 @@ enum DeviceLoginRules {
     /// nothing (`BluetoothRadio.reach`). The archive had to try every eligible cube in the room and used the PIN to work
     /// out which was its own, which is exactly the situation where presenting a public default is how you take over
     /// somebody else's device. Reaching a known identifier cannot do that.
-    static func reconnectCandidates(stored: String?) -> [String] {
+    static func reconnectCandidates(stored: [String]) -> [String] {
         var seen: Set<String> = []
-        return [stored, defaultPIN]
-            .compactMap { $0 }
+        return (stored + [defaultPIN])
             .filter { isWellFormed($0) && seen.insert($0).inserted }
     }
 
@@ -78,28 +79,6 @@ enum DeviceLoginRules {
     /// the evidence, which is finding 2 in `docs/timeflip2-firmware-observations.md` in its sharpest form: reading the
     /// result here would return somebody else's bytes and read as a confirmation.
     static let factoryReset: UInt8 = 0xFF
-
-    /// The PIN to put on a cube that has just accepted `accepted`, or `nil` to leave it on the one it has.
-    ///
-    /// **Why a cube's PIN is changed at all**: the vendor default is public, so a cube left on it is one that anybody
-    /// within a few metres can take over. The archive did this on pairing, emulating the official app, and the
-    /// reasoning survives inspection.
-    ///
-    /// **`target` is what decides whether anything happens**, and in this build only a developer build has one
-    /// (`DeveloperMode.devicePIN`) -- see there for why a build that cannot write a random PIN down must not set one.
-    ///
-    /// **Massaged from `PairingPasswordRules.rotatesPassword`**, which asked a narrower question: it rotated only a
-    /// cube reached on the vendor default, on the grounds that one reached on the stored PIN already holds the PIN on
-    /// record. This asks whether the cube is already on the PIN this build sets, which gives the same answer in every
-    /// state the archive was reasoning about, and a better one in the state it did not consider: a cube on some
-    /// *other* stored PIN converges onto the one this build knows rather than being left where it was found.
-    ///
-    /// A PIN is never set to the value the cube already answered to. That write costs a command round trip and a
-    /// second login to confirm it, which is a long way to go to change nothing.
-    static func rotation(from accepted: String, to target: String?) -> String? {
-        guard let target, isWellFormed(target), target != accepted else { return nil }
-        return target
-    }
 
     /// What the cube said about the PIN.
     enum Verdict: Equatable {

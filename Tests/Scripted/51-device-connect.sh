@@ -8,7 +8,8 @@
 # covered there in full, but whether a real cube ever answers `0x02`, and whether it honours `0x30`, are questions
 # only a cube can be asked.
 #
-# **The PIN it sets is `123456` and only ever `123456`** (`DeveloperMode.devicePIN`), so a half-done rotation can
+# **The PIN it sets is `123456` and only ever `123456`** in a developer build (`DevicePINRules.target`, which is
+# where the gate is asked; any other build sets six random digits), so a half-done rotation can
 # leave the cube on one of two known values and both are presented on the next attempt. That is what makes it safe to
 # run this against real hardware repeatedly.
 #
@@ -183,12 +184,21 @@ if wait_for "$since" "The cube is now on %" 25 >/dev/null; then
     # **The confirmation is a real login, not the command's own acknowledgement.** A cube that acknowledges 0x30 has
     # not thereby promised to honour it, and a PIN is the one value where believing that is unrecoverable.
     expect_log "the app presents the new PIN to make the cube prove it" "$since" "Presenting 123456,%"
-    expect_log "and writes it down where the next connect reads it" "$since" "Wrote the new PIN to %config.json"
+
+    # **Both stores, and only after the cube proved it.** A developer build writes the Keychain *and* the file: the
+    # file is what a person and this script can read, and the Keychain is what a release build has, so writing both
+    # keeps a dev run on the same path a release build takes.
+    #
+    # **The Keychain is checked from the app's own row rather than with `security`.** That tool is a different
+    # program from the one that owns the item, so macOS would put an access prompt in front of the run -- the same
+    # trap the Google token hit, written up in README.md.
+    expect_log "and writes it down in both stores" "$since" \
+        "The new PIN is written down in the Keychain and the config file"
 
     check "config.json holds the PIN the cube is now on" "123456" "$(config_pin)"
 else
     left=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND tag = 'pin' ORDER BY debug_log_id DESC LIMIT 1;")
-    check_contains "the cube was already on this build's PIN, so it was left alone" "$left" "already on the PIN"
+    check_contains "the cube was on a PIN this app set, so it was left alone" "$left" "a PIN this app put there"
 
     # The file may legitimately name nothing here: with no PIN written down, the compiled-in constant stands in as the
     # stored candidate, which is how a cube rotated by an earlier run is still reachable after the file is deleted.

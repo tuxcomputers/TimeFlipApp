@@ -245,15 +245,41 @@ settingsWindow.faceColours = faceColours
 
 // What keeps a paired app's cube reachable: it looks for it now, and goes on looking whenever the link goes.
 //
-// **The stored PIN is a closure rather than a value**, for the reason every read in this app is at the point of use:
-// `config.json` is a file a developer also edits by hand, and an attempt an hour from now must present what it says then.
+// **Both are closures rather than values**, for the reason every read in this app is at the point of use: the PINs
+// this app holds live in the Keychain and in a file a developer also edits by hand, so an attempt an hour from now
+// must present what they say then -- and the PIN to put on a cube is fresh random digits every time it is asked for
+// in any build but a developer's.
 let reconnector = DeviceReconnector(
     radio: radio,
     settings: settings,
     debugLog: debugLog,
-    storedPIN: { DeveloperConfigFile.standard?.pin() ?? DeveloperMode.devicePIN },
-    rotatingTo: DeveloperMode.devicePIN
+    storedPINs: { DevicePINSource(debugLog: debugLog).stored() },
+    rotatingTo: { DevicePINRules.target() }
 )
+// **Whether the two PIN stores are saying different things, asked once, here.**
+//
+// They disagree only after a Keychain write that failed: the PIN went into `config.json` instead, so the file holds
+// what the cube took and the Keychain holds what it was on before. Neither this app nor anything else can tell which
+// is right without asking the cube, so the answer waits for a login -- and the first login of the launch is the one
+// that gets it, because that is when the question was asked.
+//
+// **Armed at launch and disarmed by the first accepted PIN**, which is what makes this a startup check rather than
+// something running on every connect: once a launch has settled the two stores there is nothing left to ask until
+// something writes again, and that write is itself a rotation that puts both in step.
+var isReconcilingPINStores = DevicePINSource(debugLog: debugLog).storesDisagree()
+if isReconcilingPINStores {
+    debugLog?.record(.pin, "The Keychain and the config file name different PINs, so the next login settles it")
+}
+radio.onPINAccepted = { _, pin in
+    guard isReconcilingPINStores else { return }
+    // **Disarmed by an answer that settled it, not by any login at all.** A cube can accept a PIN from neither store
+    // -- the vendor default on a factory-reset confirmation is exactly that, and it happens on an ordinary run --
+    // and letting that spend the launch's one question would leave the two stores disagreeing until the next launch
+    // for no reason.
+    guard DevicePINSource(debugLog: debugLog).reconcile(accepted: pin) != .nothingHappened else { return }
+    isReconcilingPINStores = false
+}
+
 // What happens when a paired app cannot find its cube at startup: it stops and asks, rather than retrying behind a
 // menu bar that says nothing.
 //
