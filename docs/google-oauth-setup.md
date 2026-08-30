@@ -187,26 +187,40 @@ is `public/images/facet-logo-120.png` in the site repo, at the 120x120 the conso
 
 ## Part 2: the app side
 
-**Mostly built.** What follows says what each step came to, and step 1 is the one still owed.
+**Built.** What follows says what each step came to.
 
-### 1. Ship the client ID and secret as build configuration -- **NOT DONE**
+### 1. Ship the client ID and secret with the build -- **done**
 
 `GoogleCredentials.resolve` tries three sources in order: the `FACET_GOOGLE_CLIENT_JSON` environment variable, then
-`~/.config/facet/google-client.json`, then two `Info.plist` keys, `GoogleOAuthClientID` and `GoogleOAuthClientSecret`.
+`~/.config/facet/google-client.json`, then what the build put in. The first two are files on one machine; **only the
+third travels with the binary**, which is why it exists.
 
-The first two are the console's own download, unedited, so there is nothing to transcribe. **The third has no writer.**
-`Bundler.toml` declares only `LSUIElement` and the Bluetooth usage string, and no build step fills those two keys in.
-So every build in this repository resolves through one of the first two, and **a `.app` handed to somebody who has no
-`~/.config/facet/google-client.json` finds no credentials and cannot sign in at all.**
+`scripts/generate-credentials.sh` is what fills it. It copies the console's download to
+`Sources/FacetApp/Resources/google-client.json`, which is gitignored, so neither value is committed. Not because
+either is confidential -- under a Desktop client neither is, see Part 1 step 5 -- but so a release build and a
+developer build can point at different projects without editing code, and so the repo stays publishable without a
+second thought. `scripts/run.sh` and the scripted suite's build both run it, so it is not a step anybody has to
+remember.
 
-That is the remaining work, and it is small: either a pre-build step generates a gitignored Swift file holding the
-pair, or one writes the two plist keys into the built bundle. The generated-file shape is less plumbing and needs no
-plist work, and is the one to reach for unless the plist is wanted for another reason. Read the pair from
-`~/.config/facet/google-client.json` (Part 1 step 1) rather than from anything committed.
+**Copied verbatim rather than rewritten**, so the bundled resource and the two overrides are one format read by one
+parser (`GoogleCredentials.fromJSON`) rather than two that can drift.
 
-Not because either value is confidential -- under a Desktop client neither is, see Part 1 step 5 -- but because a
-release build and a developer build should point at different projects without editing code, and because the repo
-should be publishable without a second thought.
+**A resource, not a generated Swift file, and the difference was measured.** The Swift-file version was built first:
+a gitignored source file, with `Package.swift` checking whether it existed and defining `HAS_BUNDLED_CREDENTIALS`
+when it did. **It fails silently.** SwiftPM caches the manifest, so the existence check does not re-run when the
+generator creates the file: generator runs, `swift build` succeeds, define absent, credentials quietly not in the
+binary, nothing anywhere saying so. `Package.swift` already `.process`es the whole `Resources` directory, and that is
+a directory scan at build time rather than a manifest-time decision, so a file appearing there is picked up with no
+cache to defeat. Confirmed both directions against a warm `.build`.
+
+**No credentials is not an error.** A fork with no Google project builds and runs everything else; `resolve` answers
+`nil` and the App tab says *"This copy of Facet was built without Google credentials, so it cannot sign in."* That is
+also CI's case, so `swift build` needs no secret.
+
+**Removing credentials prunes the build too.** SwiftPM does not delete a resource that has gone from the source
+directory -- measured: delete it, `swift build`, and the copy under `.build/.../FacetApp_FacetApp.bundle/` is still
+there -- and swift-bundler builds the `.app` from those products. So the generator clears them itself rather than
+leaving a build carrying a client somebody has just taken away.
 
 ### 2. No paste-in fields, and the override kept -- **done**
 

@@ -188,4 +188,94 @@ final class GoogleOAuthRulesTests: XCTestCase {
     func testAMissingFileIsSimplyNoCredentials() {
         XCTAssertNil(GoogleCredentials.fromJSON(at: URL(fileURLWithPath: "/nowhere/facet.json")))
     }
+
+    // MARK: - which of the three sources answers
+    //
+    // `resolve` takes its home directory and its bundled pair as arguments precisely so these can run on any
+    // machine. Reading the real `~/.config/facet/google-client.json` would make the suite pass or fail on whether
+    // whoever ran it happens to have a Google project, which is not a property of the code.
+
+    /// A home with no `google-client.json` in it, so the second source cannot answer.
+    private func emptyHome() throws -> URL {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("facet-home-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        return home
+    }
+
+    private func writeClientJSON(id: String, secret: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("facet-client-\(UUID().uuidString).json")
+        try JSONSerialization.data(withJSONObject: [
+            "installed": ["client_id": id, "client_secret": secret],
+        ]).write(to: url)
+        return url
+    }
+
+    func testTheEnvironmentOverrideWinsOverEverything() throws {
+        let override = try writeClientJSON(id: "from-env", secret: "s1")
+        defer { try? FileManager.default.removeItem(at: override) }
+        let home = try emptyHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let found = GoogleCredentials.resolve(
+            environment: ["FACET_GOOGLE_CLIENT_JSON": override.path],
+            home: home,
+            bundled: GoogleCredentials(clientID: "built-in", clientSecret: "s3")
+        )
+        XCTAssertEqual(found?.clientID, "from-env")
+    }
+
+    func testTheHomeDirectoryFileWinsOverWhatWasBuiltIn() throws {
+        let home = try emptyHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let config = home.appendingPathComponent(".config/facet")
+        try FileManager.default.createDirectory(at: config, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: [
+            "installed": ["client_id": "from-home", "client_secret": "s2"],
+        ]).write(to: config.appendingPathComponent("google-client.json"))
+
+        let found = GoogleCredentials.resolve(
+            environment: [:],
+            home: home,
+            bundled: GoogleCredentials(clientID: "built-in", clientSecret: "s3")
+        )
+        XCTAssertEqual(found?.clientID, "from-home")
+    }
+
+    /// The case the whole feature exists for: somebody who is not the developer, so neither override is there.
+    func testWhatWasBuiltInAnswersWhenNeitherOverrideIsThere() throws {
+        let home = try emptyHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let found = GoogleCredentials.resolve(
+            environment: [:],
+            home: home,
+            bundled: GoogleCredentials(clientID: "built-in", clientSecret: "s3")
+        )
+        XCTAssertEqual(found?.clientID, "built-in")
+    }
+
+    /// A fork with no Google project. It must be `nil` rather than a half-filled pair, because `nil` is what the App
+    /// tab renders as "this copy of Facet was built without Google credentials".
+    func testNoSourceAtAllIsNoCredentialsRatherThanEmptyOnes() throws {
+        let home = try emptyHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        XCTAssertNil(GoogleCredentials.resolve(environment: [:], home: home, bundled: nil))
+    }
+
+    /// An override naming a file that is not there falls through rather than answering nothing at all. Somebody who
+    /// mistypes `FACET_GOOGLE_CLIENT_JSON` gets the build's own client, not a dead app.
+    func testAnOverridePointingAtNothingFallsThrough() throws {
+        let home = try emptyHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let found = GoogleCredentials.resolve(
+            environment: ["FACET_GOOGLE_CLIENT_JSON": "/nowhere/facet.json"],
+            home: home,
+            bundled: GoogleCredentials(clientID: "built-in", clientSecret: "s3")
+        )
+        XCTAssertEqual(found?.clientID, "built-in")
+    }
 }

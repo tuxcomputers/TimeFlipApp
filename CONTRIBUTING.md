@@ -72,9 +72,12 @@ or `database/` does.
 
 ## Security
 
-- Never commit Google credentials, API tokens, or device passwords. `.gitignore` already covers
-  `client_secret_*.json` and `config.*`; the OAuth client JSON belongs at `~/.config/facet/google-client.json`,
-  outside the repository.
+- Never commit Google credentials, API tokens, or device passwords. `.gitignore` covers
+  `client_secret_*.json`, `config.*` and `Sources/FacetApp/Resources/google-client.json`; the OAuth client JSON
+  belongs at `~/.config/facet/google-client.json`, outside the repository.
+- `scripts/generate-credentials.sh` copies that file into the build so a distributed app can sign in. It runs from
+  `scripts/run.sh` and from the scripted suite's build, and it exits 0 with nothing to copy -- **you do not need a
+  Google project to build or test this repo.**
 - The Google refresh token is the only thing in the macOS Keychain (`GoogleTokenStore`), one item, per user and per
   machine.
 - A developer build's device PIN is in `~/Library/Application Support/Facet/config.json`, deliberately not in the

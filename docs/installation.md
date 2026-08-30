@@ -30,6 +30,10 @@ cd TimeFlipApp
 scripts/run.sh
 ```
 
+It also runs `scripts/generate-credentials.sh` first, which is what puts the Google OAuth client into
+the build -- see [Configuration](configuration.md#google-calendar). With no client to put in, it says so
+and carries on: **you do not need a Google project to build or run Facet.**
+
 Two flags, and one of them destroys data:
 
 - `--rebuild` deletes `.build` first, for when an incremental build is suspect.
