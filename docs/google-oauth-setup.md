@@ -1,14 +1,14 @@
 # Google OAuth: setting it up once, so nobody else has to
 
-**Who this is for: whoever publishes the binary.** Today [configuration.md](configuration.md) asks every user to
-create a Google Cloud project, configure a consent screen, mint an OAuth client and paste two strings into the app.
-That is five steps of setup before the app does anything, and every one of them is a place to give up. This is what
-replaces it: one project, owned by you, whose client ID ships inside the app.
+**Who this is for: whoever publishes the binary.** The previous app asked every user to create a Google Cloud project,
+configure a consent screen, mint an OAuth client and paste two strings into the app. That is five steps of setup before
+the app does anything, and every one of them is a place to give up. This is what replaced it: one project, owned by you,
+whose client ID ships inside the app.
 
-**The app has not rebuilt the Google integration yet.** `google_account` and `time_entry.synced_to_google_calendar`
-exist in the schema, the previous implementation is in `Archive/TimeFlipApp/Google*.swift`, and the sync itself was
-never built even there (see [rebuild.md](rebuild.md), Backend). So Part 2 below is the shape of the work rather than a
-description of what is in the app now. Part 1 can be done today, and should be.
+**Both halves are built.** Sign-in is `GoogleOAuthClient` (the loopback flow) over `GoogleOAuthRules` (the decisions),
+and the sync itself is `CalendarSync`, which sweeps every unsynced `time_entry` and reads each event back before
+ticking the row. The archive had neither: its OAuth went through AppAuth, and nothing there ever wrote
+`synced_to_google_calendar`. [configuration.md](configuration.md) is the user-facing half, which is now one button.
 
 **Google's console moves, and it moved in our favour.** The tabs have been reorganised at least twice (this repo's own
 guide has been rewritten to match), and scope classifications change: `calendar.app.created` was sensitive when this
@@ -112,9 +112,9 @@ open. Four things outweigh it here:
 - **A Desktop client is not keyed to the bundle identifier.** An iOS client is, so renaming
   `au.com.tux.facet` to `au.com.tux.facet` would mean recreating the client. Under Desktop the rename and the
   Google setup do not block each other at all.
-- **The archive already implements this flow.** `OIDRedirectHTTPHandler` in `GoogleAuthService.swift` is the loopback
-  listener. The iOS path instead means a `CFBundleURLTypes` entry, an `application(_:open:)` handler, and deleting that
-  code.
+- **The loopback flow is what this app implements**, as `GoogleLoopbackListener` (the archive used AppAuth's
+  `OIDRedirectHTTPHandler` in `Archive/TimeFlipApp/GoogleAuthService.swift`). The iOS path would instead mean a
+  `CFBundleURLTypes` entry and an `application(_:open:)` handler, neither of which exists.
 - **This app is not sandboxed** (there is no entitlements file, and it ships outside the App Store via Swift Bundler),
   so listening on a loopback port costs nothing. A sandboxed build would need `com.apple.security.network.server`,
   which is the usual reason to prefer a custom scheme.
@@ -187,98 +187,103 @@ is `public/images/facet-logo-120.png` in the site repo, at the 120x120 the conso
 
 ## Part 2: the app side
 
-Written against the archive's implementation, which is where this code comes back from.
+**Mostly built.** What follows says what each step came to, and step 1 is the one still owed.
 
-### 1. Ship the client ID and secret as build configuration, not as typed-in settings
+### 1. Ship the client ID and secret as build configuration -- **NOT DONE**
 
-The archive reads them from the environment (`GoogleAuthConfiguration.loadFromEnvironment`, `GOOGLE_OAUTH_CLIENT_ID`),
-which works for a developer running from a shell and not at all for a user double-clicking an app. Put them in the
-bundle instead: `Info.plist` keys filled from build configuration, read at launch. In this repo that means
-`[apps.Facet.plist]` in `Bundler.toml`.
+`GoogleCredentials.resolve` tries three sources in order: the `FACET_GOOGLE_CLIENT_JSON` environment variable, then
+`~/.config/facet/google-client.json`, then two `Info.plist` keys, `GoogleOAuthClientID` and `GoogleOAuthClientSecret`.
 
-**The source is `~/.config/facet/google-client.json`** (Part 1 step 1), so the build reads the pair from there rather
-than from anything committed. `Bundler.toml` is tracked, which means the values cannot simply be typed into it: either
-a pre-build step generates a gitignored Swift file holding them, or one writes the plist keys. The generated-file shape
-is less plumbing and needs no plist work, and is the one to reach for unless the plist is wanted for another reason.
+The first two are the console's own download, unedited, so there is nothing to transcribe. **The third has no writer.**
+`Bundler.toml` declares only `LSUIElement` and the Bluetooth usage string, and no build step fills those two keys in.
+So every build in this repository resolves through one of the first two, and **a `.app` handed to somebody who has no
+`~/.config/facet/google-client.json` finds no credentials and cannot sign in at all.**
+
+That is the remaining work, and it is small: either a pre-build step generates a gitignored Swift file holding the
+pair, or one writes the two plist keys into the built bundle. The generated-file shape is less plumbing and needs no
+plist work, and is the one to reach for unless the plist is wanted for another reason. Read the pair from
+`~/.config/facet/google-client.json` (Part 1 step 1) rather than from anything committed.
 
 Not because either value is confidential -- under a Desktop client neither is, see Part 1 step 5 -- but because a
 release build and a developer build should point at different projects without editing code, and because the repo
 should be publishable without a second thought.
 
-### 2. Delete the paste-in fields, keep the override
+### 2. No paste-in fields, and the override kept -- **done**
 
-The Client ID and Client Secret fields on the archive's Report tab go away: that is the whole point. **Keep the code
-path behind them**, though, reading from `defaults`, an environment variable, or a hidden field:
+There are no Client ID or Client Secret fields anywhere in the app: that was the whole point. The override survives as
+the first two sources in step 1, and it earns its place for the reasons it always did -- it lets you test against a
+second project without a release build, and it gives somebody a way out if the bundled project is ever suspended.
 
-- it lets you test against a second project without a release build,
-- it gives a user with their own project a way out if yours is ever suspended,
-- and it is what the developer-mode work already assumes exists.
+### 3. The loopback redirect -- **done, and not through AppAuth**
 
-### 3. Keep the loopback redirect
+The client is a Desktop one, so the redirect is `http://127.0.0.1:<port>`. There is no `CFBundleURLTypes` entry, no
+`application(_:open:)` handler and no custom URI scheme anywhere.
 
-The client is a Desktop one, so the redirect is `http://127.0.0.1:<port>` and the archive's `OIDRedirectHTTPHandler`
-comes back as it stands. No `CFBundleURLTypes` entry, no `application(_:open:)` handler, and no custom URI scheme
-anywhere. The bundled secret is carried through `GoogleAuthConfiguration.clientSecret`.
+**`GoogleLoopbackListener` is this app's own**, over the Network framework, rather than AppAuth's
+`OIDRedirectHTTPHandler`. `GoogleOAuthRules` records why: AppAuth is built around iOS view controllers and its macOS
+loopback path is the least-exercised part of it, and the flow for an installed app is small enough that owning it is
+cheaper than depending on it -- which also makes every decision in it ordinary Swift with tests on it. The package has
+no dependencies at all as a result.
 
-**The port is chosen at runtime, never fixed.** `OIDRedirectHTTPHandler` binds an ephemeral one and builds the redirect
-URI from what it got. A hardcoded port is a sign-in that fails whenever something else already holds it, and Google
-accepts any port on the loopback address precisely so it does not have to be registered.
+**The port is whatever the system gives, never fixed.** A hardcoded port is a sign-in that fails whenever something
+else already holds it, and Google accepts any port on the loopback address precisely so it does not have to be
+registered.
 
-PKCE stays on. AppAuth does it by default for the authorization-code flow, and it is the thing actually protecting the
-exchange.
+**PKCE is on** (`GoogleOAuthRules.pkce`): 32 random bytes base64url-encoded to a 43-character verifier, the shortest
+RFC 7636 allows, with its S256 challenge. It is what actually protects the exchange, given that the client secret
+ships inside the binary and is not a secret at all. A `state` value is echoed and checked too, so a redirect that did
+not come from this process's own request can be told apart from one that did.
 
-### 4. Leave the keychain alone
+### 4. The Keychain -- **done, and it is one item**
 
-`GoogleOAuthKeychainStore` holds the auth state (refresh token) per user and per machine, and that does not change.
-What changes is `GoogleClientSecretStore`: the secret it holds is now bundled configuration rather than something the
-user pasted in, so the store keeps its role as the override from step 2 rather than as the only source.
+`GoogleTokenStore` holds the refresh token in the login Keychain, per user and per machine, and nothing else goes
+there: the client secret is configuration (step 1), not a stored credential, so there is no second store to keep.
 
-**The rename touches this.** Keychain items are keyed per application, so changing the bundle identifier from
-`au.com.tux.facet` to `au.com.tux.facet` orphans anything already stored. Harmless before release, since the fix
-is signing in again, but it belongs in the rename's list rather than being discovered afterwards.
+**Codesigning is what makes it survive a rebuild**, and this cost a real debugging session. An ad-hoc signature's
+designated requirement is the cdhash of the binary, so every build is a different application as far as the Keychain
+is concerned and the permission granted to the last one matches nothing. A certificate makes the requirement stable
+across builds, so "Always Allow" is answered once and holds. `scripts/codesign-identity.sh` finds an identity and
+`scripts/run.sh` uses it; with none, the app is ad-hoc signed exactly as before and the only cost is the prompt. The
+failure mode with no certificate is not an error: sync simply never runs (measured 2026-08-16, when a hand-run
+`swift-bundler bundle` replaced a signed build and the scripted checks found the sweep silent).
 
-### 5. Handle the scope list changing under an existing user
+### 5. The scope list changing under an existing user -- **not applicable as written**
 
-A token issued before the scope list changed does not gain new scopes on its own. The archive's answer, and it is the
-right one: sign out and sign in again, prompted by the app rather than discovered by the user when a sync fails.
-`GoogleAuthConfiguration` already merges required scopes into whatever it was given, so the app can compare granted
-scopes against required ones and say so.
+A token issued before the scope list changed does not gain new scopes on its own, and the answer is still sign out and
+sign in again. It matters less than it did: the list is the four in the table above and has not moved since, and
+dropping the two sensitive scopes is what fixed the case this step was written for.
 
-### 6. Fail honestly when the project is the problem
+### 6. Fail honestly when the project is the problem -- **done**
 
-A suspended project, a revoked client, or a quota ceiling all come back as an auth or API error rather than as
-anything a user can act on. Say which it is, in words, and point at the override from step 2. Every one of these is
-your problem and not theirs, and a message that pretends otherwise sends them to check their own network.
+A suspended project, a revoked client or a quota ceiling all come back as an auth or API error rather than as anything
+a user can act on. `GoogleCalendarRules` names them in words, including the one that is easiest to misread -- the
+Keychain refusing to hand over the token, which is **not** the same as not being signed in.
 
-### 7. Rewrite the user-facing guide
+### 7. The user-facing guide -- **done**
 
-[configuration.md](configuration.md) currently spends five steps and a screenshot on Google setup. Under this model
-the user's whole flow is: open Settings, click **Sign in with Google**, choose an account, approve, done. Everything
-above Step 5 in that document goes; what is worth keeping is the re-authentication note, because it is the one thing
-that still bites.
+[configuration.md](configuration.md)'s Google section is now one button and a note about what the four scopes buy.
 
 ---
 
 ## The order to do it in
 
 1. ~~Decide the scope list~~. **Done**: the four non-sensitive scopes above.
-2. Do Part 1 steps 1 to 5. Half a day at most.
-3. Publish to production. With no sensitive scopes there is no verification queue to join and no warning screen to
+2. ~~Build the app side~~. **Done except Part 2 step 1**: sign-in, the loopback flow, PKCE, the token store and the
+   calendar sweep are all built and have run against a real account.
+3. Do Part 1 steps 1 to 5, on the project that will be the published one. Half a day at most.
+4. **Part 2 step 1**: get the pair from that project into the built bundle. Until this is done there is no such thing
+   as a distributable build -- the app resolves credentials from a file on the developer's own machine.
+5. Publish to production. With no sensitive scopes there is no verification queue to join and no warning screen to
    click past, so this is a setting rather than a submission.
-4. Build Part 2 against the project from step 2, with the override in place from the start.
 
 **There is no long pole any more.** The plan this document opened with had verification as the thing everything waited
-on, which is why it advised shipping to a small group in the meantime. That is gone. The remaining work is all Part 2,
-which is code, and code is the part you control.
+on, which is why it advised shipping to a small group in the meantime. That is gone, and so is most of Part 2.
 
-**The TimeFlip to Facet rename does not gate any of this**, which is the practical dividend of the Desktop client:
-nothing in the client is keyed to the app name or the bundle identifier, so steps 1 to 4 can happen before, during or
-after the rename. The two places the rename does reach are the keychain (Part 2 step 4) and the consent screen's app
-name, which should read `Facet` from the start rather than be changed later, since changing it re-triggers review.
+**The rename does not gate any of this**, which is the practical dividend of the Desktop client: nothing in the client
+is keyed to the app name or the bundle identifier. The one place it does reach is the consent screen's app name, which
+should read `Facet` from the start rather than be changed later, since changing it re-triggers review.
 
-**Do not submit for verification until the sync actually works.** Step 4 wants a video of each scope being used for the
-purpose claimed, and there is nothing to film until Part 2 is built. The homepage and the privacy policy are live
-already at `facet.tux.com.au` (`~/harry.git/facet_tux_com_au`), so the step 6 prerequisites are met and the
+The homepage and the privacy policy are live already at `facet.tux.com.au` (`~/harry.git/facet_tux_com_au`), and the
 `facet-logo-120.png` in that repo is the consent screen logo.
 
 ---

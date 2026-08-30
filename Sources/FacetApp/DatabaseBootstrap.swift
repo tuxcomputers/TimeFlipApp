@@ -56,10 +56,11 @@ enum DatabaseBootstrap {
 
     /// `~/Library/Application Support/Facet/appdata.sqlite`.
     ///
-    /// Note for later: the archived app pointed this at a **symlink** to `production.sqlite`, so a
-    /// testing session could repoint it at `test.sqlite` without touching real data. That scheme is
-    /// not here yet, because nothing yet needs a test database. `scripts/switch-database.sh` still
-    /// expects it, so it comes back when the device tests do.
+    /// **This is a symlink in practice**, pointing at `production.sqlite` or `test.sqlite`, so a
+    /// testing session can be repointed without touching real data. The app never creates or follows
+    /// it deliberately -- it opens this path and sqlite resolves whatever is there --
+    /// `scripts/switch-database.sh` is what makes and moves the link, and `setting.db_type` is how a
+    /// launch says which one it landed on.
     static func defaultDatabaseURL() -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory())

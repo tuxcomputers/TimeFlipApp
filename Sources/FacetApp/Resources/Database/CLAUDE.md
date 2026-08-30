@@ -14,7 +14,7 @@ and don't count it when reasoning about the schema.
   what the table holds. Nothing else in the file is commented -- no per-column notes, no rationale,
   no section headers between statements.
 - Everything past that one line -- what each column means, why a constraint exists, what the seed
-  rows are for -- goes in [`../docs/database-design.md`](../docs/database-design.md), which
+  rows are for -- goes in [`docs/database-design.md`](../../../../docs/database-design.md), which
   describes every table in DDL order. One home for the prose keeps the two from drifting apart, and
   the DDL stays readable as pure schema.
 
@@ -42,8 +42,8 @@ and don't count it when reasoning about the schema.
   `America/New_York`) the local time was captured in, so the stored value can be unambiguously
   converted to UTC or any other zone later. This is a **foreign key to the `timezone` table**
   (`002_timezone.sql`), not an inline text column — the zone identifier is stored once in `timezone`
-  and referenced by id. The app resolves the current zone's id once at startup (get-or-create; see
-  `AppDataStore.resolveTimezoneID`).
+  and referenced by id. The app resolves the current zone's id by get-or-create
+  (`TimezoneStore.currentID()`), read at the point of use like everything else.
 - Naming: when a table has a **single** timestamp/zone, name the FK column simply `timezone_id`
   (referencing `timezone(timezone_id)`) — e.g. `device_event.timezone_id`. When a table has
   **more than one** timestamp that each need a zone, disambiguate per timestamp with a short
@@ -51,12 +51,12 @@ and don't count it when reasoning about the schema.
   `started_at` / `ended_at` timestamps.
 - Every `timezone_id` / `<prefix>_timezone_id` column is `NOT NULL DEFAULT 0` — id `0` is the
   seeded `Unknown` sentinel row in `timezone` (see `002_timezone.sql`), so a row can always satisfy
-  the FK even before a real zone has been resolved. `AppDataStore.resolveTimezoneID` likewise falls
+  the FK even before a real zone has been resolved. `TimezoneStore` likewise falls
   back to `0` when a lookup fails.
 - Store local time as ISO 8601 text without a UTC offset/`Z` suffix (e.g. `2026-07-16T09:30:00`) —
   the offset is recoverable via the referenced `timezone` row, not the timestamp itself.
 - Whole seconds, with one exception: `debug_log.logged_at` records milliseconds
-  (`2026-07-16T09:30:00.123`, see `AppDataStore.debugLogTimeFormatter`). It is the diagnostic record a
+  (`2026-07-16T09:30:00.123`, see `DebugLog.rowTime`). It is the diagnostic record a
   test session is reconstructed from, and every BLE round trip this app makes is sub-second, so at
   second resolution a duration can only be recovered statistically rather than measured. The columns
   that sit beside an `<name>_epoch` INTEGER stay at whole seconds so the text can't disagree with the
@@ -120,7 +120,7 @@ and don't count it when reasoning about the schema.
   then grep for and fix **every** reference to the old filenames — DDL files, `docs/`, code comments
   (`Sources/`), and the test checklists (`Tests/`) all cite them by name. This mirrors the checklist
   renumber rule in [`Archive/Tests/CLAUDE.md`](../../../../Archive/Tests/CLAUDE.md).
-- Renumbering also **moves that table's section in [`../docs/database-design.md`](../docs/database-design.md)**,
+- Renumbering also **moves that table's section in [`docs/database-design.md`](../../../../docs/database-design.md)**,
   whose sections are ordered by DDL number so every foreign key points at a table described above it.
 
 ## Until this app is released: how a schema change reaches an existing database
@@ -202,7 +202,7 @@ Two shortcuts, both allowed for as long as this section is in force:
   above has already added the column and sqlite reports `duplicate column name`. That is not
   hypothetical: it silently emptied `colour` on a fresh database (the app logs the error and carries
   on, so it self-heals on the second launch) and hard-failed `switch-database.sh test` under `set -e`.
-- `AppDataStore.runDatabaseDDL` still carries `skipSatisfiedColumnAdditions`, which comments out a
+- `DatabaseBootstrap` still carries `skipSatisfiedColumnAdditions`, which comments out a
   live `ALTER ... ADD COLUMN` whose column already exists. With this rule in force nothing reaches
   it, and it cannot help the fresh-database case anyway (it checks the live database, which has no
   such table yet when the file that creates it runs). Leave it until the migration feature lands.

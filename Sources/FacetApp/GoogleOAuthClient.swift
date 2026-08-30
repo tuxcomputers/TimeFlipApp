@@ -13,9 +13,14 @@ struct GoogleCredentials: Equatable {
 
     /// `FACET_GOOGLE_CLIENT_JSON`, then `~/.config/facet/google-client.json`, then the bundle.
     ///
-    /// The first two are the console's own download, unedited, so there is nothing to transcribe. The third is what a
-    /// release carries: `Bundler.toml` fills the two `Info.plist` keys from build configuration, which is why neither
-    /// value is in the repository (see `.gitignore` line 8).
+    /// The first two are the console's own download, unedited, so there is nothing to transcribe, and they are what
+    /// every build in this repository actually resolves through.
+    ///
+    /// **The third is not wired up yet.** It is the shape a release needs -- two `Info.plist` keys, filled from build
+    /// configuration so neither value is committed -- but nothing sets them: `Bundler.toml` declares only
+    /// `LSUIElement` and the Bluetooth usage string, and no build step writes the pair in. So a `.app` handed to
+    /// somebody who has no `~/.config/facet/google-client.json` finds no credentials and cannot sign in. See
+    /// `docs/google-oauth-setup.md` Part 2, which is where the remaining work is written down.
     static func resolve(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundle: Bundle = .main,

@@ -1,10 +1,10 @@
 // swift-tools-version: 6.0
 import PackageDescription
 
-// Pared back to what the rebuild currently is: one executable that brings the database up and
-// exits. The archived package declared an AppAuth dependency and linked AppKit and CoreBluetooth;
-// each of those comes back with the module that needs it (Google integration, the menu bar, the
-// device), rather than being carried forward on the assumption that it will.
+// One executable, and no package dependencies at all. The archived package declared an AppAuth
+// dependency for Google sign-in; this app owns that flow instead (`GoogleOAuthRules` says why), so
+// nothing is fetched to build it. AppKit is linked explicitly below; CoreBluetooth and CryptoKit
+// come in through `import` alone, being system frameworks the toolchain resolves without help.
 //
 // `Archive/` holds the previous implementation and is deliberately outside every target path, so
 // nothing in it is compiled while remaining readable and `git log --follow`-able.

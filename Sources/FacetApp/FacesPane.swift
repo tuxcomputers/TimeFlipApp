@@ -7,9 +7,10 @@ import AppKit
 /// category is what starts a session, and the control in the left column is what stops it -- both reported
 /// outwards, since this pane draws and does not decide.
 ///
-/// This is the manual-mode arrangement, which is the only one built so far. Following a cube puts a
-/// picture of the device and its lock in the left column instead, under a "Top face" heading, and that
-/// branch belongs here when there is a cube to follow.
+/// **Two arrangements, one layout.** With nothing paired the left column is the play/pause control alone;
+/// following a cube it is the device drawn from above, the face it is resting on, and the lock on that face
+/// (`TimingView`). Both occupy the same square, so the column keeps its proportions either way rather than
+/// being two layouts that happen to sit in one pane. Which of the two a click means is `FacesTabRules`'.
 @MainActor
 final class FacesPane: NSView {
     enum Identifier {

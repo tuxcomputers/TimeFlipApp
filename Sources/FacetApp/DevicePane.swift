@@ -9,11 +9,11 @@ import AppKit
 ///   kinds of "no device" live), and under them sit the controls that change with the state -- Scan while there is
 ///   nothing paired, Forget and Reset once there is (`DevicePairingRules.showsScanControls`).
 /// - **Settings**, which are the cube's own: they are stored here and sent to it on connect, so they are readable and
-///   meaningful with no cube present, which is why they are drawn rather than hidden. **The Double tap group and the
-///   two LED fields write; Auto-pause does not yet.** A writing control sends to the cube, records what the cube
-///   took, and puts itself back with an alert if either refuses, so a row is never left showing a number that
-///   reached neither. Auto-pause is the shape the value will be edited in and nothing more: it steps, and what is
-///   stepped is dropped when the window closes.
+///   meaningful with no cube present, which is why they are drawn rather than hidden. **Every row here writes.** A
+///   writing control sends to the cube, records what the cube took, and puts itself back with an alert if either
+///   refuses, so a row is never left showing a number that reached neither. Auto-pause and the four double-tap
+///   registers are read back off the cube before they are believed; the two LED values are not, the vendor spec
+///   defining no read-back for either, so for those the write is genuinely all there is.
 ///
 /// **These were three sections until 2026-08-22**, with the readings under "Info" and the scan under a "TimeFlip" of
 /// its own. One section, because the split asked somebody to know that what a cube *is* and how to *get* one are

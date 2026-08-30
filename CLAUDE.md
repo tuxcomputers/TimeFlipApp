@@ -289,22 +289,23 @@ accident:
   unless locked)". So a pause confirmed *after* a lock proves nothing, and pause must be confirmed before
   the lock is sent.
 
-## The device tests are archived, and are being rebuilt per feature
+## Two suites, and only one of them can tell you it works on hardware
 
-There is no device-test suite at the moment. The previous one -- the Bench and Interactive
-checklists, the shared methods, the setup, and the Python harness that drove them -- is in
-`Archive/Tests/` and `Archive/testrunner/`, kept as reference and as code to reuse where it still
-fits. **`swift test` is the only suite that runs today**, and it is hermetic: it never touches a
-radio, so a feature can be entirely green and still be broken on hardware.
+**`swift test` is hermetic**: 1502 tests, no window, no radio. A feature can be entirely green there
+and broken the moment it runs. **`Tests/Scripted/` is what says it works** -- 31 shell scripts that
+drive the real app and read the real database, `00`-`13` needing no cube and `50`-`65` needing one.
+`Tests/Scripted/README.md` is how to run them, `Tests/Methods.md` is the shared methods they are
+written from, and `Tests/Scripted/last-run.md` is the committed stamp of the last full run.
 
-Most of the old suite cannot come back as it is. Every locator in it addresses the previous app's
-accessibility tree (`Archive/Tests/Methods.md` Method 10 reaches the Settings tabs through
-`toolbar 1`, which this app does not have), and every checklist tests a feature this app has not
-rebuilt yet. What *does* carry over is worth taking deliberately:
+**Never launch `Tests/Scripted/run.sh` yourself.** It drives the real mouse and keyboard on the
+owner's screen and needs a person to turn the cube. Ask, and watch the logs.
 
-- The **engine** knows nothing about the app: `md_checklist.py`, `run_record.py`, the supervisor loop
-  and `logs/testruns.sqlite`. What knew about the app -- `locators.py`, the app-specific actions,
-  `session_setup.py` -- is what died.
+The previous suite -- the Bench and Interactive checklists, the setup, and the Python harness that
+drove them -- is in `Archive/Tests/` and `Archive/testrunner/`, and it did not come back as it was.
+Every locator in it addressed the previous app's accessibility tree (`Archive/Tests/Methods.md`
+Method 10 reaches the Settings tabs through `toolbar 1`, which this app does not have). What *did*
+carry over is worth knowing:
+
 - The **procedure**, which cost real runs to learn and is written down in `Archive/Tests/CLAUDE.md`:
   Bench (script-drivable) before Interactive (needs a person); refresh `current_log_id` before every
   step; a cross-step wait needs its own named baseline; a scenario is the atomic resume unit; an
@@ -313,24 +314,30 @@ rebuilt yet. What *does* carry over is worth taking deliberately:
 - The **device measurements**, which are facts about the hardware and so still true. See
   `Archive/Tests/Methods.md` and `docs/timeflip2-firmware-observations.md`.
 
-It should also come back much smaller. The old `locators.py` existed largely because elements were
-not addressable and steps had to hunt by position; every element this app builds carries an
-`AXIdentifier`, and every click it handles writes a `debug_log` row, so a step is now "press by name,
-then poll for the row". `scripts/ax-press.py`, `scripts/ax-dump.py` and
+It came back much smaller, and needs no AI and nothing installed beyond what building the app needs.
+The old `locators.py` existed largely because elements were not addressable and steps had to hunt by
+position; every element this app builds carries an `AXIdentifier`, and every click it handles writes a
+`debug_log` row, so a step is "press by name, then poll for the row". `scripts/ax-press.py`,
+`scripts/ax-dump.py`, `scripts/ax-set.py`, `scripts/ax-hold.py`, `scripts/ax-alert.py` and
 `scripts/status-item-click.py` are that whole layer.
 
-**`Tests/Methods.md` is the new suite's shared methods, numbered, and it starts now rather than when
-the first checklist does.** Anything learned while checking the app against a running copy of itself goes there
+**`Tests/Methods.md` is the suite's shared methods, numbered.** Anything learned while checking the app against a running copy of itself goes there
 as it is learned -- the command and the fact, not the story -- because a technique rediscovered is a
 technique that was written down too late. It already carries the ones that cost the most: what needs a
 real mouse event and what does not, why a status item is not in `AXMenuBar`, and the two reasons
 `performClick` silently does nothing.
 
-So: write each checklist as its feature lands, keep it small, and let the harness grow back around
-what the first few actually need. CI already tolerates none of them --
-`scripts/check_interactive_checklists.sh` prints "No test checklists found; skipping" and exits 0 --
-and it still enforces the two rules that matter the moment one exists: no unchecked box, and a
-`### Last run` heading naming the PR's own branch.
+So: write each check as its feature lands, keep it small, and let the harness grow back around what
+the first few actually need. That is what happened: `Tests/Scripted/` is 31 scripts now, `00`-`13`
+needing no cube and `50`-`65` needing one, and `Tests/Scripted/README.md` is how to run them.
+
+CI cannot run any of it -- no screen, no Keychain, no Google account, no cube -- so
+`scripts/check_interactive_checklists.sh` does two things instead. It checks the suite is *runnable*:
+every script parses, is executable, declares `EXPECTED_CHECKS`, ends in `finish`, and guards the
+database. And it checks somebody actually ran it, from `Tests/Scripted/last-run.md`, which `run.sh`
+writes and which has to name this branch, name a commit in its history, report a run that passed with
+nothing failed and no script short of the checks it declares, and have been run with a clean tree
+against `Sources/`, `Tests/Scripted/` and `database/` as they now stand.
 
 ## Ask for the device whenever you need it
 
@@ -458,19 +465,24 @@ The two honest exceptions, and both have to earn it in a comment at the call sit
   got wrong by whoever writes the next pattern. Quotation marks around an interpolated name cost an escape in the
   Swift source for no gain: `Timing: started Break (category_id 1)` reads as well as the quoted form did.
 
-- All dev-only `print(...)` console messages (gated on `DeveloperMode.isEnabled`) must lead with
-  a zero-padded 24-hour local time, followed by the `[Tag]` naming the action/source, e.g.:
+- Every dev-only console message must lead with a zero-padded 24-hour local time, followed by the
+  `[Tag]` naming the action/source, e.g.:
   ```
   13:25:38 [history] Fetched 12 segments, newest event_number=112
   13:25:39 [entry  ] Segment 4213 became tracked time, filed under Meeting
   ```
-- Use `DeveloperMode.debugPrint(_ tag: DebugTag, _:)` (in `DeveloperConfigStore.swift`) rather than
-  a bare `print(...)` call — it prepends the timestamp and gates on `isEnabled` itself, so call
-  sites don't need their own `if DeveloperMode.isEnabled { ... }` wrapper.
+- Use `debugLog?.record(_ tag: DebugLog.Tag, _:)` (in `Sources/FacetApp/DebugLog.swift`) rather than a
+  bare `print(...)` call. It prepends the timestamp, and it writes a `debug_log` row as well as
+  printing, which is the half that matters: a terminal transcript is whatever happened to still be in
+  a scrollback buffer, while a row outlives the session and is what every scripted check polls for.
+- `DebugLog` is **injected, not global**. It is built once in `main.swift`, gated there on
+  `DeveloperMode.isDeveloperMode`, and handed to whatever needs it as an optional -- so a build
+  without the dev flag has no logger at all rather than one that returns early, and no call site
+  needs an `if` around it.
 - The tag names all pad to the same bracket width (right-padded with spaces) so console lines stay
-  aligned, per the example above. This is enforced by `DeveloperMode.DebugTag`: its cases hold the
-  tag names, and `width` is derived from the longest case's name, so adding a case automatically
-  re-pads every tag — **when a new debug message is requested, add its tag as a new `DebugTag`
-  case instead of inlining a `[Tag]` string in the message**, and double check the console output
-  afterwards to confirm every tag still lines up (a new case that's longer than all existing ones
-  widens every other tag's padding too).
+  aligned, per the example above. This is enforced by `DebugLog.Tag`: its cases hold the tag names,
+  and `bracketed` pads to the width of the longest case, so adding a case automatically re-pads every
+  tag — **when a new debug message is requested, add its tag as a new `Tag` case instead of inlining
+  a `[Tag]` string in the message**, and double check the console output afterwards to confirm every
+  tag still lines up (a new case that's longer than all existing ones widens every other tag's
+  padding too).

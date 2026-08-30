@@ -10,17 +10,23 @@ This is AI-generated code all the way down, and it's worth being honest about th
 
 - **Menu Bar Timer**: Real-time activity tracking with icon, elapsed time, and pause/play indicators
 - **BLE Device Integration**: Direct connection to TimeFlip2 via Bluetooth Low Energy, with automatic reconnection (including on system wake from sleep) if the connection drops
-- **Status Indicators**: Menu bar text color shows connection state (green/yellow) and a blinking low-battery warning at a glance
+- **Status Indicators**: the menu bar line is coloured by which reading it is: **green** while the cube is doing the timing, **cyan** while the app is, **yellow** for a paired cube that has dropped and whose last reading can no longer be confirmed, and **red** on the figure alone once a category is over its daily limit. Low battery flashes the category's name red twice a second
 - **Device Lock Control**: Double-click to lock/unlock the device directly from the menu bar
 - **Categories**: Unlimited categories with their own icon, color and daily time limit. Typing a name that doesn't exist creates it. Retiring one takes it off the faces and out of the assignment list while keeping every hour ever recorded against it. Click a name to rename it, on the retired list as well as the active one: retired categories are allowed to share a name, so being able to give one its own is how you tell two of them apart for good
 - **Faces**: Assign any category to any face, and the same category to several faces at once. A face can be locked so it keeps what it has, and a locked face's category cannot be retired out from under it
-- **Manual Mode**: When the cube can't be reached at startup, time from the app instead: pick a category on the Faces tab and the clock runs on it. It lasts the launch, so quitting and starting again is the way back to the device
-- **Device Rename**: Give the cube its own name. The scan matches both the vendor default and the stored name, so a renamed cube is still findable
+- **Timing by hand**: with no cube paired, time from the app instead -- pick a category on the Faces tab and the clock runs on it, into the same tables a cube writes. It is not a mode you enter or leave: it is simply what the app does when nothing is paired, read at the point of use, so pairing a cube makes the app follow it from that moment and forgetting one hands the clock back, neither needing a restart
 - **Report**: Per-category totals over a chosen span of days. Spans crossing either end are clipped to the range, so two adjacent reports add up to the report over both
 - **Auto-Pause Support**: Automatic pause after a configurable idle time, and optionally when the device is locked
 - **Daily Statistics**: Time per category for the app's own day, which starts at a configurable reset time rather than at midnight
 - **Device Control**: LED brightness, blink intervals, and double-tap sensitivity configuration
 - **Google Calendar sync**: Recorded time appears in a calendar Facet makes for itself, titled with the category and carrying the entry's ids in the notes. Recording an entry sweeps everything not yet synced, so time recorded while offline goes across on the next one, and each event is read back and checked before the entry is marked done
+
+### Not built yet
+
+- **Device rename**: the storage half is there -- the scan matches the vendor default and both names the cube has carried, so a renamed cube is still findable -- but nothing in the app sends the rename command, so the name can only be changed from the vendor's own app.
+- **Firmware-update reminder**: the app reads the cube's firmware version on every connect, but does not yet remind anyone to go and update it.
+- **Projects and costs**: the `project` table and the `cost` columns exist and nothing reads or writes them.
+- **Editing a recorded entry**: the Report tab lists what was recorded and cannot yet correct it.
 
 ### Not supported
 
@@ -34,21 +40,44 @@ This is AI-generated code all the way down, and it's worth being honest about th
 - **[Workflow](docs/workflow.md)** - how the device owner organizes activities and faces
 - **[Operation Spec](docs/operation-spec.md)** - how a device event becomes a calendar entry
 - **[Database Design](docs/database-design.md)** - the local SQLite schema
-- **[Features Under Development](docs/TODO-features-under-development.md)** - what is built, what is not, and why each decision was made
+- **[The rebuild](docs/rebuild.md)** - what is built, what is still owed, and the reasoning behind each piece
+- **[Features Under Development](docs/TODO-features-under-development.md)** - the longer-form notes behind individual features
+- **[State Reference](docs/state-reference.md)** - the one name every state in the app goes by
+- **[Scripted checks](Tests/Scripted/README.md)** - the suite that drives the real app against a real device
 - **[Developer Mode Removal TODO](docs/TODO-devmode.md)** - everything to remove/decide on before shipping without dev-only config/logging
 
 ## Architecture
 
-### Core Components
+The app has no central state object, deliberately. **The database is the source of truth and is read
+at the point of use**, so what would elsewhere be an `AppState` is a set of small readers over
+`appdata.sqlite`, each asked its question at the moment the answer is wanted. Every module below
+follows from that.
 
-- **ApplicationDelegate**: App lifecycle and device management
-- **MenuBarController**: Menu bar UI and timer display
-- **TimeFlipBLEDevice**: Bluetooth Low Energy device driver
-- **HistoryIngestor**: Turns the device's history stream into `device_event` rows
-- **AppDataStore**: The SQLite store, and where `time_entry` rows are made
-- **DailyCategoryTotals**: The day's per-category totals, seeded from `time_entry` and advanced live
-- **GoogleIntegrationCoordinator**: Google account and calendar lookup (no event writing yet, see Not supported)
-- **AppState**: Application state and user preferences
+- **main.swift**: startup, in order -- prove this is the only instance, bring the database up, then
+  claim the menu bar. From there Quit is the only way out.
+- **MenuBarController**, **StatusItemTitle**, **StatusItemClickRouter**: the status item, what it says,
+  what colour it says it in, and which half of it was clicked. The click rules live outside AppKit so
+  they can be tested.
+- **BluetoothRadio**, **DeviceLogin**, **DeviceCommandRules**: the Bluetooth driver -- one owner of the
+  central manager, the login and PIN handshake, and the vendor's command bytes. Every command with a
+  read-back defined is read back before it is believed.
+- **HistoryIngestor**: brings the cube's own record of what it has been doing into `device_event`.
+- **DeviceEventRecorder**: the one writer of `device_event`, and the only thing that decides whether a
+  segment opens a row, grows the open one, or closes it out.
+- **TimeEntryRecorder** / **TimeEntryRules**: the one writer of `time_entry`. A `device_event` is what
+  the device says happened; a `time_entry` is what the app counts, and the two are different questions.
+- **DayTotal** / **DayWindow** / **TimeEntryStore**: how much time a category has today, derived from
+  `time_entry` plus the segment still running, over the window `daily_reset_time` defines.
+- **DailyLimitEnforcement** / **CubeLock** / **ForcedPause**: the reasons the app stops the cube, and
+  the one place that knows the order each of them goes out in.
+- **CalendarSync**, **GoogleOAuthClient**, **GoogleCalendarClient**: signing in, and sweeping every
+  unsynced `time_entry` into the calendar Facet makes for itself.
+- **SettingsWindowController** and its five panes (Faces, Categories, Report, App, Device).
+- **SettingStore**, **CategoryStore**, **FaceStore**, **TimezoneStore**, **IconStore**,
+  **ColourStore**: a reader per table, over one connection held open for the life of the app. Holding
+  a connection open is a different thing from holding a value.
+- **DebugLog**: every action the app takes, as a `debug_log` row as well as a console line. It is what
+  makes the scripted checks possible -- press by name, then poll for the row.
 
 ### Data Flow
 

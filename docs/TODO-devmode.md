@@ -1,86 +1,109 @@
-# TODO: Removing Developer Mode
+# TODO: the developer-mode gate, before release
 
 [← Back to README](../README.md)
 
-`DeveloperMode` (`Archive/TimeFlipApp/DeveloperConfigStore.swift`) actually bundles two independent features under one switch. Decide separately what happens to each before deleting anything — removing one doesn't require removing the other.
+**`DeveloperMode.isDeveloperMode` is a hardcoded `true`** (`Sources/FacetApp/DeveloperMode.swift`). That is fine while
+the app is unreleased and must not ship that way. This file is the inventory of everything that hangs off it, so the
+decision about each is taken deliberately rather than discovered by a user.
 
-1. **Dev config file** — when `DeveloperMode.isEnabled` is `true`, Google API credentials and the device PIN are read from/written to `config.json` (in the app's Application Support folder) instead of Keychain/UserDefaults. This is the part that's actually dev-only and should disappear before a public release — it lets a `config.json` on a dev machine silently override real user credentials.
-2. **Debug console logging** — `DeveloperMode.debugPrint(_ tag:_:)` and the `DebugTag` registry (the `HH:mm:ss [Tag]` convention documented in the root `CLAUDE.md`). This is just a print-gating switch; it may be worth keeping as a permanent, always-`false`-by-default debug toggle rather than deleting it outright. Make an explicit call on this before touching it. Printing is now also gated on the `debug` setting's `enabled` field (loaded once at launch into `DeveloperMode.isDebugSettingEnabled`), so a user can turn terminal logging off/on themselves by editing that DB row directly, without a rebuild. Every message is now *also* persisted into the `debug_log` table (`database/501_debug_log.sql`) under the same gate, so a failed test session can be queried from the database afterward instead of needing a captured terminal transcript.
-3. **Planned: debug log-to-file for end users** (§3 below) — a separate, user-facing feature that reuses the same debug messages but ALSO writes them to a file, so a non-technical user can enable it and send the file back for support. Not implemented yet; only the DB setting seed and the terminal-side `enabled` gate above exist so far — `to_file` doesn't do anything.
+It is one flag, compile-time, and nothing else: there is no `config.json` credential path, no `logSink`, no
+`isDebugSettingEnabled`. The previous app bundled several independent features under one switch and this rebuild
+deliberately did not; what follows is short because of that.
 
-This list was generated 2026-07-17 by grepping for every `DeveloperMode` / `isDeveloperConfigLoaded` / `DeveloperConfigStore` / `DeveloperConfigPayload` reference in `Sources/`. Line numbers will drift as the code changes — treat them as a starting point, not gospel.
+## What the flag gates today
 
-## 1. Dev config file (`config.json` credential source)
+Five call sites, and each wants a different answer.
 
-- **`Archive/TimeFlipApp/DeveloperConfigStore.swift`**
-  - `DeveloperConfigPayload` struct (Google client ID/secret + device PIN, `Codable`)
-  - `DeveloperConfigStoring` protocol
-  - `DeveloperConfigStore` class (`load()`/`save()` against `config.json`)
-  - `DeveloperModeGoogleAuthStateStore` (in-memory OAuth token stand-in used only while dev mode is active — re-authenticates every launch instead of touching Keychain)
-  - If the debug-print half (§2) is kept, only delete the `DeveloperConfigPayload` / `DeveloperConfigStoring` / `DeveloperConfigStore` / `DeveloperModeGoogleAuthStateStore` declarations here, not the whole file.
+### 1. The device PIN (`DeveloperMode.devicePIN`)
 
-- **`Archive/TimeFlipApp/AppState.swift`**
-  - `developerConfigStore` property + init parameter (`AppState.swift:10,72,77`)
-  - `isDeveloperConfigLoaded` published property (`AppState.swift:48`)
-  - The entire `// MARK: - Developer mode` section (`AppState.swift:112-137`): `isDeveloperConfigActive`, `applyDeveloperConfig()`, `persistDeveloperConfig()`
-  - `if DeveloperMode.isEnabled { applyDeveloperConfig() }` in `init` (`AppState.swift:106`)
-  - `guard !isDeveloperConfigActive else { return }` in `loadDevicePassword()` (`AppState.swift:140`)
-  - `guard !hasLoadedClientSecret, !isDeveloperConfigActive else { return }` in `loadClientSecretOnce()` (`AppState.swift:148`)
-  - `if isDeveloperConfigActive { persistDeveloperConfig() }` branches in `persistPreferences()`, `persistGoogleClientSecret(_:)`, and `persistDevicePassword(_:)` (`AppState.swift:442, 459, 473`)
+`nil` in any build without the flag, `"123456"` with it, and it has two jobs which are the same value on purpose:
+what a cube is **set to** once it has let the app in (`DeviceLoginRules.rotation`), and what **stands in as the stored
+PIN** when `config.json` names none.
 
-- **`Archive/TimeFlipApp/ApplicationDelegate.swift`**
-  - `authManager`'s `stateStore:` ternary — picks `DeveloperModeGoogleAuthStateStore()` vs `KeychainAuthStateStore()` (`ApplicationDelegate.swift:10-13`)
-  - `if confirmed, !(self?.appState.isDeveloperConfigLoaded ?? false)` guard before clearing the Keychain password on a confirmed device reset (`ApplicationDelegate.swift:171`)
-  - `if !self.appState.isDeveloperConfigLoaded` guard before saving a rotated device password to Keychain (`ApplicationDelegate.swift:349`)
+**`nil` is not unfinished, it is the safe answer**, and the reason is written out in `DeveloperMode.swift`: a release
+build would want six random digits, which is only safe once there is somewhere durable to keep them. Setting a PIN the
+app cannot write down would lock the cube out of every app including this one, so until such a store exists a
+non-developer build leaves the cube on whatever PIN let it in.
 
-**After removing this half:** credentials always go through Keychain/UserDefaults; there's no `config.json` codepath left; delete `config.json` handling from any dev setup docs/scripts too.
+**Decision needed:** whether a release build gets a credential store (the archive used the Keychain) and starts
+rotating PINs, or ships never setting one. Flipping the flag alone already does the second, correctly.
 
-## 2. Debug console logging (`DeveloperMode.isEnabled` / `debugPrint`)
+### 2. `config.json` (`DeveloperConfigFile`)
 
-- **`Archive/TimeFlipApp/DeveloperConfigStore.swift`**: `isEnabled` flag, `isDebugSettingEnabled` var, `logSink` closure var, `DebugTag` enum, `debugTimeFormatter`, `debugPrint(_:_:)` itself
-- **`Archive/TimeFlipApp/AppDataStore.swift`**: `loadDebugEnabled()` (reads the `debug` setting's `enabled` field) and `recordDebugLog(tag:message:)` (writes to `debug_log`)
-- **`Archive/TimeFlipApp/ApplicationDelegate.swift`**: the `DeveloperMode.isDebugSettingEnabled = dataStore.loadDebugEnabled()` assignment and the `DeveloperMode.logSink = { ... }` wiring, both at the top of `applicationDidFinishLaunching`
-- **`database/501_debug_log.sql`**: the `debug_log` table itself — if debug logging is removed entirely, drop this table/migration file too, not just the Swift call sites
-- **`CLAUDE.md`** (root): the entire "Debug print messages" convention section — describes this exact mechanism and would need to be removed or rewritten
-- Every call site (all gated through `debugPrint`, so removal is mechanical once the decision is made to actually rip out logging rather than just leave `isEnabled = false` permanently):
-  - `Archive/TimeFlipApp/AppDataStore.swift` — `verifyMaxKnownEventNumberConsistency()` (`.devCheck` tag; note this function's *entire body* is also gated on `DeveloperMode.isEnabled` at the top, not just its prints, at `AppDataStore.swift:256`)
-  - `Archive/TimeFlipApp/HistoryIngestor.swift` — history-fetch-triggered message (`.history` tag, `HistoryIngestor.swift:79`)
-  - `Sources/FacetApp/MenuBarController.swift` — low-battery latch message (`.battery` tag, `MenuBarController.swift:140`)
-  - `Archive/TimeFlipApp/TimeFlipBLEDevice.swift` — by far the most call sites (`.timeFlip` tag): operation-timeout messages, password write/login flow, password rotation/reset confirmation, and lock trigger/verification messages
-  - `Archive/TimeFlipApp/ApplicationDelegate.swift` — lock icon optimistic-update message (`.timeFlip` tag, `ApplicationDelegate.swift:515`)
+`DeveloperConfigFile.standard` returns `nil` without the flag, so a release build has no `config.json` at all rather
+than a path nothing writes to. It holds exactly one key, `PIN`, and merges rather than re-encoding the whole file, so
+a developer's existing `client_id`/`client_secret` survive a write.
 
-**If keeping debug logging:** nothing to do — it's already isolated behind `DeveloperMode.debugPrint` and gated by `isEnabled`, so leaving `isEnabled = true` in dev builds and flipping it to `false` for release is a one-line change, not a removal.
+**Nothing to remove**, and this is the narrow exception `CLAUDE.md` asks to be named at the point it is taken: the PIN
+is a credential, a database is copied around and rebuilt from the DDL by the test suite, and a cube does not know
+which database is in play — so a PIN kept in one is a PIN a database swap loses.
 
-**If removing debug logging entirely:** delete every call site above, then the `DebugTag` enum, `debugPrint`, `debugTimeFormatter`, and the CLAUDE.md convention section. Double-check no call site was missed with `grep -rn "DeveloperMode" Sources/`.
+### 3. The debug trace (`DebugLog`, `main.swift`)
 
-## 3. Planned: debug log-to-file for end users
+`debugLog` is `nil` without the flag, so a release build constructs no logger at all rather than one that returns
+early, opens no `debug.sqlite`, and writes no `debug_log` rows. Every call site is `debugLog?.record(...)`, so nothing
+needs an `if` around it and removal is not required to ship.
 
-**Status: not implemented.** The `debug` setting's `enabled` field already gates two real destinations today — terminal output (§2 above) and the `debug_log` table (§2 above, added in `database/501_debug_log.sql`) — so a failed test session can already be analyzed by querying the database directly, without a terminal transcript. Its `to_file` field is seeded but does nothing yet; everything below is the intended design for whoever builds the file-writing side, not current behavior.
+**This is the one to think hardest about**, because the scripted suite is built entirely on it: every check is "press
+by name, then poll for the row" (`Tests/Methods.md`). Turning it off in a release build means the released build is
+not the build the suite can drive.
 
-**Motivation:** the database route (§2) works well when someone with DB access (e.g. a developer) can query the user's `appdata.sqlite` afterward. `to_file` is for the case where that's not practical — a non-technical user who needs to send something back rather than have their database queried directly.
+**Decision needed:** almost certainly keep it, gated on something a user can turn on — which is what the seeded
+`debug` setting row was for. See below.
 
-**How it relates to existing logging:** all three destinations are independent and can be active at once — none of them replace another:
-- `debug.enabled` → gates console/terminal output *and* the `debug_log` table, as implemented today (`DeveloperMode.isDebugSettingEnabled` + `DeveloperMode.logSink`, alongside the `DeveloperMode.isEnabled` compile flag).
-- `debug.to_file` (planned) → the same debug messages additionally written to a file. When implemented, this most likely means `DeveloperMode.debugPrint` grows a third output path (file) gated on `to_file` specifically, so a user can have file logging on independent of whatever `enabled`/terminal/`debug_log` output is doing.
+### 4. The database badge (`main.swift`)
 
-**The `debug` setting** (`{"enabled": true, "to_file": false, "directory": "~/Documents/Facet"}`):
-- `enabled` — **implemented**: gates terminal debug printing (§2 above).
-- `to_file` — **not implemented**: whether debug messages are also written to a log file. Defaulted to `false` since the file-writing side doesn't exist yet — flipping it on today does nothing.
-- `directory` — folder the log file will be written into once `to_file` is built. Defaults to `~/Documents/Facet`; the `~` needs expanding to the real home directory at load time (e.g. `NSString(string:).expandingTildeInPath` or `FileManager.default.homeDirectoryForCurrentUser`), it isn't stored pre-expanded since a literal path would be wrong on another user's machine. A future Preferences UI will let the user override this via a folder-selection dialog (`NSOpenPanel` with `canChooseDirectories = true`); until then it's fixed at the seeded default.
+The `TEST` / `PROD` / `DB?` tag at the left of the menu bar item is drawn only with the flag on. A released app only
+ever has the real database, so a permanent `PROD` tag would occupy the menu bar to answer something nobody asked.
 
-**Log filename format (not stored in the DB — intentionally not user-configurable):** `log-yyyy-MM-dd-HH.mm.ss` (e.g. `log-2026-07-17-18.53.42`), using standard `DateFormatter` tokens — 24-hour hour (`HH`), to match the same local-time convention as the in-app debug print timestamps (see CLAUDE.md). The timestamp is the moment the app *starts*, not the moment each line is written — one log file per app session/launch, not one per day or per line. When implemented, this format string should live as a single named constant on whatever type ends up doing the file writing (e.g. `DebugFileLogger.filenameDateFormat`), specifically so it stays easy to change in one place later, per the original request.
+**Nothing to decide.** Flipping the flag does the right thing.
 
-**Restart-required behavior:** like the other DB-only settings (`pause_on_lock`, `low_battery_level`), toggling either `debug.enabled` or (once built) `debug.to_file` only takes effect on the next app launch — both are read once at startup (`applicationDidFinishLaunching` for `enabled`; the log file would be opened once at startup too, with a filename fixed for that whole session). Once a Preferences UI exists for either, it must explicitly tell the user that flipping it won't take effect until they restart the app — don't let them assume it's already in effect.
+### 5. The history-fetch floor (`HistoryTimer.interval`)
 
-**Left for the actual implementation to figure out:**
-- Whether `directory` gets created if it doesn't exist yet (`~/Documents/Facet` won't exist on a fresh machine).
-- What happens if the directory is unwritable (permissions, external volume unmounted, etc.) — probably fall back to terminal-only output rather than crashing or silently dropping logs.
-- Log rotation / cleanup of old log files, if any — not specified yet.
+`fetch_history_interval_seconds` is clamped to a floor of **1 second** with the flag and **60 seconds** without it
+(the maximum is 3600 either way). The seeded default of 10 is below the production floor deliberately: it is a
+developer's value, and a release build silently raises it to a minute.
+
+**Nothing to decide**, but worth knowing that flipping the flag changes real behaviour here rather than only hiding
+something.
+
+## The `debug` setting row: seeded, and read by nothing
+
+`011_setting.sql` seeds `debug` = `{"enabled":true,"to_file":false,"directory":"~/Documents/Facet"}`. **No code reads
+any of the three fields.** One gate is enough while the only audience is a developer with a terminal open, and a
+second gate that nothing consults is worse than none.
+
+It is the obvious home for the decision in §3 above. The intended design, for whoever builds it:
+
+- **`enabled`** — whether messages are gathered at all, so a user can turn logging on without a rebuild. This is what
+  would let a released build keep `DebugLog` and still be quiet by default.
+- **`to_file`** — the same messages also written to a log file, for the case the database route does not serve: a
+  non-technical user who needs to *send* something back rather than have their database queried. The three
+  destinations (terminal, `debug_log`, file) are independent and none replaces another.
+- **`directory`** — where that file goes. Defaults to `~/Documents/Facet`; the `~` needs expanding at load time
+  rather than being stored pre-expanded, since a literal path is wrong on another machine. A folder picker
+  (`NSOpenPanel`, `canChooseDirectories = true`) would come with the Settings row.
+
+**Filename format, deliberately not user-configurable:** `log-yyyy-MM-dd-HH.mm.ss`, 24-hour, matching the local-time
+convention of the console prefix. The timestamp is when the app *started*, so it is one file per launch rather than
+one per day or per line. It should live as a single named constant on whatever does the writing, so it stays easy to
+change in one place.
+
+**Restart-required behaviour:** both fields would be read once at startup (the log file's name is fixed for the
+session), so a Settings row for either has to say plainly that flipping it takes effect on the next launch, rather
+than letting somebody assume it is already in force.
+
+**Left for the implementation:** whether `directory` is created if absent (`~/Documents/Facet` does not exist on a
+fresh machine), what happens when it is unwritable (probably fall back to terminal-only rather than crashing or
+silently dropping), and log rotation, which is unspecified.
+
+Note that `debug_log` already has no retention or cleanup of its own: `debug.sqlite` grows for as long as the app is
+built with the flag on. `Tests/Scripted/run.sh` deletes it on a clean rebuild, and the app recreates it next launch.
 
 ## Verifying nothing was missed
 
 ```
-grep -rn "DeveloperMode\|isDeveloperConfigLoaded\|DeveloperConfigStore\|DeveloperConfigPayload" Sources/
+grep -rn "DeveloperMode" Sources/
 ```
 
-should return nothing once both halves above are fully removed.
+should return the five call sites above, plus `DeveloperMode.swift` itself and the comment in `DebugLog.swift`.

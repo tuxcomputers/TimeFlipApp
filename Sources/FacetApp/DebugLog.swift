@@ -13,10 +13,10 @@ import SQLite3
 /// the log of what the app was doing when it went wrong would disappear along with the work that went
 /// wrong. Separate connection, no shared transaction, nothing to undo it.
 ///
-/// Gated on `DeveloperMode.isDeveloperMode` at the point of construction, so an app built without the dev
-/// flag has no logger at all rather than a logger that returns early. (`011_setting.sql` also seeds a
-/// `debug` setting for turning this on and off without a rebuild. Nothing reads it yet -- one gate is
-/// enough while the only audience is a developer with a terminal open.)
+/// Gated on `DeveloperMode.isDeveloperMode` at the point of construction (in `main.swift`), so an app built
+/// without the dev flag has no logger at all rather than a logger that returns early. (`011_setting.sql` also
+/// seeds a `debug` setting for turning this on and off without a rebuild. Nothing reads it yet -- one gate is
+/// enough while the only audience is a developer with a terminal open. See `docs/TODO-devmode.md`.)
 @MainActor
 final class DebugLog {
     /// Which subsystem a message came from. The table's `tag` column and the console prefix are the

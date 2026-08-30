@@ -4,24 +4,34 @@
 
 ## Code Style
 
-- Swift-only codebase with 2-space indentation
-- Follow SwiftLint rules
-- Small, testable functions with dependency injection
-- Avoid over-engineering - keep solutions simple and focused
+- Swift only, **4-space indentation**, and `swiftlint lint --quiet` clean. `.swiftlint.yml` is the authority:
+  120-character lines (160 is an error), 600-line files, and comments and URLs exempt from both.
+- **The decisions come out of the view.** Anything worth asserting -- what a click means, what a name collision
+  implies, what to send a cube -- lives in a `...Rules` type taking values and answering with a value, so it can be
+  tested without a window or a radio. `FacesTabRules`, `CategoryRenameRules`, `DeviceCommandRules` are the pattern.
+- **Read from the database at the point of use.** This is the repo's first rule and it is not negotiable; see
+  [CLAUDE.md](CLAUDE.md) for what it means and the one licensed exception.
+- **Comments say why, not what.** The existing ones are long because they record what a decision cost -- a
+  measurement against real hardware, a bug that shipped once. Match that rather than annotating syntax.
+- Avoid over-engineering; keep solutions simple and focused.
 
 ## Contributing
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes using [Conventional Commits](https://www.conventionalcommits.org/)
-   - `feat: add calendar event deduplication`
-   - `fix: handle device disconnect gracefully`
-   - `docs: update Google OAuth setup instructions`
+3. Commit your changes. **This repo does not use Conventional Commits**: a subject is an ordinary imperative
+   sentence saying what the change does, in sentence case, with no `feat:`/`fix:` prefix. Recent examples:
+   - `Keep a cube from stopping itself in the middle of a run`
+   - `Send the auto-pause delay to the cube, and only offer it when there is one`
+   - `Do not ask for a turn the cube has already made`
+
+   The body is where detail belongs, and it is worth writing: reasoning that would otherwise go in a PR description
+   stays attached to the code this way.
 4. Push to your branch
 5. Open a Pull Request with:
    - Purpose and motivation
    - Screenshots for UI changes
-   - Documentation updates
+   - Documentation updates -- and if the change makes any existing doc wrong, fix it in the same PR
 
 ## The scripted suite, and what happens if you have no TimeFlip
 
@@ -62,7 +72,13 @@ or `database/` does.
 
 ## Security
 
-- Never commit Google credentials, API tokens, or device passwords
-- Credentials are stored in macOS Keychain
+- Never commit Google credentials, API tokens, or device passwords. `.gitignore` already covers
+  `client_secret_*.json` and `config.*`; the OAuth client JSON belongs at `~/.config/facet/google-client.json`,
+  outside the repository.
+- The Google refresh token is the only thing in the macOS Keychain (`GoogleTokenStore`), one item, per user and per
+  machine.
+- A developer build's device PIN is in `~/Library/Application Support/Facet/config.json`, deliberately not in the
+  database: a database gets copied, switched between production and test, and rebuilt from the DDL by the test suite,
+  and a cube does not know which one is in play -- so a PIN kept in one is a PIN a database swap loses.
 
 For build and test commands, see [Installation](docs/installation.md#building-and-testing).
