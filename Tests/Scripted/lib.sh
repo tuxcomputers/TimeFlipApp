@@ -1343,13 +1343,23 @@ press_title() {
 # care about that, so this is the one place where being in front matters at all. Without it a Return can
 # land in the terminal running the suite, and the symptom is a commit that produced no log row and no
 # error: exactly the shape of a rename that silently did nothing on 2026-08-16.
+# **The flags are set to nothing explicitly, and that is not belt and braces.** A keyboard event built
+# from a NULL source inherits the session's current modifiers, so a Return posted after anything that
+# left one held goes out as a chord -- and a chord is not what commits an edit. Measured on run 145:
+# `post_key v --command` set the Command flag and never released the key, `press` and `set_field` post no
+# events at all so nothing disturbed it, and this Return arrived as command-Return two minutes later. The
+# evidence said the field was focused and held the right text, which is a commit that never happened
+# looking exactly like an app that ignored it. `ax-key.py` no longer leaves a modifier held; this makes it
+# so that nothing else can either.
 press_return() {
     osascript -e 'tell application "Facet" to activate' >/dev/null 2>&1
     sleep 0.3
     python3 - <<'PYTHON'
 import Quartz, time
 for down in (True, False):
-    Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateKeyboardEvent(None, 36, down))
+    event = Quartz.CGEventCreateKeyboardEvent(None, 36, down)
+    Quartz.CGEventSetFlags(event, 0)
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
     time.sleep(0.05)
 PYTHON
 }

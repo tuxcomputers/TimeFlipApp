@@ -34,12 +34,37 @@ KEYS = {
     "return": 36, "tab": 48, "space": 49, "delete": 51,
 }
 
+# Each modifier is a flag **and a key**, and posting only the flag is what broke a later Return.
+#
+# A chord set up as "flag on the key-down and key-up" looks right and works, and leaves the session
+# believing the modifier is still held: nothing ever said it came back up. `CGEventCreateKeyboardEvent`
+# with a NULL source inherits the session's flags, so the *next* posted key -- `press_return`'s, fifteen
+# checks and two minutes later -- went out as command-Return and committed nothing. Measured on run 145:
+# the field was focused and held the right text, the app was frontmost, and no rename row was written.
+#
+# So the modifier key is pressed and released for real, around the chord, and the flags are set on every
+# event this posts. That leaves the session where it found it.
 MODIFIERS = {
-    "--command": Quartz.kCGEventFlagMaskCommand,
-    "--shift": Quartz.kCGEventFlagMaskShift,
-    "--option": Quartz.kCGEventFlagMaskAlternate,
-    "--control": Quartz.kCGEventFlagMaskControl,
+    "--command": (Quartz.kCGEventFlagMaskCommand, 55),
+    "--shift": (Quartz.kCGEventFlagMaskShift, 56),
+    "--option": (Quartz.kCGEventFlagMaskAlternate, 58),
+    "--control": (Quartz.kCGEventFlagMaskControl, 59),
 }
+
+# What the session must be back to once a chord is finished. Anything left over here is the bug above.
+SETTLED = 0
+
+# **The only bits worth asking about are the ones this can press.** `CGEventSourceFlagsState` does not
+# answer with modifiers alone: measured with nothing posted and no key held, it returns 0x20000000, which
+# is not Command (0x00100000) nor any other documented mask. Comparing the raw state against nothing
+# therefore fails every time, which is what it did on the first run of the check below. Caps lock is left
+# out along with it -- that one is the user's, and a chord has no business reading it either way.
+MODIFIER_BITS = (
+    Quartz.kCGEventFlagMaskCommand
+    | Quartz.kCGEventFlagMaskShift
+    | Quartz.kCGEventFlagMaskControl
+    | Quartz.kCGEventFlagMaskAlternate
+)
 
 
 def main():
@@ -60,10 +85,13 @@ def main():
         del arguments[index:index + 2]
 
     flags = 0
+    held = []
     for argument in arguments:
         if argument not in MODIFIERS:
             sys.exit(f"unknown option {argument!r}; modifiers are {', '.join(sorted(MODIFIERS))}")
-        flags |= MODIFIERS[argument]
+        mask, code = MODIFIERS[argument]
+        flags |= mask
+        held.append(code)
 
     running = any(
         a.localizedName() == app_name for a in NSWorkspace.sharedWorkspace().runningApplications()
@@ -76,15 +104,34 @@ def main():
     subprocess.run(["osascript", "-e", f'tell application "{app_name}" to activate'], check=False)
     time.sleep(0.4)
 
-    for down in (True, False):
-        event = Quartz.CGEventCreateKeyboardEvent(None, KEYS[key], down)
-        # Set on both halves. A flag on the down alone leaves the up looking like a different chord, and
-        # AppKit has been seen to hold the modifier down afterwards.
-        Quartz.CGEventSetFlags(event, flags)
+    def post(code, down, with_flags):
+        event = Quartz.CGEventCreateKeyboardEvent(None, code, down)
+        # Set explicitly on every event, including the ones that clear. An event built from a NULL source
+        # otherwise inherits whatever the session is carrying, which is the whole fault being avoided here.
+        Quartz.CGEventSetFlags(event, with_flags)
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
         time.sleep(0.05)
 
+    # Down, the chord, up. The modifier is a real press and a real release, so the session ends holding
+    # nothing -- see MODIFIERS.
+    for code in held:
+        post(code, True, flags)
+    for down in (True, False):
+        post(KEYS[key], down, flags)
+    for code in reversed(held):
+        post(code, False, SETTLED)
+
     named = "+".join([argument.lstrip("-") for argument in arguments] + [key])
+
+    # **Checked, not assumed.** A modifier left held does not fail here: it fails at the next posted key,
+    # in another script, as that key doing nothing -- which is how run 145 spent its budget blaming a
+    # rename. Reporting it at the point it happens is the whole of the difference.
+    time.sleep(0.1)
+    state = Quartz.CGEventSourceFlagsState(Quartz.kCGEventSourceStateCombinedSessionState)
+    left = state & MODIFIER_BITS
+    if left != SETTLED:
+        sys.exit(f"posted {named}, but the session is still holding modifiers (flags {left:#x})")
+
     print(f"posted {named} to {app_name}")
 
 
