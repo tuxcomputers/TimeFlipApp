@@ -1343,17 +1343,45 @@ press_title() {
 # care about that, so this is the one place where being in front matters at all. Without it a Return can
 # land in the terminal running the suite, and the symptom is a commit that produced no log row and no
 # error: exactly the shape of a rename that silently did nothing on 2026-08-16.
+# **The flags are set to nothing explicitly, and that is not belt and braces.** A keyboard event built
+# from a NULL source inherits the session's current modifiers, so a Return posted after anything that
+# left one held goes out as a chord -- and a chord is not what commits an edit. Measured on run 145:
+# `post_key v --command` set the Command flag and never released the key, `press` and `set_field` post no
+# events at all so nothing disturbed it, and this Return arrived as command-Return two minutes later. The
+# evidence said the field was focused and held the right text, which is a commit that never happened
+# looking exactly like an app that ignored it. `ax-key.py` no longer leaves a modifier held; this makes it
+# so that nothing else can either.
 press_return() {
     osascript -e 'tell application "Facet" to activate' >/dev/null 2>&1
     sleep 0.3
     python3 - <<'PYTHON'
 import Quartz, time
 for down in (True, False):
-    Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateKeyboardEvent(None, 36, down))
+    event = Quartz.CGEventCreateKeyboardEvent(None, 36, down)
+    Quartz.CGEventSetFlags(event, 0)
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
     time.sleep(0.05)
 PYTHON
 }
 press_desc() { python3 scripts/ax-press.py --desc "$1" >/dev/null 2>&1; }
+
+# `post_key v --command` -- a real keystroke with modifiers, to whatever holds focus.
+#
+# **The only way to exercise a keyboard shortcut**, and the reason is the same one `MainMenu` is written around:
+# `NSApplication.sendEvent` offers a key-down to the main menu before anything else sees it, and it is the menu item
+# found there that turns ⌘V into `paste(_:)` on the field editor. Nothing accessibility can do goes near that path --
+# `set_field` writes the value outright and `press` presses a control -- so a menu that had quietly stopped carrying
+# the item would leave every one of those checks passing.
+#
+# Everything `press_return`'s comment says about posting a key applies here too: it lands wherever focus is, so the
+# app is brought to the front by `ax-key.py` itself and the caller has to have opened the edit already.
+post_key() {
+    local output status
+    output=$(python3 scripts/ax-key.py "$@" 2>&1)
+    status=$?
+    [ "$status" -ne 0 ] && red "  posting the key $* failed (exit $status)${output:+: $output}"
+    return $status
+}
 # The unfocused write, for a field something has already clicked into. Reports a failure for the reason the two
 # above do: a value that never reached the field fails later, somewhere else, as something it is not.
 set_field() {

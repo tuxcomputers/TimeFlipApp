@@ -898,6 +898,24 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         alert.beginSheetModal(for: window)
     }
 
+    /// What a PIN that reached the cube and nowhere else says.
+    ///
+    /// **The one fault on this tab the app cannot put right by trying again**, which is why it is an alert and not
+    /// a log row: the cube is on a PIN this app asked for and could not write down, so the next attempt presents the
+    /// vendor default and whatever it used to hold, and neither is right. The recovery is the vendor's own -- the
+    /// batteries -- and it is worth stating plainly, since nothing on screen would otherwise suggest it.
+    private func showPINNotRecorded() {
+        let alert = NSAlert()
+        alert.messageText = "The TimeFlip PIN could not be saved"
+        alert.informativeText = "The device has been given a new PIN, and neither the Keychain nor this app's "
+            + "config file would take a copy of it -- so Facet cannot log in to it again.\n\n"
+            + "Take the batteries out of the TimeFlip and put them back. That returns it to its factory PIN, and "
+            + "pairing again will set a new one."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window)
+    }
+
     private func showRefusedByTheCube(_ what: String) {
         let alert = NSAlert()
         alert.messageText = "The TimeFlip did not accept that"
@@ -970,10 +988,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// cube, and it is the source-of-truth rule's shape: the candidates are assembled when they are needed, not when
     /// the radio was built, so a PIN set on the last connection is read back off disk on this one.
     ///
-    /// **The stored PIN is read from `config.json` here, not held**, for the reason the scan reads the two names it
-    /// filters on here: the file is one a developer also edits by hand, and what it says is only the answer at the
-    /// moment a connect asks. The compiled-in dev PIN stands in when the file names none, which is a stand-in for the
-    /// stored PIN and never a third candidate (see `DeveloperMode.devicePIN`).
+    /// **The stored PINs are read here, not held**, for the reason the scan reads the two names it filters on here:
+    /// they live in the Keychain and in a file a developer also edits by hand, and what they say is only the answer
+    /// at the moment a connect asks. `DevicePINSource.stored` is what puts them in order, and the compiled-in dev PIN
+    /// stands in when neither names one -- a stand-in for a stored PIN, never an extra guess
+    /// (see `DevicePINRules.developerPIN`).
+    ///
+    /// **The PIN to put on it is asked for here too, and for a sharper reason**: a release build picks fresh random
+    /// digits every time it is asked (`DevicePINRules.target`), so this has to be the moment of the attempt.
     private func wireConnect(on pane: DevicePane, using scanner: BluetoothRadio) {
         pane.onConnect = { [weak self] id in
             guard let self else { return }
@@ -984,11 +1006,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             if scanner.connectedDevice != nil {
                 self.markConnectionDown(on: pane, because: "another device was chosen")
             }
-            let stored = DeveloperConfigFile.standard?.pin() ?? DeveloperMode.devicePIN
+            let pins = DevicePINSource(debugLog: self.debugLog)
             scanner.connect(
                 to: id,
-                presenting: DeviceLoginRules.candidates(stored: stored),
-                rotatingTo: DeveloperMode.devicePIN
+                presenting: DeviceLoginRules.candidates(stored: pins.stored()),
+                rotatingTo: DevicePINRules.target()
             )
         }
         // **Nothing is asked first**, which is the archive's decision and `DevicePane.forgetPressed` says why: this is
@@ -1068,22 +1090,18 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             guard let pane = self?.devicePane else { return }
             pane.showScanMessage(reason?.message ?? (pane.isScanning ? "Looking for devices..." : ""))
         }
-        // **The cube is on the new PIN by the time this runs**, so a failure here is the app losing a PIN the cube
-        // already has rather than a change that did not happen. It is said loudly for that reason -- and it is
-        // survivable only because a developer build's PIN is a compiled-in constant that is presented anyway: this
-        // callback is what a production build would have to make good on before it could ever set a random one.
+        // **The cube is on the new PIN by the time this runs**, and it has proved it by logging in with it
+        // (`DeviceLogin.confirmationAnswered`), so a failure here is the app losing a PIN the cube already has rather
+        // than a change that did not happen. That is the one fault this app cannot put right on its own, which is
+        // why the PIN is offered to two stores before it is given up on, and why the user is told when both refuse.
         radio.onPINChanged = { [weak self] pin in
-            guard let file = DeveloperConfigFile.standard else { return }
-            // The write happens on its own line rather than inside the logging call: `debugLog?.record(...)` is
-            // optional chaining, so with no logger its argument is never evaluated and the PIN would go unrecorded
-            // in exactly the build that has no log to notice.
-            let wrote = file.record(pin: pin)
-            self?.debugLog?.record(
-                .pin,
-                wrote
-                    ? "Wrote the new PIN to \(file.url.path)"
-                    : "COULD NOT write the new PIN to \(file.url.path) -- the cube is on \(pin)"
-            )
+            guard let self else { return }
+            // The write happens on its own line rather than inside a logging call: `debugLog?.record(...)` is
+            // optional chaining, so with no logger its argument is never evaluated and the PIN would go unrecorded in
+            // exactly the build that has no log to notice.
+            let recorded = DevicePINSource(debugLog: self.debugLog).record(pin)
+            guard !recorded.isRecorded else { return }
+            self.showPINNotRecorded()
         }
         radio.onLoginBegan = { [weak self, weak radio] id in
             guard let self, let radio else { return }

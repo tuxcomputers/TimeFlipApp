@@ -25,7 +25,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=21
+EXPECTED_CHECKS=24
 start "reconnecting to a paired TimeFlip at launch"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -105,6 +105,25 @@ check "nothing is recorded as a fresh pairing" "$already" "0"
 check "the table says the cube is reachable again" \
     "$(wait_sql "1" "SELECT json_extract(setting_value, '\$.connected') FROM setting WHERE setting_name = 'connection';" 15)" "1"
 check "and it is still the same device" "$(setting device_uuid uuid)" "$paired_uuid"
+
+# ---------------------------------------------------------------------------- what the link coming up tells the cube
+#
+# **The settings the app holds are pushed to the cube on every link, and this is where that is proved.** A cube that
+# has lost a setting -- a reset, a flat battery, the vendor's app -- kept whatever it fell back to until somebody
+# moved the field, while the table went on claiming the value it was last given. That is two answers to one question,
+# and the cube was the half nobody checked.
+#
+# **The two LED values go out every time and the other two do not, and the difference is the vendor spec's.** `0x09`
+# and `0x0A` have no read command at all, so there is no such thing as knowing whether the cube still has them; the
+# auto-pause delay and the double-tap registers are read back by the login, so a write is only worth making when the
+# cube's own answer disagreed. A run where the cube agrees is the ordinary one, which is why the second half of this
+# is a check that nothing was sent.
+
+expect_log "the link coming up tells the cube its LED brightness" "$since" "Telling the cube LED brightness %" 30
+expect_log "and its blink period" "$since" "Telling the cube blink period %" 30
+
+check "and nothing was sent for a setting the cube already agreed about" "0" \
+    "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Telling the cube auto-pause%';")"
 
 # **Nothing was pressed to get here.** The window has been shut since before the quit, so if it is still shut then every
 # row above was written by an app deciding for itself. This is the assertion the whole script exists for.

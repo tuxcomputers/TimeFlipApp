@@ -31,12 +31,17 @@ final class DeviceReconnector {
     private let settings: SettingStore
     private let debugLog: DebugLog?
 
-    /// The stored PIN, asked for rather than held, because `config.json` is a file a developer edits by hand and what it
-    /// says is only the answer at the moment a login needs one.
-    private let storedPIN: () -> String?
+    /// The PINs this app holds for the cube, asked for rather than held: they live in the Keychain and in a file a
+    /// developer edits by hand (`DevicePINSource`), and what they say is only the answer at the moment a login needs
+    /// one. There can be two, and `DeviceLoginRules.candidates` says when.
+    private let storedPINs: () -> [String]
 
-    /// The PIN a cube should end up on, or `nil` to leave it on whichever one let the app in.
-    private let rotatingTo: String?
+    /// The PIN a cube on the vendor default should end up on, asked for **per attempt**.
+    ///
+    /// **A closure rather than a value, and that is not symmetry with the line above.** A release build picks six
+    /// random digits each time (`DevicePINRules.target`), so a target captured once would put the same PIN on every
+    /// cube this launch ever met, and on the same cube twice after a battery change.
+    private let rotatingTo: () -> String?
 
     /// How many attempts have failed in a row. The backoff is a function of it.
     private var failures = 0
@@ -75,13 +80,13 @@ final class DeviceReconnector {
         radio: BluetoothRadio,
         settings: SettingStore,
         debugLog: DebugLog?,
-        storedPIN: @escaping () -> String?,
-        rotatingTo: String? = nil
+        storedPINs: @escaping () -> [String],
+        rotatingTo: @escaping () -> String? = { nil }
     ) {
         self.radio = radio
         self.settings = settings
         self.debugLog = debugLog
-        self.storedPIN = storedPIN
+        self.storedPINs = storedPINs
         self.rotatingTo = rotatingTo
     }
 
@@ -127,8 +132,8 @@ final class DeviceReconnector {
         }
         radio.reach(
             id,
-            presenting: DeviceLoginRules.reconnectCandidates(stored: storedPIN()),
-            rotatingTo: rotatingTo,
+            presenting: DeviceLoginRules.reconnectCandidates(stored: storedPINs()),
+            rotatingTo: rotatingTo(),
             remembered: settings.string("device_name", field: "name"),
             previouslyKnown: settings.string("device_name", field: "previous_name")
         )

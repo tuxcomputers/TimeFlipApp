@@ -63,7 +63,7 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
             radio: BluetoothRadio(debugLog: nil),
             settings: settings,
             debugLog: debugLog,
-            storedPIN: { nil }
+            storedPINs: { [] }
         )
         loop.onCubeNotFound = { reason, answer in
             asked(reason)
@@ -218,7 +218,7 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
             radio: BluetoothRadio(debugLog: nil),
             settings: settings,
             debugLog: nil,
-            storedPIN: { nil }
+            storedPINs: { [] }
         )
 
         // Nothing to assert but that it survives and schedules: the value is that this path exists and is exercised.

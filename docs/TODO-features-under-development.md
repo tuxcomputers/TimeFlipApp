@@ -13,9 +13,7 @@ features and is worth reading before changing one.
 - [ ] Sync to TimeFlip cloud
 - [ ] Projects
 - [ ] Cost time entry
-- [ ] Device rename -- **storage only.** `device_name` carries the current and previous names and the scan matches
-      both, so a cube renamed elsewhere is still findable, but nothing in the app sends `0x15`. The section below is
-      the previous app's implementation, kept as the design to rebuild from.
+- [x] Device rename
 - [x] Report
 - [x] Timing by hand (was "Manual mode")
 

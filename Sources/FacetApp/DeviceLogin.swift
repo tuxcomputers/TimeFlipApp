@@ -5,9 +5,9 @@ import Foundation
 ///
 /// **A conversation, not a session.** It discovers the characteristics a login needs, writes the PIN, reads what the
 /// cube says about it, sets a new one if there is one to set, and reports. It does not decide which PIN to send
-/// (`DeviceLoginRules.candidates`), what to change it to (`DeviceLoginRules.rotation`, from a target handed in), what
-/// an answer means (`DeviceLoginRules.verdict`), or where a new PIN is written down (`DeveloperConfigFile`, through
-/// the caller); and it connects and disconnects nothing (`BluetoothRadio`, which owns the central manager because
+/// (`DeviceLoginRules.candidates`), whether to change it (`DevicePINRules.rotates`, against a target handed in), what
+/// an answer means (`DeviceLoginRules.verdict`), or where a new PIN is written down (`DevicePINSource`, through the
+/// caller); and it connects and disconnects nothing (`BluetoothRadio`, which owns the central manager because
 /// CoreBluetooth insists one object does).
 ///
 /// **It outlives the login, deliberately.** Once a PIN is accepted this stays the peripheral's delegate, so anything
@@ -86,6 +86,20 @@ final class DeviceLogin: NSObject {
     /// Called with each face the cube reports, whether asked for or pushed. Raw, exactly as the byte arrived: what
     /// counts as a face is `DeviceFaceRules`' judgement, not a delegate's.
     private let face: (Int) -> Void
+    /// Called with the double-tap registers the cube reports, which the login reads on every connection.
+    ///
+    /// **Read anyway and now used**: the read is what makes the Device tab's four fields mean anything, and the same
+    /// answer says whether the cube still has the registers the tables hold (`DeviceSettingsSync`). Reporting it
+    /// costs nothing, the question having been asked regardless.
+    private let tapsReported: (DoubleTapParameters) -> Void
+
+    /// Called with the PIN the cube accepted, at the moment it accepts it and before any rotation.
+    ///
+    /// **The cube is the only thing that can say which PIN it is on.** This app can hold two -- the Keychain's and
+    /// the config file's -- and they disagree exactly when a Keychain write has failed, so nothing may be promoted
+    /// or cleared until a login has proved one of them (`DevicePINSource.reconcile`).
+    private let accepted: (String) -> Void
+
     /// Called when the cube reports what it is called, which macOS only learns by connecting.
     ///
     /// **This is the only confirmation a rename ever gets.** `0x15` has no answer of its own -- the cube never updates
@@ -225,6 +239,8 @@ final class DeviceLogin: NSObject {
         debugLog: DebugLog?,
         staysWithTheCube: Bool = true,
         rotated: @escaping (String) -> Void,
+        accepted: @escaping (String) -> Void = { _ in },
+        tapsReported: @escaping (DoubleTapParameters) -> Void = { _ in },
         reported: @escaping (DeviceInfo) -> Void,
         battery: @escaping (Int) -> Void = { _ in },
         face: @escaping (Int) -> Void = { _ in },
@@ -241,6 +257,8 @@ final class DeviceLogin: NSObject {
         self.debugLog = debugLog
         self.staysWithTheCube = staysWithTheCube
         self.rotated = rotated
+        self.accepted = accepted
+        self.tapsReported = tapsReported
         self.reported = reported
         self.battery = battery
         self.face = face
@@ -990,6 +1008,7 @@ final class DeviceLogin: NSObject {
         tapDeadline?.invalidate()
         tapDeadline = nil
         debugLog?.record(.tap, "The double tap on the cube is set to \(parameters.described)")
+        tapsReported(parameters)
         // The state question goes in the queue behind whatever arrived while this was out, rather than in front of it.
         askWhatStateItIsIn()
         startNextIfIdle()
@@ -1000,12 +1019,16 @@ final class DeviceLogin: NSObject {
     /// Runs once the cube has accepted a PIN: either the exchange is over, or there is a new PIN to set.
     private func loggedIn() {
         debugLog?.record(.login, "PIN accepted")
-        guard let newPIN = DeviceLoginRules.rotation(from: pin, to: rotatingTo) else {
+        // **Said before anything is decided about rotating**, because it is what the launch reconciles the two
+        // stores against: the cube has just named which of the PINs this app holds it is actually on, and that is
+        // the only evidence there is (`DevicePINSource.reconcile`).
+        accepted(pin)
+        guard DevicePINRules.rotates(from: pin), let newPIN = rotatingTo, newPIN != pin else {
             debugLog?.record(
                 .pin,
-                rotatingTo == nil
-                    ? "This build sets no PIN, so the cube keeps the one it accepted"
-                    : "The cube is already on the PIN this build sets, so it is left alone"
+                DevicePINRules.rotates(from: pin)
+                    ? "The cube let the app in on the vendor default and there is no PIN to put on it"
+                    : "The cube is on a PIN this app put there, so it keeps it"
             )
             finish(.loggedIn)
             return
