@@ -91,9 +91,14 @@ debugLog?.record(
 )
 
 let app = NSApplication.shared
-// `.accessory`: a menu bar app, so no Dock icon and no app menu. It is also why the dropdown's Quit
-// carries no ⌘Q -- there is no application menu for the shortcut to live in.
+// `.accessory`: a menu bar app, so no Dock icon, and no menu bar of its own for as long as it stays
+// that way. `SettingsWindowController` switches to `.regular` while its window is open and back
+// afterwards, so the bar below is on screen for exactly that span.
 app.setActivationPolicy(.accessory)
+// The menu bar that span needs: an app menu, and an Edit menu whose four items are what make ⌘X, ⌘C,
+// ⌘V and ⌘A work in a text field at all. Nothing else routes a keystroke to the field editor -- see
+// `MainMenu`, which is also where the dropdown's Quit having no ⌘Q is followed through.
+MainMenu.install(into: app)
 
 // The two tables that record time, in the order the answer flows: a segment is recorded first, and closing one
 // raises the question the second module answers. `device_event` is what a source says happened; `time_entry` is

@@ -1354,6 +1354,24 @@ for down in (True, False):
 PYTHON
 }
 press_desc() { python3 scripts/ax-press.py --desc "$1" >/dev/null 2>&1; }
+
+# `post_key v --command` -- a real keystroke with modifiers, to whatever holds focus.
+#
+# **The only way to exercise a keyboard shortcut**, and the reason is the same one `MainMenu` is written around:
+# `NSApplication.sendEvent` offers a key-down to the main menu before anything else sees it, and it is the menu item
+# found there that turns ⌘V into `paste(_:)` on the field editor. Nothing accessibility can do goes near that path --
+# `set_field` writes the value outright and `press` presses a control -- so a menu that had quietly stopped carrying
+# the item would leave every one of those checks passing.
+#
+# Everything `press_return`'s comment says about posting a key applies here too: it lands wherever focus is, so the
+# app is brought to the front by `ax-key.py` itself and the caller has to have opened the edit already.
+post_key() {
+    local output status
+    output=$(python3 scripts/ax-key.py "$@" 2>&1)
+    status=$?
+    [ "$status" -ne 0 ] && red "  posting the key $* failed (exit $status)${output:+: $output}"
+    return $status
+}
 # The unfocused write, for a field something has already clicked into. Reports a failure for the reason the two
 # above do: a value that never reached the field fails later, somewhere else, as something it is not.
 set_field() {

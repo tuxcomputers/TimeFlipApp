@@ -7,7 +7,7 @@ Two rules shape everything below, and are worth knowing before reading it:
 - **The database is the source of truth, read at the point of use** ([CLAUDE.md](../CLAUDE.md)). Nothing holds a copy of anything the database can be asked for.
 - **The archive is read before each feature is built**, and each one declares whether it ignored, massaged or copied what it found. Most say massage.
 
-`swift test` is hermetic (1566 tests) and never touches a radio, so anything involving the cube is unverified by it by definition. What covers the cube is [Tests/Scripted/](../Tests/Scripted/), 32 scripts driving the real app against the real database and a real device; [Tests/Scripted/last-run.md](../Tests/Scripted/last-run.md) is the stamp of the last full run. Features driven against a running copy of the app say so.
+`swift test` is hermetic (1632 tests) and never touches a radio, so anything involving the cube is unverified by it by definition. What covers the cube is [Tests/Scripted/](../Tests/Scripted/), 32 scripts driving the real app against the real database and a real device; [Tests/Scripted/last-run.md](../Tests/Scripted/last-run.md) is the stamp of the last full run. Features driven against a running copy of the app say so.
 
 ## The order of work
 
@@ -276,6 +276,9 @@ The section is built and every row writes. Several of these settings were alread
   - **The database is the evidence.** A check waits for a row or queries a table, never asks a person. Every wait is baselined against the newest `debug_log` id before the action, because this database has a human user too and a total count is never safe to assert on.
   - It refuses to run against production, and cleans up nothing: the rows a run makes are what somebody reads when it fails.
   - CI cannot run them -- there is no screen, no Keychain and no Google account -- so `scripts/check_interactive_checklists.sh` checks they are *runnable* instead: they parse, they are executable, they end in `finish`, and they guard the database.
+- [x] **The application menu bar** ([MainMenu.swift](../Sources/FacetApp/MainMenu.swift)): an app menu holding Quit, and an Edit menu holding Cut, Copy, Paste and Select All. **That Edit menu is the only reason ⌘X, ⌘C, ⌘V and ⌘A do anything in a text field**, which until it existed they did not, anywhere in the app: the fields implement the four selectors perfectly well, but `NSApplication.sendEvent` offers a key-down to `mainMenu.performKeyEquivalent` first and it is the menu item that carries the shortcut, so with no main menu the keystroke reached the field as an ordinary character and was dropped. **The archive's `setupMainMenu` copied**, the four selectors and their key equivalents being the platform's rather than ours; what is not copied is where it lived, inline in a delegate no test could reach.
+  - The app menu is there because AppKit draws the **first** submenu as the application menu whatever it is titled, so an Edit menu alone would appear under the app's name with Cut and Paste inside it. It holds Quit rather than nothing, an app menu that opens onto nothing reading as one that failed to build.
+  - **No ⌘Q**, matching the dropdown's Quit and for the archive's measured reason: this bar is only on screen while Settings is open, which is exactly when somebody is typing into a field, and a stray ⌘Q there has quit the app before. Quit's target is `nil`, so it reaches `NSApp` and `QuitSequence` by the same route the dropdown's does.
 
 ### Still to do
 

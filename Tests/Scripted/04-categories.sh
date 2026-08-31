@@ -13,7 +13,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=96
+EXPECTED_CHECKS=98
 start "creating, renaming, retiring and reinstating a category"
 
 open_settings
@@ -90,6 +90,33 @@ press save-category
 sleep 0.8
 check "and neither does a field of spaces" "$before_count" "$(sql "SELECT COUNT(*) FROM category;")"
 check "with no alert raised for either" "no" "$(alert_is_open && echo yes || echo no)"
+
+# ---------------------------------------------------------------------------- pasting into a field
+#
+# **Here because this is the first open field the suite has**, and the shortcut is not a property of this field: it
+# is `MainMenu`'s Edit menu, which every editable field in the app shares. Checking it once, wherever a field is
+# already open, is the whole of it.
+#
+# **`swift test` cannot reach this.** `MainMenuTests` proves the item exists and carries ⌘V; what it cannot prove is
+# that a keystroke gets there, because `NSApplication.sendEvent` is what offers it to the menu and no hermetic test
+# runs one. The app shipped for months with no main menu at all and every field silently ignoring ⌘V, with the whole
+# suite green -- so this is the check that would have caught it.
+press create-category
+sleep 0.5
+PASTED="Pasted $(date +%s)"
+printf '%s' "$PASTED" | pbcopy
+# The create control makes its field first responder when it opens (`CategoryCreateControl`), so focus is already
+# where it needs to be and nothing has to click into it.
+post_key v --command
+sleep 0.5
+check_contains "a field takes a paste" "$(element category-name-field)" "$PASTED"
+
+# Emptied and saved rather than left open: a field still holding text is a create the next section would inherit,
+# and saving nothing is already known to create nothing.
+set_field category-name-field ""
+press save-category
+sleep 0.8
+check "and the paste is not left behind as a category" "$before_count" "$(sql "SELECT COUNT(*) FROM category;")"
 
 # ---------------------------------------------------------------------------- create
 

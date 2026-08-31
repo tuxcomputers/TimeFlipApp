@@ -291,7 +291,7 @@ accident:
 
 ## Two suites, and only one of them can tell you it works on hardware
 
-**`swift test` is hermetic**: 1566 tests, no window, no radio. A feature can be entirely green there
+**`swift test` is hermetic**: 1632 tests, no window, no radio. A feature can be entirely green there
 and broken the moment it runs. **`Tests/Scripted/` is what says it works** -- 32 shell scripts that
 drive the real app and read the real database, `00`-`13` needing no cube and `50`-`66` needing one.
 `Tests/Scripted/README.md` is how to run them, `Tests/Methods.md` is the shared methods they are
@@ -318,8 +318,8 @@ It came back much smaller, and needs no AI and nothing installed beyond what bui
 The old `locators.py` existed largely because elements were not addressable and steps had to hunt by
 position; every element this app builds carries an `AXIdentifier`, and every click it handles writes a
 `debug_log` row, so a step is "press by name, then poll for the row". `scripts/ax-press.py`,
-`scripts/ax-dump.py`, `scripts/ax-set.py`, `scripts/ax-hold.py`, `scripts/ax-alert.py` and
-`scripts/status-item-click.py` are that whole layer.
+`scripts/ax-dump.py`, `scripts/ax-set.py`, `scripts/ax-hold.py`, `scripts/ax-key.py`, `scripts/ax-alert.py`
+and `scripts/status-item-click.py` are that whole layer.
 
 **`Tests/Methods.md` is the suite's shared methods, numbered.** Anything learned while checking the app against a running copy of itself goes there
 as it is learned -- the command and the fact, not the story -- because a technique rediscovered is a

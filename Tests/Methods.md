@@ -232,6 +232,30 @@ the app is often what that is.
 Confirmed on the rename: `ax-press.py category-name-11`, `ax-set.py category-name-11-field "Admin work"`, Return,
 then the sheet's own buttons are ordinary named elements (`action-button-1` is the first one added).
 
+<a id="method-10a"></a>
+## Method 10a: Exercise a keyboard shortcut
+
+`scripts/ax-key.py` posts a real key with modifiers, and `post_key` in `lib.sh` is the wrapper that reports a
+failure rather than swallowing it:
+
+```sh
+post_key v --command      # paste
+post_key a --command      # select all
+```
+
+**A shortcut is the one thing accessibility cannot stand in for.** `ax-press.py` presses a control and `ax-set.py`
+writes a value; neither goes near the path a shortcut takes, which is `NSApplication.sendEvent` offering the
+key-down to `mainMenu.performKeyEquivalent` before anything else sees it. So the menu item is what turns ⌘V into
+`paste(_:)` on the field editor, and with no main menu the keystroke reaches the field as an ordinary character
+and is dropped -- silently, at both ends.
+
+That is not hypothetical: the rebuild had no `NSApp.mainMenu` at all, so ⌘X, ⌘C, ⌘V and ⌘A did nothing in every
+field in the app, through a full hermetic suite and 32 scripted checks. `MainMenu` is the fix and
+`04-categories.sh` is where it is checked, on the create control's field -- which makes itself first responder
+when it opens, so nothing has to click into it first.
+
+Same caveats as Method 10: the app is activated first (`ax-key.py` does it), and Escape is never posted.
+
 ## Method 11: Open a collapsible section
 
 A folded section's rows are **not in the accessibility tree at all**, so reading one before opening it looks
