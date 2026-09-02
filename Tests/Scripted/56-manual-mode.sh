@@ -5,20 +5,22 @@
 # Bluetooth off is the one way to make a paired cube unreachable without carrying it out of the building, and nothing
 # on this machine may turn a radio off on somebody's behalf.
 #
-# **Two states, and what separates them is narrower than it used to be.**
+# **Two states, and the same click means something different in each.**
 #
 #   1. **Paired, the link gone, and the app still looking.** A click on a category is refused: an app that quietly
 #      started its own clock would record against one category while the cube records against whatever face it is
 #      sitting on, and whichever was read later would look like the answer.
-#   2. **Paired, and Stop Looking chosen.** Somebody has said to give up on the device. The app stops reaching for the
-#      cube for the rest of the launch -- it does not go back to looking when the radio comes back, and it does not
-#      put the question up again. **The click is still refused**, and that is the change this script now pins: the
-#      answer settles the reconnect loop and does not turn the launch into its own clock.
+#   2. **Paired, and Time by Hand chosen.** Somebody has said they will work without the device. The app stops
+#      reaching for the cube for the rest of the launch -- it does not go back to looking when the radio comes back,
+#      and it does not put the question up again -- **and the click now starts a clock**, which is what they asked
+#      for by answering.
 #
-# **Why the second state no longer starts the clock.** A launch decides once whether it follows a cube or is its own
-# clock, and it is read from `paired` whenever it is asked. This script used to press the offer's second button and watch
-# the same click go from refused to allowed; that was one launch being two things in turn, and the switching it needed
-# is what was removed. The way to timing by hand is a forget and a restart, which is what the dialog now says.
+# **Why the second state starts the clock, having briefly not.** The answer used to settle the reconnect loop and
+# nothing else, on the reading that giving up hunting and having no device are different facts. They are, and the
+# pairing still answers the second -- but that left a launch which had given up *and* refused to time by hand, so
+# somebody who had just chosen to work without the cube found every row on this tab dead. One per-launch flag now
+# carries both halves (`DeviceReconnector.hasGivenUpOnCube`), read through
+# `ManualTimerRules.isManualMode`, so nothing holds a mode and no surface has to be told.
 #
 # **Why a restart sits between them.** The offer only ever appears to a launch that has *never* reached its cube
 # (`ManualModeOffer`), so losing the link mid-session retries quietly for ever and never asks. Getting the question on
@@ -27,7 +29,7 @@
 #
 # **The offer is an app-modal `NSAlert`, not a sheet**, so `ax-alert.py` cannot see it -- that tool addresses `AXSheet`
 # and this is a window of its own. It is pressed by title instead, which is unambiguous here because no other control
-# in the app is called "Stop Looking" (the trap Method 12 records applies to sheets naming their button after the
+# in the app is called "Time by Hand" (the trap Method 12 records applies to sheets naming their button after the
 # control that opened them). Whether an `AXPress` actuates a button inside a modal run loop is not something this
 # suite has measured before, so the press is followed by a poll and a person is asked only if it did not take.
 #
@@ -38,7 +40,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=33
+EXPECTED_CHECKS=35
 start "manual mode with a device paired: what it refuses, and what it stops doing"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -229,15 +231,15 @@ expect_log "and, finding nothing, offers manual mode rather than retrying behind
 # have worked.
 
 chosen=$(mark)
-press_title "Stop Looking"
+press_title "Time by Hand"
 sleep 2
 
-if ! wait_for "$chosen" "Stop looking chosen;%" 5 >/dev/null; then
+if ! wait_for "$chosen" "Time by hand chosen;%" 5 >/dev/null; then
     step "the alert did not answer to an AXPress, so asking for a hand"
     if ! action_required \
-        "Click **Stop Looking** on the dialog" \
+        "Click **Time by Hand** on the dialog" \
         "The app could not find your TimeFlip, and is asking what to do about it." \
-        "Do not click Retry: this script is about what happens after the app gives up."
+        "Do not click Rescan or Quit: this script is about what happens after the app gives up."
     then
         fail "the offer was not answered, so nothing below it could be checked"
         finish
@@ -245,38 +247,44 @@ if ! wait_for "$chosen" "Stop looking chosen;%" 5 >/dev/null; then
     fi
 fi
 
-expect_log "choosing it stops the loop for the rest of the launch" "$chosen" "Stop looking chosen;%" 60
+expect_log "choosing it stops the loop for the rest of the launch" "$chosen" "Time by hand chosen;%" 60
 check "the device is still this app's device" "1" "$(setting paired paired)"
 # **The launch is not turned into its own clock**, which is the half of the old behaviour that was removed. A `mode`
 # row saying otherwise would be the switching coming back.
 check "and the launch is not turned into its own clock" "0" \
     "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $chosen AND tag = 'mode' AND message LIKE 'Launch mode:%';")"
 
-# ---------------------------------------------------------------------------- and the click is still refused
+# ---------------------------------------------------------------------------- and now the click starts a clock
 #
-# The same click as before, in the same state of the table, answered the same way -- which is the point. Giving up on
-# the cube settles the reconnect loop and nothing else: this is still a launch with a cube on record, so there is still
-# nothing for a click to start.
+# **The same click as before, in the same state of the table, answered the other way.** That is the whole of what the
+# answer is for: somebody has said they will work without the cube, so the app is its own clock from that moment. The
+# pairing has not moved -- the cube is still on record throughout this section -- which is what makes this a different
+# answer to the same question rather than a different question.
 
 open_settings
 select_tab Faces
 since=$(mark)
-open_before=$(sql "SELECT COUNT(*) FROM device_event WHERE finalised != 1;")
 press "category-row-$BREAK"
 sleep 1.5
 
-# The drawing has to agree with the refusal. A live-looking row that does nothing is the worse of the two failures:
-# it invites the click rather than explaining why there is nothing to click.
+# The drawing has to agree with what the click now does. A dead-looking row that would have worked is the same fault
+# as a live one that does nothing, seen from the other side.
 case "$(element "category-row-$BREAK")" in
     "") fail "there is no category row to check" ;;
-    *disabled*) pass "the category rows stay dead, the launch still having a cube on record" ;;
-    *) fail "the category rows went live after Stop Looking, which is the switching coming back" ;;
+    *disabled*) fail "the category rows are still dead after Time by Hand, so the answer took the cube and gave nothing back" ;;
+    *) pass "the category rows are live, the launch having been told to time by hand" ;;
 esac
 
-check "no clock starts" "0" \
-    "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Timing: started%';")"
-check "and no segment is opened" "$open_before" \
+expect_log "a clock starts on the category that was clicked" "$since" "Timing: started%" 10
+check "and a segment is open for it" "1" \
     "$(sql "SELECT COUNT(*) FROM device_event WHERE finalised != 1;")"
+check "on one of the app's own faces, not a face of the cube" "1" \
+    "$(sql "SELECT COUNT(*) FROM device_event WHERE finalised != 1 AND device_face > 12;")"
+
+# **Still paired, which is the half of the answer that is an absence.** Timing by hand here is a decision about this
+# launch, not about what the app has, so the row a forget would clear is checked rather than assumed.
+check "the cube is still on record" "1" \
+    "$(sql "SELECT json_extract(setting_value, '\$.paired') FROM setting WHERE setting_name = 'paired';")"
 
 # ---------------------------------------------------------------------------- and the radio is left alone
 #

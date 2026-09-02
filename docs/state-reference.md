@@ -33,12 +33,19 @@ face, that is a failed lookup, the name stays `is<Name>`, and the absence is han
 
 **A two-valued enum is a boolean.** The convention is about the fact, not the storage.
 
-**Timing by hand is not a state of its own** (2026-08-29). `isManualMode` is `!isCubePaired`, read from the same row
-at the same moment, so the two rows above are one fact under two names and the second is kept only because it reads
-better where the question is "am I the clock". Nothing may hold it: it was a `LaunchMode` decided once at startup,
-which could not move while the row under it did, and keeping the two in step cost a restart after every pair, forget
-and reset. What is left of the old mode is `hasStoppedLooking`, which is a different fact -- whether this launch has
-given up hunting for a cube it still has -- and now says so in its own name.
+**Timing by hand is derived, never held** (2026-08-29, widened 2026-09-02). `isManualMode` is
+`!isCubePaired || hasGivenUpOnCube`, both read at the moment the question is asked:
+`ManualTimerRules.isManualMode(isCubePaired:hasGivenUpOnCube:)` is the one place they are put together, and every
+surface goes through it. Nothing may hold the answer. It was a `LaunchMode` decided once at startup, which could not
+move while the row under it did, and keeping the two in step cost a restart after every pair, forget and reset.
+
+The second input is `hasGivenUpOnCube`, and it is the same fact as the reconnect loop stopping rather than a second
+one: a paired launch that cannot find its cube offers `Rescan`, `Time by Hand` and `Quit`, and taking the middle one
+both settles the loop and makes the app its own clock. It was called `hasStoppedLooking` while it did only the first
+of those, on the reading that giving up hunting and having no device are different questions. They are, and the
+pairing still answers the second -- but a launch that had given up hunting and *also* refused to time by hand was a
+third state nobody asked for, which showed up as a Faces tab refusing every click after somebody had just said they
+wanted to work without the cube.
 
 ---
 
@@ -46,7 +53,7 @@ given up hunting for a cube it still has -- and now says so in its own name.
 
 | Name | Values | Truth |
 | --- | --- | --- |
-| `isManualMode` | true / false | `setting.paired.paired`, read at the point of use: it **is** `!isCubePaired` |
+| `isManualMode` | true / false | `ManualTimerRules.isManualMode(isCubePaired:hasGivenUpOnCube:)`, both read at the point of use |
 | `isDeveloperMode` | true / false | `DeveloperMode` |
 | `isTestDatabase` | true / false | `DatabaseEnvironment`, from `setting.db_type.type` |
 | `isQuitting` | true / false | `setting.connection.quit_request`, plus `QuitSequence` progress |
@@ -62,7 +69,7 @@ given up hunting for a cube it still has -- and now says so in its own name.
 | `isScanWanted` | true / false | `BluetoothRadio.wantsToScan` |
 | `isReachingForCube` | true / false | `BluetoothRadio.isReaching` |
 | `isAwaitingAnswer` | true / false | `DeviceReconnector.isAwaitingAnswer` |
-| `hasStoppedLooking` | true / false | `DeviceReconnector.hasStoppedLooking`, per launch |
+| `hasGivenUpOnCube` | true / false | `DeviceReconnector.hasGivenUpOnCube`, per launch and one-way |
 | `isDisconnectingDeliberately` | true / false | `BluetoothRadio.isDisconnectingDeliberately` |
 | `isFactoryResetRunning` | true / false | today two separate flags |
 

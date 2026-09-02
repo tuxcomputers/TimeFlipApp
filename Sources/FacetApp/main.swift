@@ -77,8 +77,21 @@ let debugLog: DebugLog? = {
 //
 // **Every reader takes this closure rather than a copy**, so nothing has to be told when the answer changes. What
 // does have to be told is anything that draws intermittently: the menu bar repaints on a tick that only runs while
-// something is being timed, so it is redrawn where the pairing changes (`settingsWindow.onPairingChanged`).
-let isManualMode = { settings.flag("paired", field: "paired") != true }
+// something is being timed, so it is redrawn where the pairing changes, and where this launch gives up on its cube
+// (`reconnector.onGaveUpOnCube`).
+//
+// **The second input, and why it is a closure with a default rather than a value.** A paired launch that could not
+// find its cube and was told to time by hand is the app's own clock too, and that fact lives on the reconnect loop
+// -- which is built a long way below this, because it needs the radio. So this starts as the truth at launch, when
+// nothing can have given up yet, and is pointed at the loop once there is one. `TimingReadout.isCubePaired` is the
+// same idiom for the same reason.
+var hasGivenUpOnCube: () -> Bool = { false }
+let isManualMode = {
+    ManualTimerRules.isManualMode(
+        isCubePaired: settings.flag("paired", field: "paired") == true,
+        hasGivenUpOnCube: hasGivenUpOnCube()
+    )
+}
 
 // **What this launch started as, for the log and nothing else.** Nothing branches on it: the row is here so a run
 // reconstructed from `debug_log` says which of the two the app came up as, which is the first thing worth knowing
@@ -292,6 +305,10 @@ let reconnector = DeviceReconnector(
     storedPINs: { DevicePINSource(debugLog: debugLog).stored() },
     rotatingTo: { DevicePINRules.target() }
 )
+// **The mode derivation gets its second input**, now that the thing holding it exists. Assigned rather than passed
+// in, so `isManualMode` above is the only place the two inputs are put together and every reader goes through it.
+hasGivenUpOnCube = { reconnector.hasGivenUpOnCube }
+
 // **Whether the two PIN stores are saying different things, asked once, here.**
 //
 // They disagree only after a Keychain write that failed: the PIN went into `config.json` instead, so the file holds
@@ -316,16 +333,23 @@ radio.onPINAccepted = { _, pin in
 // What happens when a paired app cannot find its cube at startup: it stops and asks, rather than retrying behind a
 // menu bar that says nothing.
 //
-// **The answer decides whether to keep looking, and nothing else.** It used to decide the launch's mode as well,
-// switching a device launch to timing by hand, and that is deliberately not back: whether this launch has given up
-// hunting is a different fact from whether the app has a device, and the two sharing a name is what the state audit
-// is about. A cube that cannot be found is still on record, which the Device tab says as `Disconnected`; the way to
-// timing by hand is to forget the device, and that now takes effect without a restart.
+// **Three answers, and each one is a different thing to want.** Rescan waits for the cube, Time by Hand gets on
+// without it, and Quit leaves. The middle one changes what the app is doing for the rest of the launch, which is what
+// this offer is for and what it had briefly stopped doing: the version before this settled the reconnect loop and
+// left the Faces tab refusing every click, so somebody who had just said they wanted to work without the cube could
+// not start a clock.
 //
-// So this closure only presents the question: the reconnector stops on either answer by arranging nothing further.
+// **What made that safe to give back is that nothing holds a mode.** The old switching set one and every surface had
+// to be told; this sets one per-launch flag on the loop and `ManualTimerRules.isManualMode` reads it, so the answer
+// arrives everywhere by being asked for rather than by being sent.
+//
+// This closure only presents the question. What each answer does is the reconnector's.
 reconnector.onCubeNotFound = { _, answer in
     CubeNotFoundAlert.ask(answer)
 }
+// **Quit goes out the same door as the menu bar's Quit**, so the quit sequence runs exactly as it does from there
+// rather than this being a second way to end the process.
+reconnector.onQuitRequested = { NSApp.terminate(nil) }
 settingsWindow.reconnect = reconnector
 // Asks for history on an interval it re-reads from the database every time it fires. With no cube paired
 // there is nothing to ask, so the timeout **is** the source: the app reports its own open segment, and the
@@ -529,6 +553,17 @@ menuBar.start()
 lowBattery.onChanged = {
     menuBar.redraw()
     settingsWindow.redrawLowBattery()
+}
+// Giving up on the cube repaints both surfaces, because the answer to "who is the clock" has just moved and neither
+// of them is on a tick that would notice.
+//
+// **This is a redraw and not a notification**, which is the distinction the whole derivation rests on: nothing here
+// tells anything what the app now is, it tells two views to go and ask. The menu bar has to be told because its tick
+// only runs while something is being timed, and nothing is; the Faces tab has to be told because its own repaint
+// hangs off a flip, and there is no cube to flip. Every other reader asks the next time it draws.
+reconnector.onGaveUpOnCube = {
+    menuBar.redraw()
+    settingsWindow.redrawTiming()
 }
 // The lock badge, repainted the moment the answer moves rather than on the item's next tick.
 //

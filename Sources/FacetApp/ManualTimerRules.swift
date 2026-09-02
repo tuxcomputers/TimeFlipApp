@@ -122,6 +122,26 @@ enum ManualTimerRules {
     /// With nothing being timed it reads "Pause" rather than "Resume", carried over from the previous app
     /// with its reasoning: the item is disabled either way, and a dead item claiming there is something to
     /// resume is worse than a dead item claiming there is something to pause.
+    /// Whether the app is its own clock at this moment, rather than following a cube.
+    ///
+    /// **Two ways to be the clock, and the second one is a launch that has a cube and has been told to get on without
+    /// it.** Being unpaired is the plain case. The other is `CubeNotFoundAnswer.timeByHand`: a paired cube that could
+    /// not be found, and somebody who said to carry on regardless, which is the whole point of asking them.
+    ///
+    /// **Still derived rather than held, which is what makes it safe to have two inputs.** Neither of these is a mode
+    /// anything sets: `isCubePaired` is a row read at the point of use and `hasGivenUpOnCube` is one per-launch flag on
+    /// the reconnect loop, so every surface answers the current question the next time it asks and there is no list of
+    /// screens to notify. That list is exactly what an `isManualMode` *value* had, and what it was removed for -- the
+    /// menu bar repaints on a tick that only runs while something is being timed, so it was the one that did not get
+    /// told (see `docs/state-reference.md`).
+    ///
+    /// - Parameters:
+    ///   - isCubePaired: `setting.paired.paired`, read now.
+    ///   - hasGivenUpOnCube: whether this launch has been told to time by hand instead of waiting for its cube.
+    static func isManualMode(isCubePaired: Bool, hasGivenUpOnCube: Bool) -> Bool {
+        !isCubePaired || hasGivenUpOnCube
+    }
+
     static func pauseMenuTitle(for timingState: TimingState) -> String {
         timingState == .paused ? "Resume" : "Pause"
     }

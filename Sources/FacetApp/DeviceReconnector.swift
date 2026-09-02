@@ -52,16 +52,20 @@ final class DeviceReconnector {
 
     /// Whether somebody has told this launch to stop looking.
     ///
-    /// **Its own fact, and per launch, which is the half of manual mode that was real.** "Has this launch given up
-    /// hunting" and "does this app have a device" were one flag for a while, and they are not the same question: a
-    /// cube that cannot be found is still on record, and forgetting it is a different act from being told to stop
-    /// looking for it. So this is here, in the loop it is about, rather than riding on a mode -- which is what let
-    /// the two be answered in each other's name.
+    /// Whether this launch has been told to get on without the cube it is paired to.
     ///
-    /// **One-way, and it dies with the process.** Nothing sets it back: a launch told to stop is told for good, and a
-    /// restart is a new one. `CubeNotFoundOffer` deliberately does not model it, its own note saying this is about
-    /// whether an attempt may run at all.
-    private var hasStoppedLooking = false
+    /// **Two things read it, and they are two consequences of one decision rather than two facts.** This loop stops
+    /// arranging attempts, and `ManualTimerRules.isManualMode` reports the app as its own clock. Keeping them one
+    /// flag is what stops them disagreeing: a launch that had given up hunting while still refusing to time by hand
+    /// is exactly the state somebody complained about, and it existed because the second half was missing.
+    ///
+    /// **Still not the same question as whether the app has a device.** The cube is on record throughout: nothing
+    /// here writes `paired`, and forgetting the device stays a separate act with a different meaning.
+    ///
+    /// **One-way, and it dies with the process.** Nothing sets it back, so a restart is what looks for the cube
+    /// again -- which is what the dialog says. `CubeNotFoundOffer` deliberately does not model it, its own note
+    /// saying this is about whether an attempt may run at all.
+    private(set) var hasGivenUpOnCube = false
 
     /// Whether the question is on screen right now. Nothing may attempt a connection until it is answered.
     private var isAwaitingAnswer = false
@@ -75,6 +79,21 @@ final class DeviceReconnector {
     /// backoff for ever. That is what a test gets by default, and it is the honest fallback for a build with nowhere
     /// to put a dialog: an app that stopped trying and had no way to say so would simply look broken.
     var onCubeNotFound: ((String, @escaping (CubeNotFoundAnswer) -> Void) -> Void)?
+
+    /// Called the moment this launch is told to time by hand, so whatever draws intermittently is redrawn.
+    ///
+    /// **The one thing a derived answer still needs.** Nothing has to be *told* what the app now is, since every
+    /// surface reads `ManualTimerRules.isManualMode` when it next asks -- but two of them only ask on a tick that
+    /// does not run in this state. The menu bar repaints while something is being timed and nothing is; the Faces tab
+    /// repaints on a flip and there is no cube to flip. So this is a redraw, not a notification of state.
+    var onGaveUpOnCube: (() -> Void)?
+
+    /// Called when the answer is to quit. `nil` leaves the launch as it was, which is what a test wants.
+    ///
+    /// **Injected rather than calling `NSApp` here**, so this type stays testable without AppKit and the app keeps
+    /// one way out: `main.swift` wires this to the same terminate the menu bar's Quit uses, so the quit sequence
+    /// runs exactly as it does from anywhere else.
+    var onQuitRequested: (() -> Void)?
 
     init(
         radio: BluetoothRadio,
@@ -116,7 +135,7 @@ final class DeviceReconnector {
             isReachingForCube: radio.isReachingForCube,
             isFactoryResetRunning: radio.isFactoryResetRunning,
             isAwaitingAnswer: isAwaitingAnswer,
-            hasStoppedLooking: hasStoppedLooking
+            hasGivenUpOnCube: hasGivenUpOnCube
         ) else {
             // **Said only when there was a pairing to act on.** An unpaired app standing down is not an event, and this
             // runs on every drop and every failed attempt: a line each time would be the loop's own noise burying the
@@ -182,8 +201,8 @@ final class DeviceReconnector {
         // state -- no attempt is arranged, so no outcome comes back to fail -- but the question reappearing after
         // somebody has said to get on without the device would be the app asking them to decide again, and standing
         // down here is what makes "this launch has stopped" true of every path rather than of the ones thought of.
-        guard !hasStoppedLooking else {
-            debugLog?.record(.mode, "This launch was told to stop looking, so the offer is not put up again")
+        guard !hasGivenUpOnCube else {
+            debugLog?.record(.mode, "This launch was told to time by hand, so the offer is not put up again")
             return
         }
         guard let onCubeNotFound else {
@@ -200,7 +219,7 @@ final class DeviceReconnector {
             guard let self else { return }
             self.isAwaitingAnswer = false
             switch answer {
-            case .retry:
+            case .rescan:
                 // The backoff goes back to the start, so the next attempt begins two seconds out rather than at
                 // whatever the count had climbed to. Retry is somebody standing there having just asked for it.
                 self.failures = 0
@@ -212,14 +231,22 @@ final class DeviceReconnector {
                 // down, which failed in eight milliseconds on hardware (2026-08-23) and reported "nothing answered"
                 // about a cube on the desk. That shortcut is gone from `reach` entirely.
                 self.radio.forgetWhatWasFound()
-                self.debugLog?.record(.mode, "Retry chosen; looking for the cube again")
+                self.debugLog?.record(.mode, "Rescan chosen; looking for the cube again")
                 self.attempt()
-            case .stopLooking:
-                // **The one thing this answer sets, and it is about looking rather than about having.** The app is
-                // still paired to the cube it could not find; what has changed is that this launch is no longer
-                // hunting for it. Forgetting the device is the other act, and that one takes effect at once now.
-                self.hasStoppedLooking = true
-                self.debugLog?.record(.mode, "Stop looking chosen; this launch reaches for no cube on its own again")
+            case .timeByHand:
+                // **One flag, and it is what both halves of the answer read.** This loop arranges nothing further,
+                // and the app is its own clock from here, because `ManualTimerRules.isManualMode` asks this same
+                // question rather than being handed a mode. The pairing is untouched: the cube is still on record and
+                // a new launch will look for it.
+                self.hasGivenUpOnCube = true
+                self.debugLog?.record(.mode, "Time by hand chosen; this launch times from the app and looks for no cube again")
+                // After the flag, so anything that reads back during the redraw gets the new answer.
+                self.onGaveUpOnCube?()
+            case .quit:
+                // Nothing is set and nothing is written, so the next launch puts the same question up. The log row
+                // goes first because there is no after.
+                self.debugLog?.record(.mode, "Quit chosen at the device offer; nothing about the pairing is changed")
+                self.onQuitRequested?()
             }
         }
     }
@@ -252,8 +279,8 @@ final class DeviceReconnector {
         // **And nothing is arranged once somebody has said to stop.** Same fault, different reason: a drop would
         // otherwise write "Looking for the cube again in 8s" and then stand down eight seconds later at the gate in
         // `attempt`, so the log would describe an app still hunting for a cube it was asked to leave alone.
-        guard !hasStoppedLooking else {
-            debugLog?.record(.pair, "This launch was told to stop looking, so the cube is not being looked for again")
+        guard !hasGivenUpOnCube else {
+            debugLog?.record(.pair, "This launch was told to time by hand, so the cube is not being looked for again")
             return
         }
         let delay = DeviceReconnectRules.delay(afterFailures: failures)

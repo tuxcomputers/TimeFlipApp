@@ -87,7 +87,7 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
         // there, and this line is the only place the two can be told apart.
         setPaired(true)
         var reasons: [String] = []
-        let loop = reconnector(answering: .stopLooking, asked: { reasons.append($0) })
+        let loop = reconnector(answering: .timeByHand, asked: { reasons.append($0) })
 
         loop.noteOutcome(.wrongPIN)
 
@@ -120,12 +120,12 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(asked, 0)
     }
 
-    func testRetryAsksAgainIfTheCubeIsStillNotThere() {
-        // Retry is one more attempt and the same question if that finds nothing too. The attempt it starts stops at
+    func testRescanAsksAgainIfTheCubeIsStillNotThere() {
+        // Rescan is one more attempt and the same question if that finds nothing too. The attempt it starts stops at
         // `device_uuid`, which is empty here, so what is asserted is the loop coming back round rather than a scan.
         setPaired(true)
         var asked = 0
-        let loop = reconnector(answering: .retry, asked: { _ in asked += 1 })
+        let loop = reconnector(answering: .rescan, asked: { _ in asked += 1 })
 
         loop.noteOutcome(.unreachable)
         loop.noteOutcome(.unreachable)
@@ -133,24 +133,88 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(asked, 2)
     }
 
-    func testChoosingToStopLookingIsNotAskedAgain() {
-        // **Stop Looking settles this loop and nothing else.** It does not make the app its own clock -- that is what
-        // forgetting the device does -- so what is checked here is only that the question does not come back at the
-        // next failure, which is what the offer's own record of having been answered is for.
+    func testChoosingToTimeByHandStopsThisLaunchLookingForTheCube() {
+        // **The whole of what the answer promises, and it is per launch.** Paired, started, cube not found, timing by
+        // hand chosen: nothing looks for that cube again until the app is restarted. Every route in is tried here --
+        // another failed outcome, and a drop -- because the two gates that enforce it are in different methods, and
+        // the one in `scheduleAttempt` exists so the log cannot claim an attempt that `attempt` will stand down.
         setPaired(true)
         var asked = 0
-        let loop = reconnector(answering: .stopLooking, asked: { _ in asked += 1 })
+        let loop = reconnector(answering: .timeByHand, asked: { _ in asked += 1 })
 
         loop.noteOutcome(.unreachable)
-        // Whatever else happens this launch -- a stray outcome, a drop -- the app neither asks again nor arranges
-        // another attempt. The loop's own record of having been told is what stops it, rather than a mode.
         loop.noteDropped()
         loop.noteOutcome(.unreachable)
 
         XCTAssertEqual(asked, 1, "the question came back after it had already been answered")
-        XCTAssertTrue(logged("Stop looking chosen%"))
-        XCTAssertTrue(logged("This launch was told to stop looking%"))
+        XCTAssertTrue(logged("Time by hand chosen%"))
+        XCTAssertTrue(logged("This launch was told to time by hand%"))
         XCTAssertFalse(logged("Looking for the cube again%"), "and nothing was arranged behind the answer")
+    }
+
+    func testChoosingToTimeByHandMakesTheAppItsOwnClock() {
+        // **The half that was missing, and the reason this bug existed.** The loop stopping is not the point of the
+        // answer: being able to work is. `ManualTimerRules.isManualMode` reads this flag, so what is asserted here is
+        // the flag it reads -- with the pairing deliberately checked as well, because the cube staying on record is
+        // what makes the choice free to make.
+        setPaired(true)
+        let loop = reconnector(answering: .timeByHand)
+
+        loop.noteOutcome(.unreachable)
+
+        XCTAssertTrue(loop.hasGivenUpOnCube)
+        XCTAssertTrue(
+            ManualTimerRules.isManualMode(isCubePaired: true, hasGivenUpOnCube: loop.hasGivenUpOnCube),
+            "the app is still following a cube it has been told to get on without"
+        )
+        XCTAssertEqual(
+            settings.flag("paired", field: "paired"), true,
+            "the answer wrote the pairing away, so the cube cannot be come back to"
+        )
+    }
+
+    func testChoosingToTimeByHandRedrawsWhatCannotAskAgainOnItsOwn() {
+        // The menu bar's tick does not run while nothing is being timed and the Faces tab repaints on a flip that
+        // cannot arrive, so both are redrawn from here. Asserted because it is invisible: without it the answer is
+        // correct everywhere and looks like it did nothing until something else happens to repaint.
+        setPaired(true)
+        var redraws = 0
+        let loop = reconnector(answering: .timeByHand)
+        loop.onGaveUpOnCube = { redraws += 1 }
+
+        loop.noteOutcome(.unreachable)
+
+        XCTAssertEqual(redraws, 1)
+    }
+
+    func testQuitAsksToTerminateAndDecidesNothingElse() {
+        // **Quit commits to nothing**, which is what it is for: the pairing is untouched, this launch is not made its
+        // own clock, and the next launch therefore asks the same question. Nothing is arranged either, since the
+        // process is going away.
+        setPaired(true)
+        var quits = 0
+        let loop = reconnector(answering: .quit)
+        loop.onQuitRequested = { quits += 1 }
+
+        loop.noteOutcome(.unreachable)
+
+        XCTAssertEqual(quits, 1)
+        XCTAssertFalse(loop.hasGivenUpOnCube, "quitting decided the launch was its own clock on the way out")
+        XCTAssertEqual(settings.flag("paired", field: "paired"), true)
+        XCTAssertTrue(logged("Quit chosen at the device offer%"))
+        XCTAssertFalse(logged("Looking for the cube again%"))
+    }
+
+    func testAnUnansweredOfferLeavesTheLoopWaiting() {
+        // The state the app spends the dialog in: asked, and nothing decided. Neither answer's consequence is in
+        // place, and no attempt runs behind it.
+        setPaired(true)
+        let loop = reconnector()
+
+        loop.noteOutcome(.unreachable)
+
+        XCTAssertFalse(loop.hasGivenUpOnCube)
+        XCTAssertFalse(logged("Looking for the cube again%"))
     }
 
     // MARK: - forgetting the device ends the loop, without a restart

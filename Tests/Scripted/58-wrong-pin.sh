@@ -1,5 +1,5 @@
 #!/bin/bash
-# A paired cube that refuses this app's PIN: the offer, Retry, and taking manual mode.
+# A paired cube that refuses this app's PIN: the offer, Rescan, and taking timing by hand.
 #
 # **The one route into manual mode that is not "nothing answered".** `56-manual-mode` gets the offer up by putting the
 # cube out of reach, so the app finds nothing at all. This gets it up with the cube sitting right there, answering,
@@ -46,8 +46,8 @@ ensure_app_running
 #
 # **21 since the Keychain became a store this has to break too**, the check that reads the item back after clearing
 # it being the verdict that came with it.
-EXPECTED_CHECKS=21
-start "a cube that refuses this app's PIN: the offer, Retry, and manual mode"
+EXPECTED_CHECKS=20
+start "a cube that refuses this app's PIN: the offer, Rescan, and timing by hand"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
 # anything reaching this line has a cube: every script between them needs one, and none of them runs after 50
@@ -57,20 +57,7 @@ start "a cube that refuses this app's PIN: the offer, Retry, and manual mode"
 CONFIG="$SUPPORT/config.json"
 PIN_RESTORED=1
 
-# The Keychain item the app keeps the cube's PIN in -- `DevicePINStore`'s `service` and `account`, which are the
-# bundle identifier plus `.device`, and `device-pin`. Written out rather than derived, so a rename over there shows
-# up here as this script failing to clear anything rather than as it silently clearing nothing.
-PIN_SERVICE="au.com.tux.facet.device"
-PIN_ACCOUNT="device-pin"
-KEYCHAIN_CLEARED=0
-
 restore_pin() {
-    # **Said whichever way this ends, and it is not a failure.** The app puts the item back on the next login the
-    # file's PIN wins, so the note is a description of where the PIN is right now rather than a warning: in a
-    # developer build the file is holding it, which is the file's ordinary job.
-    if [ "$KEYCHAIN_CLEARED" = "1" ]; then
-        step "the Keychain PIN is cleared; the app puts it back on the next login the config PIN wins"
-    fi
     [ "$PIN_RESTORED" = "1" ] && return 0
     if [ -f "$CONFIG.58-backup" ]; then
         mv "$CONFIG.58-backup" "$CONFIG"
@@ -129,17 +116,11 @@ PY
 check "config.json now holds a PIN the cube is not on" "123457" \
     "$(python3 -c "import json;print(json.load(open('$CONFIG'))['PIN'])" 2>/dev/null)"
 
-# **And the Keychain's, which is the other half of being out of PINs.** Deleting is prompt-free: the dialog the
-# Keychain raises is for *reading* an item another program owns, and this reads nothing (confirmed 2026-08-31,
-# `security delete-generic-password` returned at once). `find` without `-w` is the same -- attributes, not the
-# secret -- which is what makes the check below safe to run at all inside a suite nobody is watching.
-#
-# Asserted rather than assumed. A delete that quietly did nothing would leave the app holding the real PIN, and the
-# failure would arrive four checks later as the cube accepting a login this script is here to see refused.
-security delete-generic-password -s "$PIN_SERVICE" -a "$PIN_ACCOUNT" >/dev/null 2>&1
-KEYCHAIN_CLEARED=1
-check "and the Keychain no longer holds one either, so every store is wrong" "gone" \
-    "$(security find-generic-password -s "$PIN_SERVICE" -a "$PIN_ACCOUNT" >/dev/null 2>&1 && echo present || echo gone)"
+# **The file is the whole of it, and the Keychain is deliberately left alone.** A developer build presents the PIN in
+# `config.json` and no other stored one (`DevicePINRules.readOrder`, Method 16), so the cube has nothing else of this
+# app to accept. This script used to delete the Keychain item as well, and had to: the Keychain was a second
+# candidate, so the wrong PIN was refused and the right one got straight in. It no longer is, so a real credential is
+# no longer destroyed to run a test.
 
 # ---------------------------------------------------------------------------- found, and refused
 #
@@ -178,22 +159,22 @@ expect_log "so manual mode is offered" "$launched" "Offering manual mode:%" 60
 offer=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $launched AND message LIKE 'Offering manual mode:%' ORDER BY debug_log_id LIMIT 1;")
 check_contains "and the log says why, which the dialog does not" "$offer" "refused the PIN this app has"
 
-# ---------------------------------------------------------------------------- Retry, which asks again
+# ---------------------------------------------------------------------------- Rescan, which asks again
 #
-# **Retry is one more attempt and the same question after it.** There is no limit on how many times it may be chosen,
+# **Rescan is one more attempt and the same question after it.** There is no limit on how many times it may be chosen,
 # and nothing about it is a countdown: the cube is still on a PIN this app does not have, so the second round finds
 # exactly what the first did.
 
 retried=$(mark)
-press_title "Retry"
+press_title "Rescan"
 sleep 2
 
-if ! wait_for "$retried" "Retry chosen;%" 5 >/dev/null; then
+if ! wait_for "$retried" "Rescan chosen;%" 5 >/dev/null; then
     step "the alert did not answer to an AXPress, so asking for a hand"
     if ! action_required \
-        "Click **Retry** on the dialog" \
+        "Click **Rescan** on the dialog" \
         "The app could not open your TimeFlip, and is asking what to do about it." \
-        "Do not click Stop Looking yet: this script needs the retry first."
+        "Do not click Time by Hand or Quit yet: this script needs the rescan first."
     then
         fail "the offer was not answered, so the retry could not be checked"
         finish
@@ -201,10 +182,10 @@ if ! wait_for "$retried" "Retry chosen;%" 5 >/dev/null; then
     fi
 fi
 
-expect_log "Retry is recorded as chosen" "$retried" "Retry chosen;%" 10
+expect_log "Rescan is recorded as chosen" "$retried" "Rescan chosen;%" 10
 expect_log "and it looks again rather than standing down" "$retried" "Reaching for %" 30
-# **A scan, not the last answer repeated.** The whole of what Retry means is going to look again, and the fault it hid
-# was that it did not: on 2026-08-23 a Retry came back in eight milliseconds, having connected to a handle the failed
+# **A scan, not the last answer repeated.** The whole of what Rescan means is going to look again, and the fault it hid
+# was that it did not: on 2026-08-23 this button came back in eight milliseconds, having connected to a handle the failed
 # attempt had already torn down, and reported "nothing answered" about a cube on the desk. A `Scan started` row after
 # the retry is the difference between looking again and answering from memory.
 expect_log "and it is a real scan rather than the last answer again" "$retried" "Scan started%" 30
@@ -213,18 +194,19 @@ expect_log "so the offer comes back" "$retried" "Offering manual mode:%" 60
 
 # ---------------------------------------------------------------------------- giving up on it
 #
-# The same dialog, answered the other way. What it settles is the reconnect loop and only that: no attempt of the app's
-# own, from any path, for the rest of the launch. It does **not** turn this launch into its own clock -- a launch that
-# with a cube on record still has one: a refused PIN changes nothing about the pairing.
+# The same dialog, answered the other way. Two things follow, and they are one decision: no attempt of the app's own
+# from any path for the rest of the launch, and this launch times from the app instead. What does **not** follow is
+# anything about the pairing -- a refused PIN says nothing about which cube this app has, and the row is checked below
+# to say so.
 
 chosen=$(mark)
-press_title "Stop Looking"
+press_title "Time by Hand"
 sleep 2
 
-if ! wait_for "$chosen" "Stop looking chosen;%" 5 >/dev/null; then
+if ! wait_for "$chosen" "Time by hand chosen;%" 5 >/dev/null; then
     step "the alert did not answer to an AXPress, so asking for a hand"
     if ! action_required \
-        "Click **Stop Looking** on the dialog" \
+        "Click **Time by Hand** on the dialog" \
         "The app still could not open your TimeFlip, and is asking again." \
         "This is the last thing this script needs from you."
     then
@@ -234,10 +216,11 @@ if ! wait_for "$chosen" "Stop looking chosen;%" 5 >/dev/null; then
     fi
 fi
 
-expect_log "choosing it stops the loop for the rest of the launch" "$chosen" "Stop looking chosen;%" 60
+expect_log "choosing it stops the loop for the rest of the launch" "$chosen" "Time by hand chosen;%" 60
 check "the cube is still this app's cube, refused PIN and all" "1" "$(setting paired paired)"
-# **And the launch is not turned into its own clock**, which this answer used to do as well. Any `mode` row after the
-# startup one would be the switching coming back.
+# **And it does it without restarting**, which is what the old switching needed and what makes this worth pinning: a
+# second `Launch mode:` row would mean the launch had been replaced rather than changed. Whether the click starts a
+# clock is `56-manual-mode`, which has the tab open for it.
 check "and the launch is still the one that started" "0" \
     "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $chosen AND tag = 'mode' AND message LIKE 'Launch mode:%';")"
 

@@ -4,15 +4,25 @@ import Foundation
 enum CubeNotFoundAnswer: Equatable {
     /// Look again: one more attempt, and the question again if that finds nothing too. There is no limit on how many
     /// times this can be chosen.
-    case retry
-    /// Stop. The app makes no further attempt **of its own** for the rest of the launch.
+    case rescan
+    /// Get on without the cube. This launch times from the app, and makes no further attempt on the device.
     ///
-    /// **It settles the loop and nothing else.** This used to be `switchToManualMode` and used to change what the app
-    /// was, which is a different fact: the cube is still on record, and what has changed is that this launch has
-    /// given up looking for it (`DeviceReconnector.hasStoppedLooking`). Timing by hand is reached by forgetting the
-    /// device, which takes effect at once. What this state says on screen is `DeviceInfoRules.connection`'s to
-    /// answer, and it is `Disconnected`: a cube on record that cannot be heard from.
-    case stopLooking
+    /// **One decision, and both halves of it come from the one fact.** The launch stops reaching for the cube
+    /// (`DeviceReconnector.hasGivenUpOnCube`), and that same fact is what `ManualTimerRules.isManualMode` reads, so
+    /// the app is its own clock from the moment this is chosen rather than from the next launch.
+    ///
+    /// **The cube stays on record.** This says nothing about what the app has, only that this launch is not waiting
+    /// for it: the pairing, the PIN and the stored details are all untouched, and a new launch looks for it again.
+    /// Forgetting the device is still a separate act, and still the only one that gives a cube back to whoever finds
+    /// it next.
+    case timeByHand
+    /// Leave. Nothing is written and nothing is decided, so the next launch asks the same question.
+    ///
+    /// **Here because the other two both commit to something.** Rescan waits and timing by hand gives up, and
+    /// somebody who has realised the cube is in the other room wants neither: they want the app shut until they are
+    /// back with it. Quitting from the menu bar means dismissing this dialog first, which is answering a question
+    /// they came here to refuse.
+    case quit
 }
 
 /// Whether a failed attempt on the paired cube should be put to the user, or retried quietly.

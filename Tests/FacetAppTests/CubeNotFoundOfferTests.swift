@@ -94,14 +94,18 @@ final class CubeNotFoundOfferTests: XCTestCase {
     }
 
     @MainActor
-    func testTheOfferNamesTheWayToTimingByHand() {
-        // **A restart on its own comes straight back to this dialog**, the app still being paired and still unable to
-        // find anything. The answer does not switch the running app either, so the text has to name what does --
-        // forgetting the device, which is the whole of it now and takes effect without a relaunch.
-        XCTAssertTrue(CubeNotFoundAlert.informativeText.contains("forget the device"), CubeNotFoundAlert.informativeText)
+    func testTheOfferNamesWhatEachAnswerCommitsTo() {
+        // **Timing by hand is a button again, so the text names what pressing it does rather than a route to it.**
+        // The two facts somebody needs before choosing are that the device stays paired, which makes the choice free
+        // to make, and that getting the cube back is a restart, since this launch stops looking for good.
+        let text = CubeNotFoundAlert.informativeText
+        XCTAssertTrue(text.contains("Rescan"), text)
+        XCTAssertTrue(text.contains("Time by Hand"), text)
+        XCTAssertTrue(text.contains("stays paired"), text)
+        XCTAssertTrue(text.contains("quit and start the app"), text)
         XCTAssertFalse(
-            CubeNotFoundAlert.informativeText.contains("Manual mode lets you"),
-            "the offer no longer switches the running launch, so it must not read as though it does"
+            text.contains("forget the device"),
+            "the two-step route belongs to the version whose button could not switch the launch"
         )
     }
 
