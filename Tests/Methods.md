@@ -308,19 +308,20 @@ in -- and Return therefore fires the *rightmost* button unless key equivalents a
 tools only walk sheets. The whole-tree search is what finds it:
 
 ```sh
-python3 scripts/ax-dump.py | head -8
+python3 scripts/ax-dump.py | head -9
 #   AXWindow  id=_NS:87  desc=alert
 #     AXStaticText  value=Unable to find your device
-#     AXButton  id=action-button-1  title=Retry
-#     AXButton  id=action-button-2  title=Stop Looking
+#     AXButton  id=action-button-1  title=Rescan
+#     AXButton  id=action-button-2  title=Time by Hand
+#     AXButton  id=action-button-3  title=Quit
 
-python3 scripts/ax-press.py --title "Stop Looking"
+python3 scripts/ax-press.py --title "Time by Hand"
 ```
 
 **An `AXPress` does actuate it, from inside the modal run loop.** That was the open question: `runModal` blocks the
 main thread, so it was not obvious the app would service an accessibility request at all, let alone act on it. It
-does -- the alert dismissed and the app carried on. Measured 2026-08-19 against the manual-mode offer, which is the
-only app-modal alert this app puts up.
+does -- the alert dismissed and the app carried on. Measured 2026-08-19 against the cube-not-found offer, which is
+the only app-modal alert this app puts up. Its buttons were `Retry` and `Stop Looking` until 2026-09-02.
 
 **The buttons carry identifiers as well as titles**, `action-button-1` upwards in the order they were added, the same
 scheme [Method 10](#method-10) records for sheets. Prefer the title: the order is the order `addButton` was called
@@ -391,6 +392,35 @@ to stdout rather than stderr, which is why it hides in a script that only checks
 
 **Open the image afterwards and look at it.** Both failures above -- the wrong window and the missing file -- produced
 a plausible-looking run and an image nobody had seen.
+
+<a id="method-16"></a>
+## Method 16: Make a paired cube refuse the login, with the cube on the desk
+
+**A developer build presents the PIN in `config.json` and no other stored PIN**, so a value the cube is not on gets a
+refusal instead of a fall-through. One digit off the dev PIN is enough:
+
+```sh
+# ~/Library/Application Support/Facet/config.json -- the key is "PIN", the archive's own
+{"PIN": "123457"}
+```
+
+Quit and start the app with the cube in range. The login is refused, `Offering manual mode: the cube was found and
+refused the PIN this app has` is written, and the offer dialog comes up ([Method 13](#method-13)) without the cube
+having gone anywhere. This is what `58-wrong-pin` needs; `56-manual-mode` still needs the radio off, its subject
+being a cube that answers nothing at all.
+
+**The cube has to be on `123456` for it to hold.** `DeviceLoginRules.reconnectCandidates` appends `000000` after the
+stored list, so a cube whose batteries have been out logs in on the vendor default, and `DevicePINRules.rotates` then
+rotates it to `123456` and writes that over the file -- the run passes through a working login and the edit is gone.
+
+**Put the dev PIN back afterwards**, or delete the key and let the stand-in answer: `DevicePINRules.developerPIN` is
+what a dev build presents when the file names nothing, and it is the value the cube is on. The Keychain's copy is
+untouched throughout and a dev build does not read it.
+
+**Before 2026-09-02 this did not work, and looked as though it did.** The Keychain was a second candidate in a dev
+build, so the wrong PIN was refused and the right one got straight in: `Refused, and there is another PIN to try`
+followed by `PIN accepted`, measured at 19:47 that day. A run set up this way reached a connected cube and reported
+the wrong-PIN path as covered.
 
 ## An ad-hoc build silently switches Google sync off
 

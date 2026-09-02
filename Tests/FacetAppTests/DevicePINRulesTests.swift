@@ -109,7 +109,7 @@ final class DevicePINRulesTests: XCTestCase {
     func testTwoStoresThatAgreeArePresentedOnce() {
         // Each candidate costs a whole connect, which is a long way to go to learn nothing.
         XCTAssertEqual(
-            DevicePINRules.readOrder(configFile: "123456", keychain: "123456", isDeveloperMode: true),
+            DevicePINRules.readOrder(configFile: "123456", keychain: "123456", isDeveloperMode: false),
             ["123456"]
         )
     }
@@ -142,10 +142,43 @@ final class DevicePINRulesTests: XCTestCase {
 
     func testTheStandInNeverJoinsAStoredPIN() {
         // The archive's own bug: offered as an extra guess it let a dev build into a cube whose PIN the app had no
-        // record of, and made "the stored PIN" mean two different things.
+        // record of, and made "the stored PIN" mean two different things. Asked of the file, which is the store a
+        // dev build reads.
         XCTAssertEqual(
-            DevicePINRules.readOrder(configFile: nil, keychain: "654321", isDeveloperMode: true),
+            DevicePINRules.readOrder(configFile: "654321", keychain: nil, isDeveloperMode: true),
             ["654321"]
+        )
+    }
+
+    // MARK: - a developer build reads the file and nothing else
+
+    func testADeveloperBuildPresentsTheFilesPINAlone() {
+        // **The whole of the change, and what makes a refusal arrangeable.** A PIN typed into `config.json` is the
+        // only one presented, so a cube that is not on it refuses and the offer dialog appears. While the Keychain
+        // was a second candidate this was untestable: the wrong PIN was refused and the right one, sitting in the
+        // Keychain, got straight in.
+        XCTAssertEqual(
+            DevicePINRules.readOrder(configFile: "123457", keychain: "123456", isDeveloperMode: true),
+            ["123457"]
+        )
+    }
+
+    func testAReleaseBuildStillFallsBackToTheKeychain() {
+        // The same two stores, the other build: nothing about the fallback changes where a person is not editing the
+        // file, and a release build's file only ever holds a PIN because the Keychain refused one.
+        XCTAssertEqual(
+            DevicePINRules.readOrder(configFile: "123457", keychain: "123456", isDeveloperMode: false),
+            ["123457", "123456"]
+        )
+    }
+
+    func testADeveloperBuildWithAnUnusablePINInTheFileFallsBackToTheStandIn() {
+        // A half-typed PIN is a file somebody is in the middle of editing, and presenting five digits would spend a
+        // connect on a refusal that reads as the cube's fault. The stand-in is one of the two values a dev cube is
+        // ever on, so it is the honest guess.
+        XCTAssertEqual(
+            DevicePINRules.readOrder(configFile: "12345", keychain: "123456", isDeveloperMode: true),
+            ["123456"]
         )
     }
 

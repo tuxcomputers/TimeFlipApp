@@ -84,27 +84,48 @@ enum DevicePINRules {
 
     /// The order the stored PINs are presented in, given what each store holds.
     ///
-    /// **The file goes first when it has one, in both builds**, which reads backwards for a production build and is
-    /// the point of the fallback: in a release build the file only ever holds a PIN because the Keychain refused
-    /// one, so the file's is the *newer* of the two and the Keychain's is what the cube was called before it. A
-    /// developer build reads the same order for a different reason -- the file is the one a person edits, so it is
-    /// the one that should win.
+    /// **A developer build reads the file and nothing else.** `config.json` is the store a person edits, so in a dev
+    /// build it is the answer rather than merely the first guess: a PIN typed into it is the only one presented, and
+    /// the Keychain's copy is not consulted at all.
+    ///
+    /// Two things make that safe here and nowhere else. A dev build only ever puts `developerPIN` on a cube, so the
+    /// Keychain can hold nothing else that a dev cube is actually on; and `DeviceLoginRules.reconnectCandidates`
+    /// appends the vendor default whatever this returns, so `000000` stays reachable and a cube whose batteries came
+    /// out is still an ordinary Tuesday. Between them, the two values a dev cube is ever left on are both still
+    /// covered.
+    ///
+    /// **What it buys is a cube that can be made to refuse on purpose**, which is the only way to reach the offer
+    /// dialog without carrying the hardware out of the building: put a PIN the cube is not on into the file, and the
+    /// login fails instead of quietly succeeding on the Keychain's copy. That fall-through is measured, not
+    /// hypothetical -- `Refused, and there is another PIN to try` followed by `PIN accepted`, 2026-09-02 19:47 -- and
+    /// it made the wrong-PIN path untestable while looking like it worked. See `Tests/Methods.md`.
+    ///
+    /// **What it costs**: a dev machine whose file names nothing and whose Keychain holds a PIN from a release build
+    /// can no longer reach that cube, since the stand-in and the default are all it will try. Copying the PIN into
+    /// the file is the fix, and the situation needs a release build to have run on the same machine to arise at all.
+    ///
+    /// **Any other build reads both, the file first**, which reads backwards until you know what the file means
+    /// there: it only ever holds a PIN because the Keychain refused one, so the file's is the *newer* of the two and
+    /// the Keychain's is what the cube was called before it.
     ///
     /// **Deduplicated**, so the ordinary case where both stores agree presents one PIN and not the same PIN twice.
     /// Each candidate costs a whole connect (`BluetoothRadio`), which is a long way to go to learn nothing.
     ///
-    /// **Three candidates are possible now, where there were only ever two.** That is the disagreement case and only
-    /// that case: the two stores hold different PINs, which happens after a Keychain write that failed, and the app
-    /// genuinely does not know which of the two the cube is on. `DevicePINSource.reconcile` is what puts the two
-    /// back together the next time one of them is proved.
+    /// **Three candidates are possible in a release build**, and that is the disagreement case and only that case:
+    /// the two stores hold different PINs, which happens after a Keychain write that failed, and the app genuinely
+    /// does not know which of the two the cube is on. `DevicePINSource.reconcile` is what puts the two back together
+    /// the next time one of them is proved.
     static func readOrder(configFile: String?, keychain: String?, isDeveloperMode: Bool) -> [String] {
+        if isDeveloperMode {
+            // The stand-in when the file names nothing, exactly as before: it is a stand-in for a stored PIN and
+            // never a candidate alongside one, which is the archive's bug and its note on `developerPIN`.
+            guard let configFile, DeviceLoginRules.isWellFormed(configFile) else { return [developerPIN] }
+            return [configFile]
+        }
         var seen: Set<String> = []
-        var order = [configFile, keychain]
+        return [configFile, keychain]
             .compactMap { $0 }
             .filter { DeviceLoginRules.isWellFormed($0) && seen.insert($0).inserted }
-        // The stand-in, and only with nothing written down at all: see `developerPIN`.
-        if order.isEmpty, isDeveloperMode { order = [developerPIN] }
-        return order
     }
 
     /// What a launch should do about the two stores, before any cube has answered.
