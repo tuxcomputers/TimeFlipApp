@@ -29,10 +29,11 @@ enum DeviceReconnectRules {
     /// screen -- somebody who starts the app and walks away has to find the offer exactly where they left it, not a
     /// backoff retry having quietly started another run of attempts behind the dialog.
     ///
-    /// **`hasStoppedLooking` is the other one, and it is not a mode.** It used to be spelled `isManualMode` here,
-    /// which made it the same parameter as "this app has no device" -- two different facts sharing a name, and the
-    /// name belonged to neither. A cube that cannot be found is still on record; what somebody answered is whether
-    /// this launch goes on hunting for it. Being unpaired is now the first guard's business and nothing else's.
+    /// **`hasGivenUpOnCube` is the other one.** It is not the same parameter as "this app has no device", which is
+    /// what it was once spelled as (`isManualMode`): a cube that cannot be found is still on record, and being
+    /// unpaired is the first guard's business. What it *is* is the launch having been told to get on without the
+    /// cube, which stops this loop and makes the app its own clock at the same time -- one flag, because they are one
+    /// decision (`CubeNotFoundAnswer.timeByHand`).
     ///
     /// Both default to `false`, which reads as "no offer is up and nobody has said to stop" -- the state every caller
     /// that predates them was in.
@@ -43,9 +44,9 @@ enum DeviceReconnectRules {
         isReachingForCube: Bool,
         isFactoryResetRunning: Bool,
         isAwaitingAnswer: Bool = false,
-        hasStoppedLooking: Bool = false
+        hasGivenUpOnCube: Bool = false
     ) -> Bool {
-        guard isCubePaired, !isAwaitingAnswer, !hasStoppedLooking else { return false }
+        guard isCubePaired, !isAwaitingAnswer, !hasGivenUpOnCube else { return false }
         return !isCubeConnected && !isScanning && !isReachingForCube && !isFactoryResetRunning
     }
 
