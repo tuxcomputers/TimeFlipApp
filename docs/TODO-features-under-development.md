@@ -302,22 +302,57 @@ The cube gets left at work, or at home. The app should still be usable on those 
 1. **No eligible device is seen at all.** The cube is somewhere else.
 2. **Eligible devices are seen but none accepts this app's PIN.** Every one is tried before the dialog appears.
 
-The message is the same for both, because from the user's side they are the same situation: *"Unable to find your device"*, with Retry and Stop Looking under it. (It read *"retry or switch to manual mode"* until the reversal recorded below, when the second button stopped switching anything.)
+The message is the same for both, because from the user's side they are the same situation: *"Unable to find your device"*, with **Rescan**, **Time by Hand** and **Quit** under it. (The heading read *"retry or switch to manual mode"* until the reversal recorded below took the switching out of the second button; the button names are the third set, see 2026-09-02.)
 
 **Trying every candidate is not a nicety, it is the fix for a real defect.** The upstream driver (`23fe40e`) stopped the scan and connected the instant any peripheral matched on name, then logged in once. In an office where several people have TimeFlips, that means grabbing whichever colleague's cube advertised first, being refused because their PIN is not this app's, and giving up, with the user's own device sitting on the same desk untried. The `device_uuid` this app stores could have settled it and the connect path never read it: it was loaded at launch and used for nothing.
 
 It now orders rather than filters the candidates. The paired uuid goes first, so the ordinary case costs one login attempt, but everything else is still tried behind it, because a cube that was re-paired, reset, or first paired on another Mac no longer carries that uuid and is still the user's own device. Filtering on it would trade this bug for a worse one.
 
 - **One scan, then ask.** There is no attempt threshold, and there used to be: a `manual_mode` setting counting failures before the dialog, seeded to 3. It bought nothing. Every round is the same scan over the same airspace a few seconds later, so three of them find the same nothing three times, and the whole time the user is watching an app that appears to be doing something about it. Asking after one is honest about what the app knows, and the cost of being wrong is a click.
-- **Retry** runs the whole thing again from the scan. Fail again and the same dialog comes back. That loop has no limit: it repeats until the device answers or the user picks manual mode. Retry is the same wait the threshold used to impose, with the difference that the user chose it.
+- **Rescan** runs the whole thing again from the scan. Fail again and the same dialog comes back. That loop has no limit: it repeats until the device answers or the user takes one of the other two. Rescanning is the same wait the threshold used to impose, with the difference that the user chose it.
 - **Any successful connect ends the question for the session.** The app is in device mode from then on, and a connection that drops later behaves exactly as it does today: retry on the capped backoff, indefinitely, with no dialog. Losing the cube mid-session is a different situation from not having it, and the user has already told us which one they are in.
-- **Choosing Stop Looking stops the app looking, for that launch.** It makes no further connection attempt *of its own* from any path. It no longer switches the launch to manual mode -- see the reversal below.
+- **Choosing Time by Hand stops the app looking, for that launch, and hands it the clock.** It makes no further connection attempt *of its own* from any path, and the app is its own clock from that moment. One per-launch flag carries both halves; see 2026-09-02.
+- **Choosing Quit ends the process and decides nothing.** Nothing is written and no flag is set, so the next launch asks the same question. It is here because the other two both commit to something and a cube left in the other room wants neither.
 
 That rule is what makes the mode safe rather than clever, and it settles a question this section previously listed as open. Auto-exit on the next successful connect was the obvious answer and is a trap: the cube is sitting in a bag in the next room, drifts into range for a few seconds, and silently pulls the user out of manual mode mid-segment. An app that never looks cannot be surprised.
 
 **What was rejected is the app looking, not the user.** The rule above used to be written as "final for that launch", with quitting named as the only way out, and that overshot: a person clicking a device in a scan list is the opposite of a mode changing under them, and the same sentence that keeps a cube in a bag from grabbing the session was also stopping somebody who had just bought one from using it. So the mode ended two ways, both of them acts: pair a device, or quit and start again. Nothing automatic was in either list. The cost this section used to accept -- returning to the cube means a relaunch -- was no longer charged.
 
 Manual mode is still per-launch state, held in memory and nowhere else. There is no `setting` row for it at all, which removes the obvious place to put one by mistake.
+
+### The offer switches the launch again (2026-09-02)
+
+**The second button hands the clock back, and there is a third.** *Time by Hand* stops this launch reaching for the
+cube and makes the app its own clock, in one act. *Quit* is new. The two answers before it both committed to
+something -- wait, or give up -- and somebody who has realised the cube is in the other room wants neither; their way
+out was dismissing the dialog and quitting from the menu bar, which is answering a question they came here to refuse.
+
+**What it fixes was reported from use.** Somebody chose to work without the cube and found every category on the Faces
+tab refusing to be clicked. The answer settled the reconnect loop and nothing else, so the app had taken the cube away
+and given nothing back. Choosing to get on without the device and then not being allowed to is the one outcome the
+question should not be able to produce, and it is what the 2026-08-23 reversal below cost without meaning to.
+
+**Why the switching is safe now, having been removed twice.** Both earlier versions moved a value: a mode was set and
+every surface had to be told, and the menu bar was the one that was not, its tick only running while something is
+being timed. Nothing holds a mode here. `isManualMode` is
+`ManualTimerRules.isManualMode(isCubePaired:hasGivenUpOnCube:)` -- one derivation, two inputs, both read at the point
+of use -- so every surface answers the current question the next time it asks and there is no list to notify. The two
+views that cannot ask on their own get a redraw, which is not a second source of truth: the menu bar for the tick that
+does not run in this state, and the Faces tab for the flip that cannot arrive.
+
+**`hasStoppedLooking` became `hasGivenUpOnCube`.** One flag with two consequences rather than two facts: the loop
+arranges nothing further, and the app is its own clock. The old name was accurate while it did only the first and
+would now describe half of what it does. The pairing is untouched throughout -- nothing writes `paired` -- so the cube
+is still on record, `Rescan` is still available on a later launch, and forgetting the device stays a separate act with
+a different meaning.
+
+**A dev build now presents the `config.json` PIN and no other stored one**, which is what made this testable. A PIN
+typed into the file to make a cube refuse used to be refused and then followed by the Keychain's real one, measured as
+`Refused, and there is another PIN to try` then `PIN accepted` (2026-09-02 19:47): the wrong-PIN path could be set up,
+reported as covered, and had reached a connected cube. `DeviceLoginRules.reconnectCandidates` still appends the vendor
+default, so `000000` stays reachable and a battery change is still an ordinary Tuesday. `Tests/Methods.md` Method 16 is
+the technique, including the trap that the cube must be on `123456`: on the default it logs in, rotates, and writes the
+dev PIN back over the edit.
 
 ### The pairing decides again (2026-08-29)
 
@@ -344,6 +379,10 @@ three of its six lines, the `isManualMode` field on `DevicePane.Values`, and the
 still on record and the app has simply given up hunting for it this launch. That is `DeviceReconnector.hasStoppedLooking`
 now, which is the fact the mode had been carrying on its behalf. It still ends only with the process, and the way to
 timing by hand from there is to forget the device -- which now takes effect at once.
+
+(**Half of that held and half of it did not**, and the section above says which: the fact is still per-launch and still
+not the pairing, but it is `hasGivenUpOnCube` and it does make the app its own clock. Requiring a forget as well left a
+launch that had given up hunting *and* refused to time by hand.)
 
 ### The switching was reversed (2026-08-23)
 
