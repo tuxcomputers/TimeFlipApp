@@ -256,9 +256,14 @@ It is not a mode you enter or leave. Whether the app follows a cube or is its ow
 whether anything is paired, at the moment the question is asked — so pairing a cube makes the app
 follow it from that moment, and Forget Device hands the clock back. Neither needs a restart.
 
-If a paired cube cannot be found at startup, the app says so and offers **Retry** or **Stop Looking**.
-Stop Looking stops the app hunting for it this launch; it does not unpair anything, so to time by hand
-from there you forget the device.
+If a paired cube cannot be found at startup, the app says so and offers three answers: **Rescan** to
+look again, **Time by Hand** to get on without it, or **Quit**.
+
+Time by Hand does both halves of what it says. The app stops reaching for that cube for the rest of the
+launch, and it becomes its own clock straight away, so the Faces tab times as it does with nothing
+paired. **It does not unpair anything**: the cube, its PIN and its details are all still on record, and
+starting the app again looks for it. Nothing looks for it before then, deliberately -- a cube in a bag
+in the next room that drifted into range would otherwise pull the clock back mid-segment.
 
 ### Viewing statistics
 
