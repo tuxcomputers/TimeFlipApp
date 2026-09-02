@@ -104,4 +104,31 @@ final class ManualTimerRulesTests: XCTestCase {
         // Only reachable from a clock that moved backwards, and "-0:-1" would be worse than wrong.
         XCTAssertEqual(DurationFormat.hoursMinutesSeconds(-5, rounding: .truncate, showingSeconds: true), "0:00:00")
     }
+
+    // MARK: - who is the clock
+
+    func testAnUnpairedAppIsItsOwnClock() {
+        // The plain case, and the one the app spends most of its life in before a cube arrives.
+        XCTAssertTrue(ManualTimerRules.isManualMode(isCubePaired: false, hasGivenUpOnCube: false))
+    }
+
+    func testAPairedAppFollowsItsCube() {
+        XCTAssertFalse(ManualTimerRules.isManualMode(isCubePaired: true, hasGivenUpOnCube: false))
+    }
+
+    func testAPairedAppToldToTimeByHandIsItsOwnClock() {
+        // **The case this rule exists for.** A cube on record that could not be found, and somebody who answered the
+        // offer by saying they would work without it. Answering false here is the bug it replaced: the reconnect loop
+        // stopped and the Faces tab went on refusing every click, so the answer took the cube away and gave nothing
+        // back.
+        XCTAssertTrue(ManualTimerRules.isManualMode(isCubePaired: true, hasGivenUpOnCube: true))
+    }
+
+    func testGivingUpOnACubeTheAppNoLongerHasChangesNothing() {
+        // Both inputs pointing the same way. Worth pinning because the two are read from different places -- a table
+        // row and a per-launch flag -- and a launch that gave up and then had its device forgotten must not come out
+        // of it following anything.
+        XCTAssertTrue(ManualTimerRules.isManualMode(isCubePaired: false, hasGivenUpOnCube: true))
+    }
+
 }

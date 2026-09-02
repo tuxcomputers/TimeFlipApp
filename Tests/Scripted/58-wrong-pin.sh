@@ -1,5 +1,5 @@
 #!/bin/bash
-# A paired cube that refuses this app's PIN: the offer, Retry, and taking manual mode.
+# A paired cube that refuses this app's PIN: the offer, Rescan, and taking timing by hand.
 #
 # **The one route into manual mode that is not "nothing answered".** `56-manual-mode` gets the offer up by putting the
 # cube out of reach, so the app finds nothing at all. This gets it up with the cube sitting right there, answering,
@@ -47,7 +47,7 @@ ensure_app_running
 # **21 since the Keychain became a store this has to break too**, the check that reads the item back after clearing
 # it being the verdict that came with it.
 EXPECTED_CHECKS=21
-start "a cube that refuses this app's PIN: the offer, Retry, and manual mode"
+start "a cube that refuses this app's PIN: the offer, Rescan, and timing by hand"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
 # anything reaching this line has a cube: every script between them needs one, and none of them runs after 50
@@ -178,22 +178,22 @@ expect_log "so manual mode is offered" "$launched" "Offering manual mode:%" 60
 offer=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $launched AND message LIKE 'Offering manual mode:%' ORDER BY debug_log_id LIMIT 1;")
 check_contains "and the log says why, which the dialog does not" "$offer" "refused the PIN this app has"
 
-# ---------------------------------------------------------------------------- Retry, which asks again
+# ---------------------------------------------------------------------------- Rescan, which asks again
 #
-# **Retry is one more attempt and the same question after it.** There is no limit on how many times it may be chosen,
+# **Rescan is one more attempt and the same question after it.** There is no limit on how many times it may be chosen,
 # and nothing about it is a countdown: the cube is still on a PIN this app does not have, so the second round finds
 # exactly what the first did.
 
 retried=$(mark)
-press_title "Retry"
+press_title "Rescan"
 sleep 2
 
-if ! wait_for "$retried" "Retry chosen;%" 5 >/dev/null; then
+if ! wait_for "$retried" "Rescan chosen;%" 5 >/dev/null; then
     step "the alert did not answer to an AXPress, so asking for a hand"
     if ! action_required \
-        "Click **Retry** on the dialog" \
+        "Click **Rescan** on the dialog" \
         "The app could not open your TimeFlip, and is asking what to do about it." \
-        "Do not click Stop Looking yet: this script needs the retry first."
+        "Do not click Time by Hand or Quit yet: this script needs the rescan first."
     then
         fail "the offer was not answered, so the retry could not be checked"
         finish
@@ -201,10 +201,10 @@ if ! wait_for "$retried" "Retry chosen;%" 5 >/dev/null; then
     fi
 fi
 
-expect_log "Retry is recorded as chosen" "$retried" "Retry chosen;%" 10
+expect_log "Rescan is recorded as chosen" "$retried" "Rescan chosen;%" 10
 expect_log "and it looks again rather than standing down" "$retried" "Reaching for %" 30
-# **A scan, not the last answer repeated.** The whole of what Retry means is going to look again, and the fault it hid
-# was that it did not: on 2026-08-23 a Retry came back in eight milliseconds, having connected to a handle the failed
+# **A scan, not the last answer repeated.** The whole of what Rescan means is going to look again, and the fault it hid
+# was that it did not: on 2026-08-23 this button came back in eight milliseconds, having connected to a handle the failed
 # attempt had already torn down, and reported "nothing answered" about a cube on the desk. A `Scan started` row after
 # the retry is the difference between looking again and answering from memory.
 expect_log "and it is a real scan rather than the last answer again" "$retried" "Scan started%" 30
@@ -218,13 +218,13 @@ expect_log "so the offer comes back" "$retried" "Offering manual mode:%" 60
 # with a cube on record still has one: a refused PIN changes nothing about the pairing.
 
 chosen=$(mark)
-press_title "Stop Looking"
+press_title "Time by Hand"
 sleep 2
 
-if ! wait_for "$chosen" "Stop looking chosen;%" 5 >/dev/null; then
+if ! wait_for "$chosen" "Time by hand chosen;%" 5 >/dev/null; then
     step "the alert did not answer to an AXPress, so asking for a hand"
     if ! action_required \
-        "Click **Stop Looking** on the dialog" \
+        "Click **Time by Hand** on the dialog" \
         "The app still could not open your TimeFlip, and is asking again." \
         "This is the last thing this script needs from you."
     then
@@ -234,7 +234,7 @@ if ! wait_for "$chosen" "Stop looking chosen;%" 5 >/dev/null; then
     fi
 fi
 
-expect_log "choosing it stops the loop for the rest of the launch" "$chosen" "Stop looking chosen;%" 60
+expect_log "choosing it stops the loop for the rest of the launch" "$chosen" "Time by hand chosen;%" 60
 check "the cube is still this app's cube, refused PIN and all" "1" "$(setting paired paired)"
 # **And the launch is not turned into its own clock**, which this answer used to do as well. Any `mode` row after the
 # startup one would be the switching coming back.

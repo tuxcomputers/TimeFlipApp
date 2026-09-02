@@ -280,7 +280,7 @@ final class DeviceReconnector {
         // otherwise write "Looking for the cube again in 8s" and then stand down eight seconds later at the gate in
         // `attempt`, so the log would describe an app still hunting for a cube it was asked to leave alone.
         guard !hasGivenUpOnCube else {
-            debugLog?.record(.pair, "This launch was told to stop looking, so the cube is not being looked for again")
+            debugLog?.record(.pair, "This launch was told to time by hand, so the cube is not being looked for again")
             return
         }
         let delay = DeviceReconnectRules.delay(afterFailures: failures)
