@@ -403,11 +403,34 @@ final class AppSettingsPaneTests: XCTestCase {
 
     func testBothSectionsStartOpen() {
         // **Not the Categories tab's answer, deliberately.** There, Inactive is an archive and starts shut; here the
-        // two sections are the whole tab, so opening it folded would show two headings and nothing to change.
+        // two sections are what somebody opens the tab to change, so opening it folded would show headings and
+        // nothing to change.
         let pane = AppSettingsPane()
 
         XCTAssertTrue(pane.appSection.isExpanded)
         XCTAssertTrue(pane.googleSection.isExpanded)
+    }
+
+    func testTheDebugSectionStartsFolded() {
+        // **The Categories tab's Inactive case, on this tab.** Its two rows are of no interest until something needs
+        // looking into, which is what a fold is for.
+        let pane = AppSettingsPane()
+
+        XCTAssertFalse(pane.debugSection.isExpanded)
+    }
+
+    func testTheDebugSectionComesBackFoldedWhenTheWindowResetsIt() {
+        // Opening Settings puts every section back to what it was built as, and each section owns which that is
+        // (`CollapsibleSection`). The three on this tab do not agree, which is the case a reset that put everything
+        // one way would get wrong.
+        let pane = AppSettingsPane()
+        pane.debugSection.setExpanded(true)
+
+        pane.debugSection.restoreDefaultState()
+        pane.appSection.restoreDefaultState()
+
+        XCTAssertFalse(pane.debugSection.isExpanded)
+        XCTAssertTrue(pane.appSection.isExpanded, "and the other two come back to their own answer")
     }
 
     func testFoldingASectionTakesTheSpaceBack() throws {
@@ -511,6 +534,222 @@ final class AppSettingsPaneTests: XCTestCase {
 
         XCTAssertTrue(pane.googleSection.isExpanded)
         XCTAssertFalse(note.isHidden)
+    }
+
+    // MARK: - the Debug section
+
+    func testTheDebugSectionCarriesBothFieldsOfTheDebugRow() {
+        let pane = AppSettingsPane()
+
+        for title in ["Debug", "Debug logging", "Directory", "Trace file"] {
+            XCTAssertTrue(labels(of: pane).contains(title), "missing: \(title)")
+        }
+        for identifier in [
+            AppSettingsPane.Identifier.debugEnabled,
+            AppSettingsPane.Identifier.debugDirectory,
+            AppSettingsPane.Identifier.debugDirectoryChoose,
+            AppSettingsPane.Identifier.debugReveal,
+            AppSettingsPane.Identifier.debugCopy,
+        ] {
+            XCTAssertTrue(
+                descendants(of: pane).contains { $0.accessibilityIdentifier() == identifier },
+                "missing: \(identifier)"
+            )
+        }
+    }
+
+    func testGettingHoldOfTheTraceIsAskedForRatherThanDoneHere() throws {
+        // Both open somebody else's window -- the Finder, or a save panel -- which is the window controller's to do.
+        let pane = AppSettingsPane()
+        let window = OffscreenWindow.host(pane)
+        defer { window.close() }
+        var reported: [AppSettingsPane.Change] = []
+        pane.onChange = { reported.append($0) }
+        var values = stored
+        values.hasDebugTrace = true
+        pane.show(values)
+        pane.layoutSubtreeIfNeeded()
+
+        try XCTUnwrap(control(AppSettingsPane.Identifier.debugReveal, in: pane) as NSButton?).performClick(nil)
+        try XCTUnwrap(control(AppSettingsPane.Identifier.debugCopy, in: pane) as NSButton?).performClick(nil)
+
+        XCTAssertEqual(reported, [.debugRevealRequested, .debugCopyRequested])
+    }
+
+    func testTheTraceButtonsAreDeadWhenThereIsNoTrace() throws {
+        // A launch with no logger has no file for either of them to act on, so they say so by being dead rather than
+        // by opening an empty Finder window.
+        let pane = AppSettingsPane()
+        pane.show(stored)
+
+        let reveal: NSButton = try XCTUnwrap(control(AppSettingsPane.Identifier.debugReveal, in: pane))
+        let copy: NSButton = try XCTUnwrap(control(AppSettingsPane.Identifier.debugCopy, in: pane))
+        XCTAssertFalse(reveal.isEnabled)
+        XCTAssertFalse(copy.isEnabled)
+
+        var values = stored
+        values.hasDebugTrace = true
+        pane.show(values)
+        XCTAssertTrue(reveal.isEnabled, "and they come alive when this launch has one")
+        XCTAssertTrue(copy.isEnabled)
+    }
+
+    func testTheDebugRowsShowWhatTheTableSays() throws {
+        let pane = AppSettingsPane()
+        var values = stored
+        values.isDebugEnabled = true
+        values.debugDirectory = "~/Documents/Facet"
+
+        pane.show(values)
+
+        let box: NSButton = try XCTUnwrap(control(AppSettingsPane.Identifier.debugEnabled, in: pane))
+        XCTAssertEqual(box.state, .on)
+        let folder: NSTextField = try XCTUnwrap(control(AppSettingsPane.Identifier.debugDirectory, in: pane))
+        XCTAssertEqual(folder.stringValue, "~/Documents/Facet", "the stored form, tilde and all")
+    }
+
+    func testAPaneNobodyHasReadIntoShowsTheSeededDebugRow() throws {
+        let pane = AppSettingsPane()
+
+        XCTAssertFalse(pane.values.isDebugEnabled)
+        let folder: NSTextField = try XCTUnwrap(control(AppSettingsPane.Identifier.debugDirectory, in: pane))
+        XCTAssertEqual(folder.stringValue, DebugTraceRules.defaultDirectory)
+    }
+
+    func testTheDebugSwitchIsReportedAndNotAdoptedUntilItIsStored() throws {
+        let pane = AppSettingsPane()
+        let window = OffscreenWindow.host(pane)
+        defer { window.close() }
+        var reported: [AppSettingsPane.Change] = []
+        pane.onChange = { reported.append($0) }
+        pane.show(stored)
+        pane.layoutSubtreeIfNeeded()
+
+        let box: NSButton = try XCTUnwrap(control(AppSettingsPane.Identifier.debugEnabled, in: pane))
+        box.performClick(nil)
+
+        XCTAssertEqual(reported, [.debugEnabled(true)])
+        XCTAssertFalse(pane.values.isDebugEnabled, "what the pane holds is still what the table said")
+    }
+
+    func testChoosingAFolderIsAskedForRatherThanDoneHere() throws {
+        // The window runs the panel: anything modal belongs to whoever owns the window.
+        let pane = AppSettingsPane()
+        let window = OffscreenWindow.host(pane)
+        defer { window.close() }
+        var reported: [AppSettingsPane.Change] = []
+        pane.onChange = { reported.append($0) }
+        pane.show(stored)
+        pane.layoutSubtreeIfNeeded()
+
+        let choose: NSButton = try XCTUnwrap(control(AppSettingsPane.Identifier.debugDirectoryChoose, in: pane))
+        choose.performClick(nil)
+
+        XCTAssertEqual(reported, [.debugDirectoryRequested])
+        XCTAssertEqual(pane.values.debugDirectory, stored.debugDirectory, "nothing has been chosen yet")
+    }
+
+    func testAdoptingAFolderRedrawsTheRow() throws {
+        // Nobody types into this row, so there is no field to take out from under them -- and a row still naming the
+        // previous folder would be the window showing something the table no longer says.
+        let pane = AppSettingsPane()
+        pane.show(stored)
+
+        pane.adopt(.debugDirectory("/Volumes/Spare/Facet"))
+
+        XCTAssertEqual(pane.values.debugDirectory, "/Volumes/Spare/Facet")
+        let folder: NSTextField = try XCTUnwrap(control(AppSettingsPane.Identifier.debugDirectory, in: pane))
+        XCTAssertEqual(folder.stringValue, "/Volumes/Spare/Facet")
+    }
+
+    func testRestoringPutsTheDebugRowsBackToWhatThePaneHolds() throws {
+        let pane = AppSettingsPane()
+        pane.show(stored)
+        let box: NSButton = try XCTUnwrap(control(AppSettingsPane.Identifier.debugEnabled, in: pane))
+        box.state = .on
+
+        pane.restore()
+
+        XCTAssertEqual(box.state, .off, "which is what a refused write needs")
+    }
+
+    func testAFoldOfTheDebugSectionIsReportedUnderItsOwnIdentifier() throws {
+        // Nothing stores a fold, so the row the window writes is the only record it happened -- and the identifier is
+        // what tells a scripted check which of the three it was.
+        let pane = AppSettingsPane()
+        let window = OffscreenWindow.host(pane)
+        defer { window.close() }
+        var reported: [(String, Bool)] = []
+        pane.onSectionToggle = { reported.append(($0, $1)) }
+        pane.layoutSubtreeIfNeeded()
+
+        let heading = try view("\(AppSettingsPane.Identifier.debugSection)-heading-button", in: pane)
+        try XCTUnwrap(heading as? NSButton).performClick(nil)
+
+        XCTAssertEqual(reported.map(\.0), [AppSettingsPane.Identifier.debugSection])
+        XCTAssertEqual(reported.map(\.1), [true], "it was built folded, so a press opens it")
+    }
+
+    func testTheDebugSectionHangsUnderTheGoogleFootnoteWhenThereIsOne() throws {
+        let pane = AppSettingsPane()
+        let content = hosted(pane, width: 640)
+        let note = try view(AppSettingsPane.Identifier.googleNote, in: pane)
+        XCTAssertFalse(note.isHidden, "precondition: this build has no credentials, so there is a note")
+
+        content.layoutSubtreeIfNeeded()
+
+        // Unflipped coordinates: a view below another has the smaller y, so the gap runs from the note's bottom edge
+        // down to the section's top.
+        let debug = try view(AppSettingsPane.Identifier.debugSection, in: pane)
+        XCTAssertEqual(
+            note.frame.minY - debug.frame.maxY, SettingsMetrics.sectionSpacing, accuracy: 0.5
+        )
+    }
+
+    func testAFootnoteNobodyCanSeeDoesNotPushTheDebugSectionDown() throws {
+        // **The trap this pair of constraints exists for.** A hidden view keeps its height in Auto Layout, so a
+        // section anchored to the note alone would be held down the tab by a sentence nobody can see.
+        let pane = AppSettingsPane()
+        let content = hosted(pane, width: 640)
+        var values = stored
+        values.googleAccount = GoogleAccountRules.Account(name: "Harry", email: "harry@example.com")
+        values.googleCredential = .present
+
+        pane.show(values)
+        content.layoutSubtreeIfNeeded()
+
+        let note = try view(AppSettingsPane.Identifier.googleNote, in: pane)
+        XCTAssertTrue(note.isHidden, "precondition: a connected account is explained by the rows themselves")
+        let google = try view(AppSettingsPane.Identifier.googleSection, in: pane)
+        let debug = try view(AppSettingsPane.Identifier.debugSection, in: pane)
+        XCTAssertEqual(
+            google.frame.minY - debug.frame.maxY, SettingsMetrics.sectionSpacing, accuracy: 0.5,
+            "the same gap the other two sections are held apart by"
+        )
+    }
+
+    func testFoldingGoogleTakesItsFootnoteOutOfTheWayToo() throws {
+        // The note has two reasons to be away and both move the section under it, which is why one place decides.
+        let pane = AppSettingsPane()
+        let content = hosted(pane, width: 640)
+
+        pane.googleSection.setExpanded(false)
+        content.layoutSubtreeIfNeeded()
+
+        let google = try view(AppSettingsPane.Identifier.googleSection, in: pane)
+        let debug = try view(AppSettingsPane.Identifier.debugSection, in: pane)
+        XCTAssertEqual(google.frame.minY - debug.frame.maxY, SettingsMetrics.sectionSpacing, accuracy: 0.5)
+    }
+
+    func testTheDebugPanelSpansTheWindowToo() throws {
+        // `CLAUDE.md`: every panel on every tab runs the full width of the window, inset by the tab's own padding.
+        let pane = AppSettingsPane()
+        let content = hosted(pane, width: 640)
+
+        let panel = try view(AppSettingsPane.Identifier.debugPanel, in: pane)
+        let frame = content.convert(panel.bounds, from: panel)
+        XCTAssertEqual(frame.minX, 20, accuracy: 0.5)
+        XCTAssertEqual(frame.maxX, 620, accuracy: 0.5)
     }
 
     func testAConnectedAccountHasNoNoteToPutBack() throws {

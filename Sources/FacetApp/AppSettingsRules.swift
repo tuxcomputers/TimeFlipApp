@@ -111,20 +111,29 @@ enum AppSettingsRules {
             return ("fetch_history_interval_seconds", "seconds", .number(seconds(fromMinutes: minutes)))
         case let .blipSeconds(seconds):
             return ("blip_time", "seconds", .number(seconds))
+        case let .debugEnabled(on):
+            return (DebugTraceRules.setting, DebugTraceRules.enabledField, .flag(on))
+        case let .debugDirectory(path):
+            return (DebugTraceRules.setting, DebugTraceRules.directoryField, .text(path))
         case .googleDisconnected, .googleSignInRequested, .googleConnected,
              .googleCalendarNamed, .googleCalendarCreateRequested, .googleCalendarChanged,
              .googleCalendarDeleteRequested,
              // Neither of these is a row being set: one is what the Keychain says and the other is what Google
              // says, and no `setting` field holds either.
-             .googleCredentialChanged, .googleVerified:
+             .googleCredentialChanged, .googleVerified,
+             // A panel to run, not a value to store. What comes back out of it is `debugDirectory`.
+             .debugDirectoryRequested,
+             // Acts on the file rather than on a row: one opens a Finder window, the other writes a copy.
+             .debugRevealRequested, .debugCopyRequested:
             return nil
         }
     }
 
-    /// What goes into the column: the two shapes a setting's field takes.
+    /// What goes into the column: the three shapes a setting's field takes.
     enum Stored: Equatable {
         case flag(Bool)
         case number(Int)
+        case text(String)
     }
 
     /// What a row is called when something has to be said about it out loud, which is the label beside it rather than
@@ -139,6 +148,9 @@ enum AppSettingsRules {
              .googleCredentialChanged, .googleVerified: return "Google account"
         case .googleCalendarNamed, .googleCalendarCreateRequested, .googleCalendarChanged,
              .googleCalendarDeleteRequested: return "Calendar"
+        case .debugEnabled: return "Debug logging"
+        case .debugDirectory, .debugDirectoryRequested: return "Directory"
+        case .debugRevealRequested, .debugCopyRequested: return "Trace file"
         }
     }
 }

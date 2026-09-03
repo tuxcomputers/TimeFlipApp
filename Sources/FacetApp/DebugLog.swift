@@ -105,6 +105,10 @@ final class DebugLog {
         /// `DeviceLogin.send`). Its own tag rather than `login`, because these are the app changing the device's
         /// behaviour rather than reaching it -- and an acknowledgement here says the cube heard, never that it obeyed.
         case command
+        /// The trace file itself: where it is kept, and copies taken of it to send in. Its own tag because these
+        /// rows are *about* the log rather than in it -- somebody reading a submitted trace to find out what the app
+        /// did should not have to step over the act of submitting it.
+        case trace
         /// Bytes written to the device. See `BLETrace` for why the traffic is logged in full and in both directions.
         case transmit = "ble-tx"
         /// Bytes received from it, whether asked for or notified.
@@ -133,6 +137,13 @@ final class DebugLog {
         }
     }
 
+    /// The file this log is writing to.
+    ///
+    /// **Held rather than re-derived**, and it is not a second copy of the setting that chose it: the folder in the
+    /// `debug` row is what the *next* launch will use, and this is the file that is open now. Revealing or copying
+    /// the trace has to act on this one, or it acts on a file that does not exist yet.
+    let databaseURL: URL
+
     private let connection = Connection()
     /// Resolved once. The zone identifier only changes if the machine moves between zones mid-session
     /// -- daylight saving stays within one IANA id -- so re-resolving per row would be a lookup per
@@ -143,6 +154,7 @@ final class DebugLog {
     private var hasReportedWriteFailure = false
 
     init(databaseURL: URL) {
+        self.databaseURL = databaseURL
         // Line-buffered stdout. Otherwise a click's line sits in the buffer until the process exits
         // normally, so a killed run prints nothing at all -- and this app is quit from a menu, which
         // is exactly the case where somebody reaches for Ctrl-C instead and loses the lot.
@@ -186,7 +198,52 @@ final class DebugLog {
         guard !hasReportedWriteFailure else { return }
         hasReportedWriteFailure = true
         let message = connection.db.map { String(cString: sqlite3_errmsg($0)) } ?? "no database connection"
-        print("\(Self.consoleTime.string(from: Date())) \(Tag.click.bracketed) debug_log rows are not being written: \(message)")
+        report("debug_log rows are not being written: \(message)")
+    }
+
+    /// Says something on the terminal that cannot go in the table, the table being the thing that is not working.
+    private func report(_ message: String) {
+        print("\(Self.consoleTime.string(from: Date())) \(Tag.trace.bracketed) \(message)")
+    }
+
+    // MARK: - a copy to send in
+
+    /// Writes a complete copy of the trace to `destination`, and answers whether it is there.
+    ///
+    /// **`VACUUM INTO` rather than copying the file.** A trace is being written while it is being sent, so copying
+    /// the bytes takes whatever was half-written at that moment and leaves any `-wal` and `-shm` beside it behind;
+    /// this asks sqlite for one consistent file through the connection already writing it. What lands is a single
+    /// file that opens on its own, which is what somebody can attach to an email.
+    ///
+    /// **The destination is removed first if it exists**, because `VACUUM INTO` refuses to write over a file and
+    /// the save panel has already had the conversation about replacing one.
+    ///
+    /// `false` with a line on the terminal if any of that fails, never silently: a copy that did not happen looks
+    /// exactly like one that did until somebody opens it.
+    func copy(to destination: URL) -> Bool {
+        guard let db = connection.db else {
+            reportWriteFailure()
+            return false
+        }
+        if FileManager.default.fileExists(atPath: destination.path) {
+            guard (try? FileManager.default.removeItem(at: destination)) != nil else {
+                report("the trace could not be copied: \(destination.path) is in the way")
+                return false
+            }
+        }
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_prepare_v2(db, "VACUUM INTO ?;", -1, &statement, nil) == SQLITE_OK else {
+            report("the trace could not be copied: \(String(cString: sqlite3_errmsg(db)))")
+            return false
+        }
+        sqlite3_bind_text(statement, 1, destination.path, -1, SQLITE_TRANSIENT)
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            report("the trace could not be copied: \(String(cString: sqlite3_errmsg(db)))")
+            return false
+        }
+        record(.trace, "Trace copied to \(destination.path)")
+        return true
     }
 
     // MARK: - the connection

@@ -130,4 +130,83 @@ final class DebugLogTests: XCTestCase, @unchecked Sendable {
         let longest = DebugLog.Tag.allCases.max { $0.rawValue.count < $1.rawValue.count }
         XCTAssertEqual(longest?.bracketed, longest.map { "[\($0.rawValue)]" })
     }
+
+    // MARK: - a copy to send in
+
+    func testTheLogNamesTheFileItIsWriting() {
+        // The file that is open now, which is not the folder the `debug` setting names: a folder chosen on the App
+        // tab holds no trace until the next launch.
+        XCTAssertEqual(log.databaseURL, database.debugURL)
+    }
+
+    func testACopyOpensOnItsOwnAndCarriesTheRows() throws {
+        log.record(.trace, "Something worth sending in")
+        let destination = database.directory.appendingPathComponent("sent.sqlite")
+
+        XCTAssertTrue(log.copy(to: destination))
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: destination.path))
+        // Read back through its own connection: what makes the copy worth having is that it opens without the
+        // original beside it.
+        var handle: OpaquePointer?
+        defer { sqlite3_close(handle) }
+        XCTAssertEqual(sqlite3_open_v2(destination.path, &handle, SQLITE_OPEN_READONLY, nil), SQLITE_OK)
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        XCTAssertEqual(
+            sqlite3_prepare_v2(handle, "SELECT message FROM debug_log ORDER BY debug_log_id;", -1, &statement, nil),
+            SQLITE_OK
+        )
+        var messages: [String] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            messages.append(String(cString: sqlite3_column_text(statement, 0)))
+        }
+        XCTAssertTrue(messages.contains("Something worth sending in"), "\(messages)")
+    }
+
+    func testTakingACopyIsItselfRecorded() throws {
+        let destination = database.directory.appendingPathComponent("sent.sqlite")
+
+        XCTAssertTrue(log.copy(to: destination))
+
+        XCTAssertTrue(
+            rows().contains { $0.tag == "trace" && $0.message.hasPrefix("Trace copied to") },
+            "the trace says where a copy of it went: \(rows().map(\.message))"
+        )
+    }
+
+    func testACopyReplacesWhateverWasThere() throws {
+        // `VACUUM INTO` refuses to write over a file, and the save panel has already had the conversation about
+        // replacing one -- so a second copy to the same name has to work rather than fail silently.
+        let destination = database.directory.appendingPathComponent("sent.sqlite")
+        XCTAssertTrue(log.copy(to: destination))
+        log.record(.trace, "Recorded after the first copy")
+
+        XCTAssertTrue(log.copy(to: destination))
+
+        var handle: OpaquePointer?
+        defer { sqlite3_close(handle) }
+        XCTAssertEqual(sqlite3_open_v2(destination.path, &handle, SQLITE_OPEN_READONLY, nil), SQLITE_OK)
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        XCTAssertEqual(
+            sqlite3_prepare_v2(
+                handle,
+                "SELECT count(*) FROM debug_log WHERE message = 'Recorded after the first copy';",
+                -1, &statement, nil
+            ),
+            SQLITE_OK
+        )
+        XCTAssertEqual(sqlite3_step(statement), SQLITE_ROW)
+        XCTAssertEqual(sqlite3_column_int(statement, 0), 1, "the second copy is the trace as it stands now")
+    }
+
+    func testACopyThatCannotBeWrittenSaysSo() {
+        // Never silently: a copy that did not happen looks exactly like one that did until somebody opens it.
+        let destination = database.directory
+            .appendingPathComponent("no-such-folder", isDirectory: true)
+            .appendingPathComponent("sent.sqlite")
+
+        XCTAssertFalse(log.copy(to: destination))
+    }
 }

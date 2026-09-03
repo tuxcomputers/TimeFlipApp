@@ -14,7 +14,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=29
+EXPECTED_CHECKS=40
 start "every row on the App tab, written and read back"
 
 open_settings
@@ -204,6 +204,61 @@ press app-google-section-heading-button
 sleep 1
 check "and opening it puts back exactly what the account state says" "$note_before" \
     "$(on_tab app-google-note)"
+
+# ---------------------------------------------------------------------------- the Debug section
+#
+# **The one section on this tab that is built folded.** The two above it are what somebody opens the tab
+# to change; this one carries the trace, which is of no interest until something needs looking into.
+#
+# **Its rows are the `debug` row's two fields**: the switch, and the folder `debug.sqlite` is kept in --
+# which is the folder a user is pointed at when they are asked to send the trace in.
+
+check_contains "the Debug section is on the tab" "$(tree)" "id=app-debug-section"
+# Read off the contents, as the two above are: a section with its rows showing is what open means.
+check "it starts folded, where the other two start open" "0" "$(on_tab app-debug-enabled)"
+
+since=$(mark)
+press app-debug-section-heading-button
+sleep 1
+expect_log "pressing the Debug heading opens it" "$since" "App section app-debug-section opened"
+check "and its rows come with it" "1" "$(on_tab app-debug-enabled)"
+
+# Pressed twice, as every other row on this tab is, so it ends where it began. Nothing reads this field
+# yet -- the logger is still gated on the compile-time flag -- so what is being checked is the write
+# reaching the table and coming back, which is all the control claims to do.
+was=$(setting debug enabled)
+since=$(mark)
+press app-debug-enabled
+sleep 1
+now=$(setting debug enabled)
+if [ "$now" != "$was" ] && [ -n "$now" ]; then
+    pass "the switch writes debug.enabled ($was -> $now)"
+else
+    fail "debug.enabled still reads '$now' after the switch was pressed"
+fi
+expect_log "and the write is recorded" "$since" "App setting debug.enabled"
+
+press app-debug-enabled
+sleep 1
+check "and pressing it again puts it back" "$was" "$(setting debug enabled)"
+
+# **Present, and deliberately not pressed.** Reveal in Finder brings the Finder to the front and Save a
+# copy puts a save panel up, and both take the keyboard away from the app every remaining step of this run
+# is addressing. What they do is covered hermetically instead (`DebugLogTests`, `AppSettingsPaneTests`);
+# what only a running app can say is that the row is there and its buttons are alive.
+check "the Trace file row offers Reveal in Finder" "1" "$(on_tab app-debug-reveal)"
+check "and a copy of the trace to send in" "1" "$(on_tab app-debug-copy)"
+
+# **The folder is read off the row and compared with the table**, rather than against a path written here.
+# A check naming the folder itself would fail on any machine that had chosen a different one, which is
+# exactly the thing the row exists to let somebody do.
+folder=$(element app-debug-directory | sed -n 's/.*value=\(.*\)$/\1/p')
+check "the Directory row names the folder the table holds" "$(setting debug directory)" "$folder"
+
+# **Left folded, as it was found**, which is what the window would put it back to on the next open anyway.
+press app-debug-section-heading-button
+sleep 1
+check "the Debug section is folded again" "0" "$(on_tab app-debug-enabled)"
 
 # **Left as they were found.** Both sections open, which is what the next script expects and what the
 # window would put them back to anyway on the next open.

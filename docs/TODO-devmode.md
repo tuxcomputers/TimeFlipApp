@@ -67,35 +67,41 @@ developer's value, and a release build silently raises it to a minute.
 **Nothing to decide**, but worth knowing that flipping the flag changes real behaviour here rather than only hiding
 something.
 
-## The `debug` setting row: seeded, and read by nothing
+## The `debug` setting row: on the App tab, and still not read by the logger
 
-`011_setting.sql` seeds `debug` = `{"enabled":true,"to_file":false,"directory":"~/Documents/Facet"}`. **No code reads
-any of the three fields.** One gate is enough while the only audience is a developer with a terminal open, and a
-second gate that nothing consults is worse than none.
+`011_setting.sql` seeds `debug` = `{"enabled":false,"directory":"~/Library/Application Support/Facet"}`, and the App
+tab's **Debug** section shows both fields: a switch and the folder, with a Choose button on the folder
+(`AppSettingsPane`, `DebugTraceRules`). The section is folded when the tab is built, being the one group on that tab
+nobody opens it to change.
 
-It is the obvious home for the decision in §3 above. The intended design, for whoever builds it:
+**`directory` is honoured.** `main.swift` reads it where the trace database is opened, so the folder decides where
+`debug.sqlite` goes; a folder that cannot be written falls back to the one beside `appdata.sqlite` and says so on
+stderr. It is read at launch and the file stays open until quit, so a folder chosen on the tab applies from the next
+launch, which the row says out loud.
+
+**Finding the file is a button, not a path.** The section's Trace file row reveals `debug.sqlite` in the Finder and
+saves a copy of it (`DebugLog.copy(to:)`, a `VACUUM INTO` so the copy is consistent while the app is still writing).
+That is why the seeded folder can stay in Application Support: somewhere familiar like `~/Documents` would put a
+continuously written database inside an iCloud sync root, which is the standard way to get a corrupted sqlite file,
+and it would have bought only findability -- which the buttons give for nothing.
+
+**`enabled` is stored and read by nothing.** The gate is still the compile-time flag, which is §3 above and the
+decision left to take:
 
 - **`enabled`** — whether messages are gathered at all, so a user can turn logging on without a rebuild. This is what
   would let a released build keep `DebugLog` and still be quiet by default.
-- **`to_file`** — the same messages also written to a log file, for the case the database route does not serve: a
-  non-technical user who needs to *send* something back rather than have their database queried. The three
-  destinations (terminal, `debug_log`, file) are independent and none replaces another.
-- **`directory`** — where that file goes. Defaults to `~/Documents/Facet`; the `~` needs expanding at load time
-  rather than being stored pre-expanded, since a literal path is wrong on another machine. A folder picker
-  (`NSOpenPanel`, `canChooseDirectories = true`) would come with the Settings row.
+- Gating `DebugLog`'s construction on it is the whole of the work, and it is where the seeded `false` bites: **the
+  scripted suite is built on `debug_log` rows**, so the same change has to turn the row on before the suite launches
+  the app (`Tests/Scripted/lib.sh`), or every check goes dark at once.
+- **A restart is part of it.** `DebugLog` is constructed once, at launch, and every call site is
+  `debugLog?.record(...)` -- so an app built without a logger costs nothing at all, which is the property worth
+  keeping. Reading the row per message instead would put a `SELECT` and a string interpolation on every BLE packet in
+  the common case where logging is off. So turning it on takes effect at the next launch, and the Debug section has
+  to say so.
 
-**Filename format, deliberately not user-configurable:** `log-yyyy-MM-dd-HH.mm.ss`, 24-hour, matching the local-time
-convention of the console prefix. The timestamp is when the app *started*, so it is one file per launch rather than
-one per day or per line. It should live as a single named constant on whatever does the writing, so it stays easy to
-change in one place.
-
-**Restart-required behaviour:** both fields would be read once at startup (the log file's name is fixed for the
-session), so a Settings row for either has to say plainly that flipping it takes effect on the next launch, rather
-than letting somebody assume it is already in force.
-
-**Left for the implementation:** whether `directory` is created if absent (`~/Documents/Facet` does not exist on a
-fresh machine), what happens when it is unwritable (probably fall back to terminal-only rather than crashing or
-silently dropping), and log rotation, which is unspecified.
+**`to_file` is gone** (2026-09-03). It was the same messages written to a plain log file, for a non-technical user
+who needs to *send* something back -- which is exactly what `debug.sqlite` is, for support and for the scripted suite
+alike. Nothing is lost by dropping it, and a second destination would have been a second thing to keep in step.
 
 Note that `debug_log` already has no retention or cleanup of its own: `debug.sqlite` grows for as long as the app is
 built with the flag on. `Tests/Scripted/run.sh` deletes it on a clean rebuild, and the app recreates it next launch.

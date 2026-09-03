@@ -60,9 +60,32 @@ let databaseBadge = DeveloperMode.isDeveloperMode
 // is on, and a launch without it should not create a database nobody is going to write to. A failure to open it is
 // not a reason to refuse the launch either -- the app works perfectly well without a trace, and `DebugLog` already
 // keeps printing to the terminal when the recording half cannot start.
+//
+// **Which folder it goes in is the `debug` setting's to say** (`DebugTraceRules`), read here rather than held: this
+// is the moment the file is opened, and the App tab writes the row while the app is running. A folder changed there
+// takes effect on the next launch, which is what the row on that tab says out loud -- the connection below is open
+// on the file this line chose.
+//
+// **A folder that cannot be used falls back to the one beside the app's own database, and says so.** The alternative
+// is a launch with no trace at all because somebody picked a folder on a disk that is no longer mounted, which is a
+// silent failure of the one facility a failure is reconstructed from.
 let debugLog: DebugLog? = {
     guard DeveloperMode.isDeveloperMode else { return nil }
-    let url = (try? DatabaseBootstrap.ensureDebugDatabase().databaseURL) ?? DatabaseBootstrap.debugDatabaseURL()
+    let stored = settings.string(DebugTraceRules.setting, field: DebugTraceRules.directoryField)
+        ?? DebugTraceRules.defaultDirectory
+    let chosen = DebugTraceRules.directoryURL(from: stored)
+    let url: URL
+    do {
+        url = try DatabaseBootstrap.ensureDebugDatabase(
+            at: DatabaseBootstrap.debugDatabaseURL(in: chosen)
+        ).databaseURL
+    } catch {
+        let message = (error as? DatabaseBootstrap.Failure)?.description ?? error.localizedDescription
+        FileHandle.standardError.write(
+            Data("facet: the debug trace cannot be kept in \(stored): \(message)\n".utf8)
+        )
+        url = (try? DatabaseBootstrap.ensureDebugDatabase().databaseURL) ?? DatabaseBootstrap.debugDatabaseURL()
+    }
     return DebugLog(databaseURL: url)
 }()
 

@@ -303,8 +303,9 @@ in the next room that drifted into range would otherwise pull the clock back mid
 - Try resetting the device by removing and reinserting the battery
 - Check Bluetooth permissions in System Preferences > Privacy & Security
 - Check the terminal you launched the app from — every byte in both directions is printed there, and
-  recorded in the `debug_log` table of `debug.sqlite` (in `~/Library/Application Support/Facet/`), which
-  outlives the session and can be queried afterwards
+  recorded in the `debug_log` table of `debug.sqlite`, which outlives the session and can be queried
+  afterwards. **Settings > App > Debug** reveals that file in the Finder and saves a copy of it to send
+  in, and names the folder it is kept in if you would rather move it
 
 ### Signing in to Google fails
 

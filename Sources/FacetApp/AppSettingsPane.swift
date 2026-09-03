@@ -2,9 +2,14 @@ import AppKit
 
 /// The App tab: how the app itself behaves, as opposed to what it is timing.
 ///
-/// **Two sections: "App settings" first, in the archive's order and its wording
-/// (`Archive/TimeFlipApp/ReportSettingsView.swift`), then Google underneath.** Each folds away behind its own
+/// **Three sections: "App settings" first, in the archive's order and its wording
+/// (`Archive/TimeFlipApp/ReportSettingsView.swift`), then Google, then Debug.** Each folds away behind its own
 /// triangle, on the same `PanelSection` the Categories tab's two lists sit on.
+///
+/// **Debug is this tab's own, with nothing behind it in the archive**, whose only debug switch was a compile-time
+/// flag and a `config.json` a developer edited by hand. It carries the two fields of the `debug` setting: whether
+/// the trace is gathered, and which folder `debug.sqlite` is kept in -- the second being the answer to "where is
+/// the file to send me", which is what the trace is for.
 ///
 /// **Four of the archive's six rows.** "Pause the device when locking it" and "Battery warning at" are on the
 /// Device tab, the first two rows of its Settings section, and they are the departure from that view's contents:
@@ -57,6 +62,15 @@ final class AppSettingsPane: NSView {
         static let googleCalendarCreate = "app-google-calendar-create"
         static let googleCalendarDelete = "app-google-calendar-delete"
         static let googleNote = "app-google-note"
+        static let debugSection = "app-debug-section"
+        static let debugHeading = "app-debug-section-heading"
+        static let debugPanel = "app-debug-section-panel"
+        static let debugEnabled = "app-debug-enabled"
+        static let debugDirectory = "app-debug-directory"
+        static let debugDirectoryChoose = "app-debug-directory-choose"
+        static let debugReveal = "app-debug-reveal"
+        static let debugCopy = "app-debug-copy"
+        static let debugNote = "app-debug-note"
     }
 
     private enum Layout {
@@ -98,6 +112,15 @@ final class AppSettingsPane: NSView {
         var hasGoogleCredentials = false
         /// The calendar Facet owns, from the same row as the identity.
         var googleCalendar = GoogleCalendarRules.Calendar.none
+        /// Whether the debug trace is being gathered, from the `debug` row.
+        var isDebugEnabled = DebugTraceRules.defaultEnabled
+        /// Which folder the trace is kept in, **as it is stored**: a leading `~` is expanded where the file is
+        /// opened, not here (`DebugTraceRules`).
+        var debugDirectory = DebugTraceRules.defaultDirectory
+        /// Whether this launch has a trace to reveal or copy at all. **Not a setting**, and not `isDebugEnabled`
+        /// either: it is whether a logger was built, which is decided at launch and cannot change while the app runs.
+        /// A build with no trace has nothing to send, so both buttons are dead rather than pointing at no file.
+        var hasDebugTrace = false
 
         /// What a database with none of these rows would give, which is what the seeds give
         /// (`database/011_setting.sql`). Named here rather than at each call site so one missing row cannot come to
@@ -143,6 +166,17 @@ final class AppSettingsPane: NSView {
         /// What Google said when asked whether the token still works. Arrives once per ask and is never stored,
         /// because it is true of a moment rather than of the account.
         case googleVerified(GoogleAccountRules.Verification)
+        /// Whether the trace is gathered at all.
+        case debugEnabled(Bool)
+        /// Pick the folder the trace is kept in. **A request**: choosing one is a panel the window runs, this pane
+        /// having no business putting anything modal on screen.
+        case debugDirectoryRequested
+        /// The folder that was picked, in the form the setting stores.
+        case debugDirectory(String)
+        /// Show the trace in the Finder. **A request**, and one that stores nothing: it opens somebody else's window.
+        case debugRevealRequested
+        /// Save a copy of the trace somewhere, to send in. **A request** for the same reason the folder is.
+        case debugCopyRequested
     }
 
     /// Called when a row is changed. **A request**: the window writes it, checks the table took it, and says so if it
@@ -162,11 +196,22 @@ final class AppSettingsPane: NSView {
     private let rows = NSStackView()
     private let googleRows = NSStackView()
     private let googleNote = NSTextField(labelWithString: "")
+    private let debugRows = NSStackView()
 
-    /// The two sections, each folding away behind its own triangle. Exposed so a test can measure one without a
+    /// The tab's sections, each folding away behind its own triangle. Exposed so a test can measure one without a
     /// window on screen.
     private(set) var appSection: PanelSection!
     private(set) var googleSection: PanelSection!
+    /// The third section, folded when the tab is built. Exposed for the same reason the other two are.
+    private(set) var debugSection: PanelSection!
+
+    /// Where the Debug section hangs when the Google footnote is on show, and where it hangs when it is not.
+    ///
+    /// **Exactly one is active at a time.** A hidden view keeps its height in Auto Layout, so a Debug section
+    /// anchored to the note would be pushed down by a sentence nobody can see -- which is the gap the note used to
+    /// leave behind before anything was drawn under it.
+    private var debugBelowNote: NSLayoutConstraint?
+    private var debugBelowGoogle: NSLayoutConstraint?
 
     /// Called when either section opens or closes, so the window can record it. The Device tab hands its folds out
     /// the same way, identifier and all.
@@ -179,6 +224,10 @@ final class AppSettingsPane: NSView {
     /// Transient, and deliberately not in `Values`: it is what the app is doing, not what the table says.
     private var isSigningIn = false
     private var showSecondsBox: NSButton!
+    private var debugEnabledBox: NSButton!
+    private var debugDirectoryValue: NSTextField!
+    private var debugRevealButton: NSButton!
+    private var debugCopyButton: NSButton!
     private var dailyResetField: SteppedNumberField!
     private var fetchIntervalField: SteppedNumberField!
     private var blipTimeField: SteppedNumberField!
@@ -243,6 +292,19 @@ final class AppSettingsPane: NSView {
             // status line, and leaving it reading "Connected" under a button that just disconnected would be the
             // window showing something the table no longer says.
             showGoogle()
+        case let .debugEnabled(on): values.isDebugEnabled = on
+        case .debugDirectoryRequested:
+            // A request. Which folder was picked arrives as `debugDirectory` once the table has it.
+            break
+        case .debugRevealRequested, .debugCopyRequested:
+            // Neither is a value. Both act on the file and leave every row on this tab as it was.
+            break
+        case let .debugDirectory(path):
+            values.debugDirectory = path
+            // Redrawn for the reason the status line above is: nobody types into this row, so there is no field to
+            // take out from under anybody, and leaving it naming the previous folder would be the window showing
+            // something the table no longer says.
+            showDebugDirectory()
         }
     }
 
@@ -262,6 +324,9 @@ final class AppSettingsPane: NSView {
         fetchIntervalField.suffix = AppSettingsRules.unit("min", "mins", for: fetchIntervalField.value)
         blipTimeField.value = values.blipSeconds
         blipTimeField.suffix = AppSettingsRules.unit("sec", "secs", for: values.blipSeconds)
+        debugEnabledBox.state = values.isDebugEnabled ? .on : .off
+        showDebugDirectory()
+        showDebugTrace()
         showGoogle()
     }
 
@@ -333,11 +398,30 @@ final class AppSettingsPane: NSView {
     /// in which case the button the sentence is about is not on screen to explain. Setting it from `showGoogle`
     /// alone would put the note back every time the account was redrawn, folded section or not.
     ///
-    /// **Nothing is anchored below it**, which is what makes hiding it enough. A hidden view keeps its height in Auto
-    /// Layout (`Tests/Methods.md`), so while the Google section sat above App settings this had to swap two
-    /// constraints to stop the empty note pushing the heading under it down. Being last removed that.
+    /// **What hangs below it moves with it**, which is why this is where the swap lives. A hidden view keeps its
+    /// height in Auto Layout (`Tests/Methods.md`), so the Debug section is anchored either to the note or, when there
+    /// is no note on show, to the Google section itself -- and hiding the sentence without moving that anchor would
+    /// hold the section down the tab by the height of something nobody can see.
     private func showGoogleNote() {
-        googleNote.isHidden = googleNote.stringValue.isEmpty || googleSection?.isExpanded == false
+        let isShowing = !googleNote.stringValue.isEmpty && googleSection?.isExpanded != false
+        googleNote.isHidden = !isShowing
+        // Deactivated before activating, always: both pin the same top edge, so the moment they overlap is an
+        // unsatisfiable pair and a broken layout in the log.
+        debugBelowNote?.isActive = false
+        debugBelowGoogle?.isActive = false
+        (isShowing ? debugBelowNote : debugBelowGoogle)?.isActive = true
+    }
+
+    /// Draws the folder the trace is kept in, in the form the setting stores it.
+    private func showDebugDirectory() {
+        debugDirectoryValue.stringValue = DebugTraceRules.display(values.debugDirectory)
+        debugDirectoryValue.toolTip = debugDirectoryValue.stringValue
+    }
+
+    /// Dead when this launch has no trace, there being no file for either button to act on.
+    private func showDebugTrace() {
+        debugRevealButton.isEnabled = values.hasDebugTrace
+        debugCopyButton.isEnabled = values.hasDebugTrace
     }
 
     /// The Calendar row: the name, editable, or a button to make one when there is none.
@@ -443,11 +527,12 @@ final class AppSettingsPane: NSView {
     /// `translatesAutoresizingMaskIntoConstraints = false` here would throw that away and leave the pane sized to its
     /// own contents, which is a panel stopping short of the right-hand edge. It did, until this.
     ///
-    /// **Both open**, which is not the Categories tab's answer and is the right one here. There, Inactive is an
-    /// archive to go looking in occasionally, so it starts shut; here the two sections are the whole of the tab, and
-    /// a tab that opened folded would show two headings and nothing to change. The fold is a gesture for getting one
-    /// section out of the way while working in the other, and a gesture does not outlive the window that made it
-    /// (`CollapsibleSection`).
+    /// **The first two open and Debug does not**, and each section owns which it is (`CollapsibleSection`). App
+    /// settings and Google are what somebody opens this tab to change, so a tab that showed only headings would be
+    /// showing nothing to change; Debug is the Categories tab's Inactive case instead -- a group to go looking in
+    /// occasionally, whose two rows are of no interest until something needs looking into. The fold is a gesture for
+    /// getting one section out of the way while working in another, and a gesture does not outlive the window that
+    /// made it.
     ///
     /// **The heading is now on the panel rather than above it**, which is what `CLAUDE.md` requires the moment a
     /// group folds: a heading that operates its panel belongs to it, and one floating above a panel it folds reads as
@@ -466,16 +551,26 @@ final class AppSettingsPane: NSView {
         stack(rows)
         addRows()
 
+        stack(debugRows)
+        addDebugRows()
+
         let app = section(title: "App settings", identifier: Identifier.section, content: rows)
         let google = section(title: "Google", identifier: Identifier.googleSection, content: googleRows)
+        let debug = section(
+            title: "Debug", identifier: Identifier.debugSection, content: debugRows, isExpanded: false
+        )
         appSection = app
         googleSection = google
+        debugSection = debug
 
         app.onToggle = { [weak self] expanded in
             self?.onSectionToggle?(Identifier.section, expanded)
         }
         google.onToggle = { [weak self] expanded in
             self?.onSectionToggle?(Identifier.googleSection, expanded)
+        }
+        debug.onToggle = { [weak self] expanded in
+            self?.onSectionToggle?(Identifier.debugSection, expanded)
         }
         // **The note goes with the section it explains.** It says why the button above it cannot be pressed, so a
         // folded Google section that left the sentence behind would be an explanation of something no longer on
@@ -490,7 +585,7 @@ final class AppSettingsPane: NSView {
         // tab, and adding it first left VoiceOver announcing it before the four settings sitting above it on
         // screen. Nothing looks wrong, which is exactly why it stayed wrong -- it was found by a script
         // dumping the tree, not by looking at the tab.
-        for view in [app as NSView, google, googleNote] {
+        for view in [app as NSView, google, googleNote, debug] {
             addSubview(view)
         }
 
@@ -500,7 +595,18 @@ final class AppSettingsPane: NSView {
             googleNote.topAnchor.constraint(equalTo: google.bottomAnchor, constant: Layout.headingSpacing / 2),
         ])
 
-        for view in [app as NSView, google, googleNote] {
+        // **Two ways for Debug to hang, because the note above it comes and goes.** A hidden view keeps its height,
+        // so anchoring only to the note would leave a sentence nobody can see holding this section down the tab.
+        // `showGoogleNote` is the one place that decides which, the note having two reasons to be away.
+        debugBelowNote = debug.topAnchor.constraint(
+            equalTo: googleNote.bottomAnchor, constant: Layout.sectionSpacing
+        )
+        debugBelowGoogle = debug.topAnchor.constraint(
+            equalTo: google.bottomAnchor, constant: Layout.sectionSpacing
+        )
+        showGoogleNote()
+
+        for view in [app as NSView, google, googleNote, debug] {
             NSLayoutConstraint.activate([
                 view.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.padding),
                 view.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.padding),
@@ -516,13 +622,17 @@ final class AppSettingsPane: NSView {
     /// thing worth having: a row starting at the same x on both tabs. Everything a section is -- where the triangle
     /// sits, the gap under the heading, the corner, the inset -- now comes from `SettingsMetrics` for all three.
     ///
-    /// **No label is passed**, because "App settings" and "Google" already say what they are. The Categories tab
-    /// passes one; "Active" announced on its own does not mean anything.
-    private func section(title: String, identifier: String, content: NSView) -> PanelSection {
+    /// **No label is passed**, because "App settings", "Google" and "Debug" already say what they are. The
+    /// Categories tab passes one; "Active" announced on its own does not mean anything.
+    ///
+    /// - Parameter isExpanded: what the section is built as, and so what opening Settings puts it back to.
+    private func section(
+        title: String, identifier: String, content: NSView, isExpanded: Bool = true
+    ) -> PanelSection {
         PanelSection(
             title: title,
             identifier: identifier,
-            isExpanded: true,
+            isExpanded: isExpanded,
             content: content
         )
     }
@@ -581,6 +691,106 @@ final class AppSettingsPane: NSView {
             rows.addView(view, in: .top)
             view.widthAnchor.constraint(equalTo: rows.widthAnchor).isActive = true
         }
+    }
+
+    /// The Debug section: whether the trace is gathered, the folder it is kept in, and getting hold of the file.
+    ///
+    /// **Three rows and a sentence, and the sentence is the part that has to be there.** What the folder holds is a
+    /// file with a name nobody picked, and a folder changed here is not the folder this launch opened -- the trace
+    /// database is open from launch to quit, so the change lands on the next one. Both of those are invisible from
+    /// the rows themselves.
+    ///
+    /// **The third row is why the folder does not have to be findable.** Somebody who has been asked to send their
+    /// trace in presses Reveal in Finder and the file is selected in front of them, or presses Save a copy and picks
+    /// where it goes. Neither asks them to navigate to a path, which is what the folder would otherwise be for.
+    ///
+    /// **Inside the panel rather than under it**, unlike the Google footnote: this one has no reason to outlive its
+    /// section, so being a row of the list is the whole of making it fold.
+    private func addDebugRows() {
+        debugEnabledBox = box(identifier: Identifier.debugEnabled, action: #selector(debugEnabledChanged))
+
+        debugDirectoryValue = NSTextField(labelWithString: "")
+        debugDirectoryValue.translatesAutoresizingMaskIntoConstraints = false
+        // The path is the longest thing on this tab and the one row that cannot be shortened by rewording. Truncated
+        // in the middle, since both ends carry the answer: which volume it is on, and which folder it ends in.
+        debugDirectoryValue.lineBreakMode = .byTruncatingMiddle
+        debugDirectoryValue.setAccessibilityIdentifier(Identifier.debugDirectory)
+        showDebugDirectory()
+
+        let choose = NSButton(title: "Choose", target: self, action: #selector(debugDirectoryPressed))
+        choose.bezelStyle = .rounded
+        choose.controlSize = .small
+        choose.translatesAutoresizingMaskIntoConstraints = false
+        choose.setAccessibilityIdentifier(Identifier.debugDirectoryChoose)
+
+        let pair = NSStackView(views: [debugDirectoryValue, choose])
+        pair.orientation = .horizontal
+        pair.spacing = Layout.headingSpacing
+        pair.translatesAutoresizingMaskIntoConstraints = false
+
+        debugRevealButton = traceButton(
+            "Reveal in Finder", identifier: Identifier.debugReveal, action: #selector(debugRevealPressed)
+        )
+        debugCopyButton = traceButton(
+            "Save a copy", identifier: Identifier.debugCopy, action: #selector(debugCopyPressed)
+        )
+        debugCopyButton.toolTip = "Write a copy of the trace to send in"
+        let buttons = NSStackView(views: [debugRevealButton, debugCopyButton])
+        buttons.orientation = .horizontal
+        buttons.spacing = Layout.headingSpacing
+        buttons.translatesAutoresizingMaskIntoConstraints = false
+        showDebugTrace()
+
+        let note = NSTextField(
+            labelWithString: "The trace is a file called debug.sqlite in this folder. "
+                + "A folder chosen here is used from the next time Facet starts."
+        )
+        note.translatesAutoresizingMaskIntoConstraints = false
+        note.font = .preferredFont(forTextStyle: .footnote)
+        note.textColor = .secondaryLabelColor
+        note.lineBreakMode = .byWordWrapping
+        note.maximumNumberOfLines = 0
+        note.setAccessibilityIdentifier(Identifier.debugNote)
+
+        let built: [NSView] = [
+            SettingsRow.make("Debug logging", debugEnabledBox),
+            SettingsRow.make("Directory", pair),
+            SettingsRow.make("Trace file", buttons),
+            note,
+        ]
+        for view in built {
+            debugRows.addView(view, in: .top)
+            view.widthAnchor.constraint(equalTo: debugRows.widthAnchor).isActive = true
+        }
+    }
+
+    @objc
+    private func debugEnabledChanged() {
+        onChange?(.debugEnabled(debugEnabledBox.state == .on))
+    }
+
+    @objc
+    private func debugDirectoryPressed() {
+        onChange?(.debugDirectoryRequested)
+    }
+
+    @objc
+    private func debugRevealPressed() {
+        onChange?(.debugRevealRequested)
+    }
+
+    @objc
+    private func debugCopyPressed() {
+        onChange?(.debugCopyRequested)
+    }
+
+    private func traceButton(_ title: String, identifier: String, action: Selector) -> NSButton {
+        let button = NSButton(title: title, target: self, action: action)
+        button.bezelStyle = .rounded
+        button.controlSize = .small
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setAccessibilityIdentifier(identifier)
+        return button
     }
 
     private func box(identifier: String, action: Selector) -> NSButton {

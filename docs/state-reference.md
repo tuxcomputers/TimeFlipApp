@@ -57,6 +57,7 @@ wanted to work without the cube.
 | `isDeveloperMode` | true / false | `DeveloperMode` |
 | `isTestDatabase` | true / false | `DatabaseEnvironment`, from `setting.db_type.type` |
 | `isQuitting` | true / false | `setting.connection.quit_request`, plus `QuitSequence` progress |
+| `isDebugEnabled` | true / false | `setting.debug.enabled`, read at the point of use |
 
 ## 2. Pairing and the link
 
