@@ -40,7 +40,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=35
+EXPECTED_CHECKS=37
 start "manual mode with a device paired: what it refuses, and what it stops doing"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -75,6 +75,11 @@ require_a_paired_cube "there is nothing to lose"
 check "the state says a cube is connected" "1" "$(setting connection connected)"
 check "so the Auto-pause field is live" "0" \
     "$(tree | grep -cE "id=device-auto-pause[[:space:]].*disabled" || true)"
+# **The two top-level rows of the section, not one.** They share a gate, so reading only one of them would pass on a
+# gate applied to that row alone -- which is the state this section was in until the whole of it was gated together.
+# The rows inside LED and Double tap take the same gate and are read with no cube by `13-device-tab`.
+check "and so is the Pause on lock box beside it" "0" \
+    "$(tree | grep -cE "id=device-pause-on-lock[[:space:]].*disabled" || true)"
 
 # ---------------------------------------------------------------------------- the link goes
 #
@@ -122,6 +127,10 @@ check "the Auto-pause field goes dead with the connection" "1" \
     "$(tree | grep -cE "id=device-auto-pause[[:space:]].*disabled" || true)"
 check "and its arrows with it" "2" \
     "$(tree | grep -cE "id=device-auto-pause-(up|down)[[:space:]].*disabled" || true)"
+# **And the box that no command carries goes with them.** Nothing would be sent for this one, so it is the row that
+# could have stayed live and does not: the section answers the question about a cube the same way in every row.
+check "and the Pause on lock box goes dead too" "1" \
+    "$(tree | grep -cE "id=device-pause-on-lock[[:space:]].*disabled" || true)"
 select_tab Faces
 
 # ---------------------------------------------------------------------------- it is still the cube being shown

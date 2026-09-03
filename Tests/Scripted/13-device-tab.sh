@@ -15,7 +15,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=34
+EXPECTED_CHECKS=45
 start "the Device tab's two sections, and the folds that need no cube"
 
 open_settings
@@ -49,27 +49,83 @@ check "and the scan button is there with it" "1" "$(on_tab device-scan)"
 
 # ---------------------------------------------------------------------------- what a tab with no cube offers
 #
-# **Auto-pause is dead before anything has been paired**, which is the state every launch starts in and the one no
-# device script can reach: from `51` onwards there is a cube. The gate is `isCubeConnected`, and here the two facts
-# give the same answer -- nothing is paired, so nothing is connected -- which is why both are read rather than only
-# the one being asserted about. `56-manual-mode` reads the discriminating case, where the pairing survives a drop.
+# **The Settings section is dead before anything has been paired**, which is the state every launch starts in and
+# the one no device script can reach: from `51` onwards there is a cube. The gate is `isCubeConnected`, and here the
+# two facts give the same answer -- nothing is paired, so nothing is connected -- which is why both are read rather
+# than only the one being asserted about. `56-manual-mode` reads the discriminating case, where the pairing survives
+# a drop, and `DevicePaneTests.testEverySettingsControlIsDeadWhileAPairedCubeIsOutOfReach` reads it hermetically.
 #
 # **This script already depends on there being no cube**: the scan button checked directly above is only on the tab
 # while nothing is paired (`DevicePairingRules.showsScanControls`), so an unconditional check adds no new assumption.
 
 check "nothing is paired, which is what this tab is drawn from" "0" "$(setting paired paired)"
 check "so nothing is connected either" "0" "$(setting connection connected)"
-check "and the Auto-pause field is dead" "1" \
-    "$(tree | grep -cE "id=device-auto-pause[[:space:]].*disabled" || true)"
-check "with its arrows" "2" \
-    "$(tree | grep -cE "id=device-auto-pause-(up|down)[[:space:]].*disabled" || true)"
 
-# **The Name row will not open either, and for the same reason one row up: renaming is a command (`0x15`) that has to
-# reach the cube.** What it does instead of going dead is say why -- the button stays pressable so that the tooltip
-# and the spoken label survive, which is what `EditableNameCell.isEnabled` is careful about, so the check that it
-# will not open is that pressing it produces no field.
+# **Every control in the Settings section is dead, not just Auto-pause.** Each of them changes something about the
+# cube, so with nothing on the other end a press could only ever end in the refusal sheet -- and one row left live
+# in a dead section reads as the section having an exception rather than a rule.
+#
+# **Read off the tree in one loop**, because the fault this guards against is a row added to that section and not
+# to this list: naming them here is what makes the next one visible.
+#
+# Pause the device when locking it and Battery warning at are in the list with the rest, and they are the two worth
+# saying why about: no command carries either, so both could have been left live, and neither is. A section about a
+# cube answers the question about a cube the same way in every row of it. See `DevicePane.drawSettingsGate`.
+
+# **Both inner folds are opened first.** LED and Double tap are built folded, so their rows are not in the tree at
+# all until the heading is pressed, and a control that is absent is not a control that is dead. Opened once around
+# the whole loop rather than per row, and put back below, so the section is left as the fold checks further down
+# expect to find it.
+press device-led-heading-button
+sleep 0.5
+press device-double-tap-heading-button
+sleep 0.5
+
+for control in \
+    device-pause-on-lock \
+    device-battery-warning \
+    device-auto-pause \
+    device-led-brightness \
+    device-led-blink \
+    device-double-tap-disable \
+    device-double-tap-threshold \
+    device-double-tap-limit \
+    device-double-tap-latency \
+    device-double-tap-window
+do
+    check "$control is dead with no cube connected" "1" \
+        "$(tree | grep -cE "id=$control[[:space:]].*disabled" || true)"
+done
+
+press device-led-heading-button
+sleep 0.5
+press device-double-tap-heading-button
+sleep 0.5
+check "and both inner folds are back as they were built" "0" "$(on_tab device-led-brightness)"
+
+# The arrows go with the field they belong to: a dead box above two live arrows is a control that is half off.
+check "and the Auto-pause arrows are dead with it" "2" \
+    "$(tree | grep -cE "id=device-auto-pause-(up|down)[[:space:]].*disabled" || true)"
+check "as are the Battery warning arrows" "2" \
+    "$(tree | grep -cE "id=device-battery-warning-(up|down)[[:space:]].*disabled" || true)"
+
+# **None of them is pressed here, deliberately.** `AXPress` on a disabled control is refused by the accessibility
+# API itself, so the press would print a red failure line for behaving correctly -- and `00-setup` pins
+# `pause_on_lock` on, with `55`, `57` and `61` all requiring it on, so a press that somehow got through would fail a
+# script two hundred lines away with nothing to point at. That a dead control starts no write is checked hermetically
+# instead (`DevicePaneTests.testADeadLockBoxReportsNothingWhenItIsClicked` and the Auto-pause one beside it).
+#
+# **What it is like to change one is checked where there is a cube**: `61-lock-without-pause` presses this same box
+# and reads the table both ways, `54-device-battery` steps the warning level, `65-auto-pause` the delay,
+# `63-led-settings` the LED pair and `59-double-tap` the registers.
+
+# **The Name row will not open either, and for the same reason: renaming is a command (`0x15`) that has to reach the
+# cube.** What it does instead of going dead is say why -- the button stays pressable so that the tooltip and the
+# spoken label survive, which is what `EditableNameCell.isEnabled` is careful about, so the check that it will not
+# open is that pressing it produces no field.
 #
 # **The live case cannot be checked here**, nothing being paired below `50`. It is in `66-device-rename`.
+
 
 check_contains "the Name row says there is no device" "$(element device-name)" "Not paired"
 check_contains "and says why it will not open" "$(element device-name)" "no name to change"

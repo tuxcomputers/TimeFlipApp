@@ -8,12 +8,24 @@ import AppKit
 ///   plainly when the answer is that it knows nothing (`DeviceInfoRules`, where the wording and the three different
 ///   kinds of "no device" live), and under them sit the controls that change with the state -- Scan while there is
 ///   nothing paired, Forget and Reset once there is (`DevicePairingRules.showsScanControls`).
-/// - **Settings**, which are the cube's own: they are stored here and sent to it on connect, so they are readable and
-///   meaningful with no cube present, which is why they are drawn rather than hidden. **Every row here writes.** A
-///   writing control sends to the cube, records what the cube took, and puts itself back with an alert if either
+/// - **Settings**, which are what the cube is set to: stored here and sent to it on connect, so they are readable and
+///   meaningful with no cube present, which is why they are drawn rather than hidden. **Every row here writes.** All
+///   but the first send to the cube, record what the cube took, and put themselves back with an alert if either
 ///   refuses, so a row is never left showing a number that reached neither. Auto-pause and the four double-tap
 ///   registers are read back off the cube before they are believed; the two LED values are not, the vendor spec
 ///   defining no read-back for either, so for those the write is genuinely all there is.
+///
+///   **The first two rows are the exception to how they are written, and only that: no command carries either.**
+///   Pause on lock says what the app does to the cube when it locks it (`CubeLock.lock` reads `pause_on_lock` at
+///   the step that needs it), and Battery warning at says what the app treats as flat (`LowBatteryWatch` reads
+///   `low_battery_level` every time it judges a reading), so for both the whole of writing it is the table taking
+///   it. They are about the cube all the same, which is what this section is, and they were on the App tab until
+///   2026-09-03 because the app is what reads them.
+///
+///   **The whole section is dead while no cube is connected**, that row included, and `drawSettingsGate` is where
+///   that is decided for all of them at once. It is a section about a cube, so it answers the question about a cube
+///   the same way in every row of it; a sixth row staying live because of how it happens to be stored would be
+///   asking somebody reading the section to work out which kind each row is.
 ///
 /// **These were three sections until 2026-08-22**, with the readings under "Info" and the scan under a "TimeFlip" of
 /// its own. One section, because the split asked somebody to know that what a cube *is* and how to *get* one are
@@ -40,6 +52,8 @@ final class DevicePane: NSView {
 
         static let settingsSection = "device-settings-section"
         static let settingsPanel = "device-settings-section-panel"
+        static let pauseOnLock = "device-pause-on-lock"
+        static let batteryWarning = "device-battery-warning"
         static let autoPause = "device-auto-pause"
         static let led = "device-led"
         static let ledBrightness = "device-led-brightness"
@@ -119,6 +133,8 @@ final class DevicePane: NSView {
         var model: String?
         var hardware: String?
         var firmware: String?
+        var pausesOnLock: Bool
+        var batteryWarningPercent: Int
         var autoPauseMinutes: Int
         var ledBrightnessPercent: Int
         var ledBlinkSeconds: Int
@@ -140,6 +156,10 @@ final class DevicePane: NSView {
             model: nil,
             hardware: nil,
             firmware: nil,
+            // **On, matching `database/011_setting.sql`.** A cube left locked and still counting against whatever
+            // face happens to be up is the thing locking it was meant to stop.
+            pausesOnLock: true,
+            batteryWarningPercent: BatteryRules.defaultWarningPercent,
             autoPauseMinutes: 0,
             ledBrightnessPercent: 50,
             ledBlinkSeconds: 15,
@@ -187,6 +207,8 @@ final class DevicePane: NSView {
     private var modelValue: NSTextField!
     private var hardwareValue: NSTextField!
     private var firmwareValue: NSTextField!
+    private var pauseOnLockBox: NSButton!
+    private var batteryWarningField: SteppedNumberField!
     private var autoPauseField: SteppedNumberField!
     private var ledBrightnessField: SteppedNumberField!
     private var ledBlinkField: SteppedNumberField!
@@ -260,6 +282,21 @@ final class DevicePane: NSView {
     /// rather than sending from here.
     var onLEDBrightnessChanged: (() -> Void)?
     var onLEDBlinkChanged: (() -> Void)?
+
+    /// Somebody ticked or unticked **Pause the device when locking it**. `true` means a lock should pause first.
+    ///
+    /// **Not debounced, unlike the four rows under it**, and it carries its value rather than being read back off the
+    /// pane: a box is one press with one answer, where a held arrow produces a value a tenth of a second at a time
+    /// and only the last one is meant.
+    var onPauseOnLockChanged: ((Bool) -> Void)?
+
+    /// The Battery warning field moved. What it moved to is on the pane; this only says that it did.
+    ///
+    /// **Its own report, on its own debounce**, for the reason every stepper on this tab has one: a hold repeats
+    /// every 0.1s (`StepperHoldRules`), and each tick would otherwise be a row read, rewritten and read back
+    /// (`SettingStore.write`) and a warning asked to think again. It was written per tick while it sat on the App
+    /// tab, which has no debounce in it at all.
+    var onBatteryWarningChanged: (() -> Void)?
 
     /// The Auto-pause field moved. What it moved to is on the pane; this only says that it did.
     ///
@@ -369,23 +406,12 @@ final class DevicePane: NSView {
             isCubePaired: values.isCubePaired, isCubeConnected: values.isCubeConnected, isReachingForCube: isReachingForCube
         )
 
+        pauseOnLockBox.state = values.pausesOnLock ? .on : .off
+        batteryWarningField.value = values.batteryWarningPercent
         autoPauseField.value = values.autoPauseMinutes
-        // **Dead unless a cube is connected**, which is the archive's answer for every device setting on this tab and
-        // the honest one here: the delay is a command the cube confirms (`0x05`, read back with `0x10`), so with
-        // nothing on the other end an arrow could only ever end in the refusal sheet. A dead field says why nothing
-        // happens, which is the reasoning `drawDoubleTap` puts the four registers out of use with and the Categories
-        // tab greys a locked row with.
-        //
-        // **`isCubeConnected` and not the pairing**, so manual mode is covered by the same gate rather than by a
-        // second one: a launch with no cube has nothing connected, and neither has a paired cube in another room.
-        //
-        // **Live again the moment a cube answers.** Every path that changes the connection redraws this tab through
-        // `show` (`recordConnected` on the way up, `markConnectionDown` on the way back), so this follows the link
-        // rather than being decided when the window opened.
-        autoPauseField.isEnabled = values.isCubeConnected
-        autoPauseField.disabledHelp = values.isCubeConnected ? nil : Self.notConnectedHelp
         ledBrightnessField.value = values.ledBrightnessPercent
         ledBlinkField.value = values.ledBlinkSeconds
+        drawSettingsGate()
         drawDoubleTap(isEnabled: values.isDoubleTapEnabled)
         doubleTapValues[Identifier.doubleTapThreshold]?.value = values.doubleTapThreshold
         doubleTapValues[Identifier.doubleTapLimit]?.value = values.doubleTapLimit
@@ -393,6 +419,45 @@ final class DevicePane: NSView {
         doubleTapValues[Identifier.doubleTapWindow]?.value = values.doubleTapWindow
     }
 
+    /// Puts the whole Settings section out of use while no cube is connected, and gives it back the moment one
+    /// answers.
+    ///
+    /// **Every row in that section, asked once.** Each of them changes something about the cube, so with nothing on
+    /// the other end an arrow or a tick could only ever end in the refusal sheet -- and a control that looks live and
+    /// then refuses is worse than one that says up front why nothing will happen. Asked here rather than at each row
+    /// because a gate written once per control is one chance per control to write it differently, which is
+    /// `CLAUDE.md`'s first rule applied to a decision instead of a value.
+    ///
+    /// **`isCubeConnected`, not the pairing.** The two are not the same question and only one of them is this one: a
+    /// paired cube in another room can be told nothing, and an unpaired app has nothing to tell anyway -- so the
+    /// pairing is covered by this gate rather than by a second one beside it. See `docs/state-reference.md` §2.
+    ///
+    /// **The two rows no command carries are gated with the rest.** Pause on lock and Battery warning at are
+    /// settings about what happens to the cube, and a section where every row but two goes grey would be saying
+    /// those two are a different kind of thing -- which is not something somebody reading a row should have to work
+    /// out. What it costs is arranging them before pairing; what it buys is a section with one answer in it.
+    ///
+    /// **The section follows the link rather than the window.** Every path that changes the connection redraws this
+    /// tab through `show` (`recordConnected` on the way up, `markConnectionDown` on the way back), so this is not
+    /// decided when the window opened.
+    ///
+    /// The four double-tap registers are not here: they have a second gate of their own and both have to be open, so
+    /// `drawDoubleTap` owns them and reads the connection itself.
+    private func drawSettingsGate() {
+        let live = values.isCubeConnected
+        let help = live ? nil : Self.notConnectedHelp
+
+        for box in [pauseOnLockBox, doubleTapDisableBox] {
+            box?.isEnabled = live
+            box?.toolTip = help
+        }
+        for field in [batteryWarningField, autoPauseField, ledBrightnessField, ledBlinkField] {
+            field?.isEnabled = live
+            field?.disabledHelp = help
+        }
+    }
+
+    /// The four registers as this window currently holds them.
     /// The four registers as this window currently holds them.
     ///
     /// **From the window rather than from the table**, which is the licence `CLAUDE.md` grants an open Settings
@@ -454,6 +519,34 @@ final class DevicePane: NSView {
         put(seconds, in: ledBlinkField)
     }
 
+    /// Puts the Pause on lock box where the table says it should be, without telling anybody it moved.
+    ///
+    /// **Set directly rather than through `show`**, for the reason `showDoubleTapEnabled` is: a refused write has to
+    /// put this one control back while every other row goes on showing what it was showing. `state` is assigned
+    /// rather than the action fired, so a correction cannot be mistaken for somebody ticking it.
+    func showPauseOnLock(_ pausesOnLock: Bool) {
+        values.pausesOnLock = pausesOnLock
+        pauseOnLockBox.state = pausesOnLock ? .on : .off
+    }
+
+    /// The battery warning level as this window currently holds it, as a percentage.
+    ///
+    /// **Read off the field rather than off `values`**, for the reason every other stepper here is read that way: a
+    /// held arrow moves the field several times a second and nothing writes those back to `values` until one lands,
+    /// so a write built from `values` would carry the number the row opened with.
+    var batteryWarningPercent: Int { batteryWarningField.value }
+
+    /// Records that a battery warning level reached the table, **without touching the field it came from**.
+    func recordBatteryWarning(_ percent: Int) {
+        values.batteryWarningPercent = percent
+    }
+
+    /// Puts the Battery warning field back where the table says it should be, without telling anybody it moved.
+    func showBatteryWarning(_ percent: Int) {
+        recordBatteryWarning(percent)
+        put(percent, in: batteryWarningField)
+    }
+
     /// Auto-pause as this window currently holds it, in whole minutes.
     ///
     /// **Read off the field rather than off `values`**, for the reason the LED pair are read that way: a held arrow
@@ -505,7 +598,17 @@ final class DevicePane: NSView {
     /// same fault in miniature that the first rule in `CLAUDE.md` is about: two controls answering one question.
     private func drawDoubleTap(isEnabled: Bool) {
         doubleTapDisableBox.state = isEnabled ? .off : .on
-        for field in doubleTapValues.values { field.isEnabled = isEnabled }
+        // **Two gates, and a register is live only with both open**: the gesture has to be wanted, and there has to
+        // be a cube to tell about it. Folded in here rather than left to `drawSettingsGate` because this method is
+        // also reached from the box being ticked and from a refused write being put back, neither of which has any
+        // business re-enabling a field the connection has closed.
+        let live = isEnabled && values.isCubeConnected
+        for field in doubleTapValues.values {
+            field.isEnabled = live
+            // **Only the connection gets a tooltip.** A register dead because the gesture is off is explained by the
+            // ticked box directly above it; one dead because there is no cube has nothing on screen saying so.
+            field.disabledHelp = values.isCubeConnected ? nil : Self.notConnectedHelp
+        }
     }
 
     /// Puts the four registers where the table says they should be, without telling anybody they moved.
@@ -544,6 +647,15 @@ final class DevicePane: NSView {
 
     private func doubleTapValueChanged() {
         onDoubleTapValueChanged?()
+    }
+
+    @objc private func pauseOnLockChanged() {
+        // **`values` moves with the box, here rather than on the way back.** Nothing else on this tab reads it
+        // between the press and the write landing, and a refusal puts both back through `showPauseOnLock` -- so the
+        // two cannot part company. `doubleTapDisableChanged` below does the same, for the same reason.
+        let pausesOnLock = pauseOnLockBox.state == .on
+        values.pausesOnLock = pausesOnLock
+        onPauseOnLockChanged?(pausesOnLock)
     }
 
     @objc private func doubleTapDisableChanged() {
@@ -682,6 +794,27 @@ final class DevicePane: NSView {
 
     /// The cube's own settings: stored here, and sent to it when there is one to send them to.
     private func settingsRowViews() -> [NSView] {
+        // **The archive's wording, on the archive's control, moved off the archive's tab.** It sat among the App
+        // tab's six switches and numbers, which is where the setting the app reads was assumed to belong. What it
+        // actually decides is what happens to the cube -- whether a lock stops it counting first -- so it belongs
+        // with the rest of what the cube is set to, above the other setting about the cube pausing itself.
+        pauseOnLockBox = NSButton(checkboxWithTitle: "", target: self, action: #selector(pauseOnLockChanged))
+        pauseOnLockBox.translatesAutoresizingMaskIntoConstraints = false
+        pauseOnLockBox.setAccessibilityIdentifier(Identifier.pauseOnLock)
+
+        // **The archive's wording and bounds, on the archive's control, moved off the archive's tab.** What it
+        // decides is what counts as this device running flat, so it reads under the lock row and above Auto-pause.
+        // `BatteryRules` owns the range now: that type already holds every other number the threshold is judged by
+        // (`recoveryMargin`, `riseToAdopt`), so a field that would accept a level the warning could not act on is
+        // ruled out by the same file that acts on it.
+        batteryWarningField = SteppedNumberField(
+            value: values.batteryWarningPercent,
+            range: BatteryRules.warningRange,
+            suffix: BatteryRules.warningSuffix,
+            identifier: Identifier.batteryWarning
+        )
+        batteryWarningField.onChange = { [weak self] _ in self?.onBatteryWarningChanged?() }
+
         // **Its label states the ceiling, and takes it from the same place the field does.** The archive's wording,
         // with the number now interpolated rather than typed twice: `DeviceCommandRules.autoPauseRange` is what the
         // command clamps to, so the label cannot come to promise a limit the wire does not keep. 0 disables it, which
@@ -768,6 +901,8 @@ final class DevicePane: NSView {
         doubleTapRow.onToggle = { [weak self] expanded in self?.onToggle?(Identifier.doubleTap, expanded) }
 
         return [
+            SettingsRow.make("Pause the device when locking it", pauseOnLockBox),
+            SettingsRow.make("Battery warning at", batteryWarningField),
             SettingsRow.make(
                 "Auto-pause (0 disable, max \(DeviceCommandRules.autoPauseRange.upperBound)m)", autoPauseField
             ),

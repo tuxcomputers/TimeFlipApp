@@ -33,21 +33,6 @@ final class AppSettingsRulesTests: XCTestCase {
         XCTAssertEqual(AppSettingsRules.hour12(from: AppSettingsRules.defaultResetHour24), 3)
     }
 
-    // MARK: - the battery warning
-
-    func testTheBatteryWarningIsCappedAtTwentyPercent() {
-        // The archive's cap and its reasoning: the cube runs on AA cells, so the warning has to leave time to choose
-        // when to swap them, not time to find one. A threshold much above this keeps the warning lit for most of the
-        // cells' life, which teaches somebody to ignore it.
-        XCTAssertEqual(AppSettingsRules.batteryWarningPercent, 1 ... 20)
-        XCTAssertEqual(AppSettingsRules.defaultBatteryWarningPercent, 10)
-    }
-
-    func testTheWarningCannotBeSetToNothing() {
-        // A warning at 0% arrives once the device is already dead.
-        XCTAssertEqual(AppSettingsRules.batteryWarningPercent.lowerBound, 1)
-    }
-
     // MARK: - the history fetch
 
     func testTheIntervalIsBoundedByTheMinuteAndTheHour() {
@@ -116,23 +101,19 @@ final class AppSettingsRulesTests: XCTestCase {
         // each end half-knew is how a control comes to write the right number into the wrong column.
         let destinations = [
             AppSettingsPane.Change.showsSeconds(false),
-            .pausesOnLock(false),
             .dailyResetHour12(2),
-            .batteryWarningPercent(15),
             .fetchIntervalMinutes(9),
             .blipSeconds(3),
         ].compactMap { AppSettingsRules.destination(for: $0) }
 
-        XCTAssertEqual(destinations.count, 6, "every one of these maps to a column")
+        XCTAssertEqual(destinations.count, 4, "every one of these maps to a column")
         XCTAssertEqual(destinations.map(\.setting), [
             "display_seconds",
-            "pause_on_lock",
             "daily_reset_time",
-            "low_battery_level",
             "fetch_history_interval_seconds",
             "blip_time",
         ])
-        XCTAssertEqual(destinations.map(\.field), ["enabled", "enabled", "hour", "percent", "seconds", "seconds"])
+        XCTAssertEqual(destinations.map(\.field), ["enabled", "hour", "seconds", "seconds"])
     }
 
     func testAChangeIsConvertedToTheUnitItsColumnStores() {
@@ -144,8 +125,8 @@ final class AppSettingsRulesTests: XCTestCase {
     }
 
     func testARowIsNamedByItsLabelWhenSomethingHasToBeSaid() {
-        // Nobody reading an alert knows what `low_battery_level` is.
-        XCTAssertEqual(AppSettingsRules.title(for: .batteryWarningPercent(15)), "Battery warning at")
+        // Nobody reading an alert knows what `daily_reset_time` is.
+        XCTAssertEqual(AppSettingsRules.title(for: .dailyResetHour12(3)), "Daily reset at")
         XCTAssertEqual(AppSettingsRules.title(for: .showsSeconds(true)), "Show seconds")
     }
 }

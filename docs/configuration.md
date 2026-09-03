@@ -145,13 +145,27 @@ The Device tab has **two** sections, each folding away behind its own heading:
   is. Reset is a full factory reset, behind a confirmation dialog since it erases everything on the
   device — including its name, which is why a confirmed reset is the one thing that makes Facet forget
   the stored name too.
-- **Settings** — the cube's own settings, stored here and sent to it. They are drawn rather than hidden
+- **Settings** — what the cube is set to, stored here and sent to it. They are drawn rather than hidden
   when no cube is connected, because they are readable and meaningful without one; the controls
   themselves go dead, since there is nothing to send to.
+
+  - **Pause the device when locking it** (`pause_on_lock`, default on): whether locking the device also
+    pauses it. It applies when quitting too — the app locks the cube on its way out either way, so it is
+    not left running with nothing controlling it, and this setting decides only whether a pause goes out
+    first. Read at the step that needs it rather than at launch, so changing it takes effect on the next
+    lock. No command carries it (it says what the app does on its way to a lock), so it is written to the
+    database and read back from there, where the rows under it go out to the cube.
   - **Auto-pause**: pause the device after this many minutes on one face. `0` disables it, 240 is the
     maximum. Whole minutes only, which is all the device supports.
   - **LED** (collapsed): brightness (1-100%) and blink interval (5-60 seconds).
   - **Double tap** (collapsed): tap detection sensitivity — see below.
+
+  **Every control in this section is dead while no cube is connected**, and comes back the moment one answers.
+  Each of them changes something about the cube, so with nothing on the other end a change could only ever end
+  in a refusal, and a control that looks live and then refuses is worse than one that says up front why nothing
+  will happen. It is the *connection* that decides it, not the pairing: a paired cube in another room can be
+  told nothing either. The values stay readable throughout, which is why the section is drawn rather than
+  hidden.
 
 **These were three sections until 2026-08-22**, with the readings under an "Info" heading and the scan
 under a "TimeFlip" of its own. One section now, because the split asked you to know that what a cube
@@ -162,7 +176,8 @@ pairs it were a panel apart.
 registers are sent to the cube, then read back off it, and only written down once the cube's own answer
 agrees — a refusal by either the cube or the database puts the field back and says so in an alert. The
 two LED values are the exception, and not an oversight: the vendor protocol defines no read-back for
-either, so the write really is all there is.
+either, so the write really is all there is. Pause on lock goes to the database and no further, and is
+read back from there.
 
 #### Double-Tap Sensitivity
 
@@ -187,8 +202,9 @@ All four are raw accelerometer register values (0-255), not a real-world unit li
 
 The **App** tab, under "App settings". Every numeric row here is the same control: type a value or hold the arrows to step it, and it commits on Return or when focus leaves.
 
+**Pause the device when locking it** used to be here and is now on the Device tab, above Auto-pause: what it decides is what happens to the cube, so it sits with the rest of what the cube is set to.
+
 - **Show seconds** (`display_seconds`, default on): whether a time reads to the second or to the minute, wherever the app shows one -- the menu bar duration (which then ticks every second rather than refreshing each minute), and the Report tab's totals, entry durations and start and end times.
-- **Pause the device when locking it** (`pause_on_lock`, default on): whether locking the device also pauses it. It applies when quitting too — the app locks the cube on its way out either way, so it is not left running with nothing controlling it, and this setting decides only whether a pause goes out first. Read at the step that needs it rather than at launch, so changing it takes effect on the next lock.
 - **Daily reset at** (`daily_reset_time`, default 3 AM): when each category's daily total rolls over. AM only, deliberately — a reset in the middle of the afternoon would cut a working day's accounting in half.
 - **Battery warning at** (`low_battery_level`, default 10%): the battery percentage at or below which the menu bar activity text starts blinking red/white (see Status Indicators below). Once triggered it only clears again after the battery climbs 5 points above the threshold, so a reading wobbling around the threshold doesn't flicker the warning on and off.
 - **Fetch history every** (`fetch_history_interval_seconds`, default 10 seconds, edited in whole minutes): how often the app asks the device for anything it hasn't seen, as a safety net behind the live flip notifications.

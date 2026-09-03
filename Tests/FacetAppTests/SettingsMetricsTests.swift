@@ -51,8 +51,8 @@ final class SettingsMetricsTests: XCTestCase {
         let content = hosted(pane)
 
         let measured = pitch(
-            try view(AppSettingsPane.Identifier.showSeconds, in: pane),
-            try view(AppSettingsPane.Identifier.pauseOnLock, in: pane),
+            try view(AppSettingsPane.Identifier.dailyReset, in: pane),
+            try view(AppSettingsPane.Identifier.fetchInterval, in: pane),
             in: content
         )
 
@@ -84,8 +84,8 @@ final class SettingsMetricsTests: XCTestCase {
         let tableContent = hosted(table)
 
         let appPitch = pitch(
-            try view(AppSettingsPane.Identifier.showSeconds, in: app),
-            try view(AppSettingsPane.Identifier.pauseOnLock, in: app),
+            try view(AppSettingsPane.Identifier.dailyReset, in: app),
+            try view(AppSettingsPane.Identifier.fetchInterval, in: app),
             in: appContent
         )
         let devicePitch = pitch(

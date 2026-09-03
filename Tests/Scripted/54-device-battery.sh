@@ -8,7 +8,7 @@
 #
 # **The warning itself is deliberately not here, and that is the archive's finding rather than a gap.** Its
 # `07b-battery-low-indicator-checklist` says why: arming the warning needs the charge at or below `low_battery_level`,
-# the App tab will not take a level above 20%, and a healthy cube sits near 100 -- so on real hardware there is no way
+# the field will not take a level above 20%, and a healthy cube sits near 100 -- so on real hardware there is no way
 # to reach the state without draining the batteries. The archive moved that whole claim into a mock sequence for
 # exactly this reason; here it is `LowBatteryWatchTests`, which drives the latch, the recovery margin, the flash and a
 # threshold changed underneath it.
@@ -19,7 +19,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=9
+EXPECTED_CHECKS=12
 start "the charge: pulled on connecting, pushed after that, and shown without flapping"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -142,6 +142,35 @@ climbs=$(dsql "
     ) WHERE step = 1;
 ")
 check "the figure never climbs by a single percent, which is what the flap is made of" "${climbs:-0}" "0"
+
+# ---------------------------------------------------------------------------- setting what counts as flat
+#
+# **The row that says when to warn, changed here because here is where there is a cube.** Battery warning at moved
+# from the App tab to the Device tab on 2026-09-03, and it goes dead with the rest of that section while nothing is
+# connected -- so `13-device-tab` can only check that it is dead, and the write has to be driven from a script that
+# has a link. This one already has one and is already on the tab.
+#
+# **No command goes out.** The level is what the app treats as flat, not something the cube is told, so the whole of
+# the write is the table taking it. What is checked is the row moving and moving back.
+#
+# **Stepped and then waited on**, because the write is debounced by half a second now that the field sits among the
+# steppers on this tab. It was written per tick while it was on the App tab, which debounces nothing.
+
+warning_was=$(setting low_battery_level percent)
+since=$(mark)
+press device-battery-warning-up
+sleep 1
+warning_now=$(setting low_battery_level percent)
+if [ "$warning_now" != "$warning_was" ]; then
+    pass "the Battery warning arrow writes low_battery_level ($warning_was -> $warning_now)"
+else
+    fail "device-battery-warning-up left low_battery_level at $warning_was"
+fi
+expect_log "and says what the table now holds" "$since" "Battery warning: the table now holds % percent"
+
+press device-battery-warning-down
+sleep 1
+check "and steps it back down" "$warning_was" "$(setting low_battery_level percent)"
 
 # ---------------------------------------------------------------------------- and it goes with the link
 #

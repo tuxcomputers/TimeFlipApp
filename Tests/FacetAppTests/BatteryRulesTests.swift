@@ -101,9 +101,32 @@ final class BatteryRulesTests: XCTestCase {
     }
 
     func testAThresholdOfItsOwnIsObeyed() {
-        // The level is a setting (`low_battery_level`, 1 to 20 on the App tab), so nothing here is tied to its seed.
+        // The level is a setting (`low_battery_level`, 1 to 20 on the Device tab), so nothing here is tied to its seed.
         XCTAssertTrue(BatteryRules.latched(false, level: 20, threshold: 20))
         XCTAssertFalse(BatteryRules.latched(false, level: 20, threshold: 5))
         XCTAssertFalse(BatteryRules.latched(true, level: 26, threshold: 20))
+    }
+
+    // MARK: - what the threshold may be set to
+
+    /// **These moved here with the row on 2026-09-03**, from `AppSettingsRulesTests`. The bounds belong beside the
+    /// numbers the threshold is judged by rather than with the App tab, which no longer holds the control.
+    func testTheWarningIsCappedAtTwentyPercent() {
+        // The archive's cap and its reasoning: the device runs on AA cells, so the warning has to leave time to
+        // choose when to swap them, not time to find one. A threshold much above this keeps the warning lit for most
+        // of the cells' life, which teaches somebody to ignore it.
+        XCTAssertEqual(BatteryRules.warningRange, 1 ... 20)
+        XCTAssertEqual(BatteryRules.defaultWarningPercent, 10)
+    }
+
+    func testTheWarningCannotBeSetToNothing() {
+        // A warning at 0% arrives once the device is already dead.
+        XCTAssertEqual(BatteryRules.warningRange.lowerBound, 1)
+    }
+
+    func testTheSeededLevelIsInsideTheRangeTheFieldOffers() {
+        // The seed and the bounds are two numbers in one file now, so this is cheap and it is the pairing that goes
+        // wrong: a default outside the range would be clamped the first time somebody touched the row.
+        XCTAssertTrue(BatteryRules.warningRange.contains(BatteryRules.defaultWarningPercent))
     }
 }
