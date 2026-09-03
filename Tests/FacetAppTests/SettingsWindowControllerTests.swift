@@ -22,6 +22,31 @@ final class SettingsWindowControllerTests: XCTestCase {
         controller.panes.tabViewItems.compactMap { $0.view as? AppSettingsPane }.first
     }
 
+    /// The Device tab's pane, found the same way.
+    private func devicePane(in controller: SettingsWindowController) -> DevicePane? {
+        controller.panes.tabViewItems.compactMap { $0.view as? DevicePane }.first
+    }
+
+    /// The field *inside* the control carries the identifier, so the control itself is its owner. Both pane test
+    /// suites reach for one the same way.
+    private func stepper(_ identifier: String, in root: NSView) -> SteppedNumberField? {
+        descendants(of: root).compactMap { $0 as? SteppedNumberField }
+            .first { descendants(of: $0).contains { $0.accessibilityIdentifier() == identifier } }
+    }
+
+    private func descendants(of view: NSView) -> [NSView] {
+        view.subviews + view.subviews.flatMap(descendants(of:))
+    }
+
+    /// Waits out `WriteDebounce.interval` on the run loop, which is what the writing rows on the Device tab are
+    /// scheduled behind. Spun rather than slept: the timer is on this run loop.
+    private func waitForTheDebouncedWrite() {
+        let deadline = Date().addingTimeInterval(WriteDebounce.interval + 1)
+        while Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
+    }
+
     func testTheBarHasOneSegmentPerTab() {
         let bar = controller().tabBar
 
@@ -104,9 +129,11 @@ final class SettingsWindowControllerTests: XCTestCase {
 
     func testChangingTheWarningLevelTellsTheLowBatteryWatch() throws {
         // **The one path nothing else covers.** `LowBatteryWatchTests` proves the watch re-judges when asked, and
-        // `AppSettingsPaneTests` proves the field reports a change; this is the join between them, and without it
+        // `DevicePaneTests` proves the field reports a change; this is the join between them, and without it
         // raising the level against a steady cube would look like a control that did nothing -- for as long as the
         // charge held, which the measurements put at over an hour.
+        //
+        // **On the Device tab since 2026-09-03**, where it was driven through the App pane's `onChange` before.
         let database = TemporaryDatabase()
         try database.bootstrap()
         let settings = SettingStore(connection: database.connection())
@@ -118,11 +145,15 @@ final class SettingsWindowControllerTests: XCTestCase {
         let controller = SettingsWindowController(
             debugLog: nil, categories: nil, faces: nil, settings: settings, lowBattery: watch
         )
-        controller.select(.app)
-        let pane = try XCTUnwrap(appPane(in: controller))
+        controller.select(.device)
+        let pane = try XCTUnwrap(devicePane(in: controller))
         XCTAssertFalse(watch.alert.isBatteryLow, "precondition: 15% is not low while the level is the seeded 10%")
 
-        pane.onChange?(.batteryWarningPercent(20))
+        // **The field is stepped and the debounce waited out**, rather than a change being posted: the write is
+        // scheduled off the field now, so a report that never settles never reaches the table.
+        try XCTUnwrap(stepper(DevicePane.Identifier.batteryWarning, in: pane)).value = 20
+        pane.onBatteryWarningChanged?()
+        waitForTheDebouncedWrite()
 
         XCTAssertEqual(settings.integer("low_battery_level", field: "percent"), 20, "the row has to be written first")
         XCTAssertTrue(watch.alert.isBatteryLow, "the warning was never told that what counts as low had moved")

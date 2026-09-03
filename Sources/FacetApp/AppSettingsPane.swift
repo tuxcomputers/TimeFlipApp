@@ -6,17 +6,18 @@ import AppKit
 /// (`Archive/TimeFlipApp/ReportSettingsView.swift`), then Google underneath.** Each folds away behind its own
 /// triangle, on the same `PanelSection` the Categories tab's two lists sit on.
 ///
-/// **Five of the archive's six rows, not all six.** "Pause the device when locking it" is on the Device tab, above
-/// Auto-pause, and it is the one departure from that view's contents: what it decides is what happens to the cube
-/// when the app locks it, so it sits with the rest of what the cube is set to rather than among the app's own
-/// behaviour. Its wording and its control are the archive's still, and only the tab is not.
+/// **Four of the archive's six rows.** "Pause the device when locking it" and "Battery warning at" are on the
+/// Device tab, the first two rows of its Settings section, and they are the departure from that view's contents:
+/// one decides what happens to the cube when the app locks it and the other what counts as the cube running flat,
+/// so both sit with the rest of what is said about the cube rather than among the app's own behaviour. Their
+/// wording and their controls are the archive's still, and only the tab is not.
 ///
 /// **The archive did not fold these**, and that is worth saying rather than leaving as a silent departure: its App
 /// tab was two plain `Section`s of a grouped form, and it reserved `DisclosureGroup` for the Device tab's *More*,
 /// *LED* and *Double tap*. The intent it had is the one kept here -- a fold is for a group somebody is not working
 /// in -- and what changed is only that this tab now has two groups big enough for that to be worth offering.
 ///
-/// The archive put Google at the top. It is at the bottom here, which is the better place for it on merit: the five
+/// The archive put Google at the top. It is at the bottom here, which is the better place for it on merit: the four
 /// settings above are what somebody opens this tab to change, and the Google section is a connection you make once
 /// and then read occasionally.
 ///
@@ -43,7 +44,6 @@ final class AppSettingsPane: NSView {
         static let panel = "app-settings-section-panel"
         static let showSeconds = "app-show-seconds"
         static let dailyReset = "app-daily-reset"
-        static let batteryWarning = "app-battery-warning"
         static let fetchInterval = "app-fetch-interval"
         static let blipTime = "app-blip-time"
         static let googleSection = "app-google-section"
@@ -82,7 +82,6 @@ final class AppSettingsPane: NSView {
     struct Values: Equatable {
         var showsSeconds: Bool
         var dailyResetHour24: Int
-        var batteryWarningPercent: Int
         var fetchIntervalSeconds: Int
         var blipSeconds: Int
         /// Who is signed in, from the `google_account` row. Part of this struct rather than read separately because
@@ -106,7 +105,6 @@ final class AppSettingsPane: NSView {
         static let seeded = Values(
             showsSeconds: true,
             dailyResetHour24: AppSettingsRules.defaultResetHour24,
-            batteryWarningPercent: AppSettingsRules.defaultBatteryWarningPercent,
             fetchIntervalSeconds: AppSettingsRules.defaultFetchIntervalSeconds,
             blipSeconds: AppSettingsRules.defaultBlipSeconds
         )
@@ -120,7 +118,6 @@ final class AppSettingsPane: NSView {
     enum Change: Equatable {
         case showsSeconds(Bool)
         case dailyResetHour12(Int)
-        case batteryWarningPercent(Int)
         case fetchIntervalMinutes(Int)
         case blipSeconds(Int)
         /// Sign out: clear the connected identity. Carries no value because it is not a row being set to something,
@@ -183,7 +180,6 @@ final class AppSettingsPane: NSView {
     private var isSigningIn = false
     private var showSecondsBox: NSButton!
     private var dailyResetField: SteppedNumberField!
-    private var batteryWarningField: SteppedNumberField!
     private var fetchIntervalField: SteppedNumberField!
     private var blipTimeField: SteppedNumberField!
 
@@ -206,7 +202,6 @@ final class AppSettingsPane: NSView {
         switch change {
         case let .showsSeconds(value): values.showsSeconds = value
         case let .dailyResetHour12(value): values.dailyResetHour24 = AppSettingsRules.hour24(fromFace: value)
-        case let .batteryWarningPercent(value): values.batteryWarningPercent = value
         case let .fetchIntervalMinutes(value): values.fetchIntervalSeconds = AppSettingsRules.seconds(fromMinutes: value)
         case let .blipSeconds(value): values.blipSeconds = value
         case .googleSignInRequested:
@@ -263,7 +258,6 @@ final class AppSettingsPane: NSView {
         self.values = values
         showSecondsBox.state = values.showsSeconds ? .on : .off
         dailyResetField.value = AppSettingsRules.hour12(from: values.dailyResetHour24)
-        batteryWarningField.value = values.batteryWarningPercent
         fetchIntervalField.value = AppSettingsRules.minutes(fromSeconds: values.fetchIntervalSeconds)
         fetchIntervalField.suffix = AppSettingsRules.unit("min", "mins", for: fetchIntervalField.value)
         blipTimeField.value = values.blipSeconds
@@ -493,7 +487,7 @@ final class AppSettingsPane: NSView {
 
         // **App settings first, because that is the order they are drawn in.** Subview order is what
         // accessibility reads, and it is not the constraints: the Google section moved to the bottom of the
-        // tab, and adding it first left VoiceOver announcing it before the five settings sitting above it on
+        // tab, and adding it first left VoiceOver announcing it before the four settings sitting above it on
         // screen. Nothing looks wrong, which is exactly why it stayed wrong -- it was found by a script
         // dumping the tree, not by looking at the tab.
         for view in [app as NSView, google, googleNote] {
@@ -543,10 +537,11 @@ final class AppSettingsPane: NSView {
         view.translatesAutoresizingMaskIntoConstraints = false
     }
 
-    /// The archive's rows, in the archive's order: the switch first, then the four numbers.
+    /// The archive's rows, in the archive's order: the switch first, then the three numbers.
     ///
-    /// **Its second switch is not here.** "Pause the device when locking it" is on the Device tab, above Auto-pause,
-    /// which is where a setting about what the cube does belongs.
+    /// **Two of the archive's six are not here**, both of them now on the Device tab: "Pause the device when locking
+    /// it" above Auto-pause, and "Battery warning at" under it. Both are about the cube rather than about the app,
+    /// which is what that tab's Settings section is.
     private func addRows() {
         showSecondsBox = box(identifier: Identifier.showSeconds, action: #selector(showSecondsChanged))
 
@@ -556,13 +551,6 @@ final class AppSettingsPane: NSView {
             range: AppSettingsRules.resetHours,
             suffix: AppSettingsRules.resetSuffix,
             change: Change.dailyResetHour12
-        )
-        batteryWarningField = field(
-            identifier: Identifier.batteryWarning,
-            value: values.batteryWarningPercent,
-            range: AppSettingsRules.batteryWarningPercent,
-            suffix: AppSettingsRules.batterySuffix,
-            change: Change.batteryWarningPercent
         )
         fetchIntervalField = field(
             identifier: Identifier.fetchInterval,
@@ -582,7 +570,6 @@ final class AppSettingsPane: NSView {
         let built: [(String, NSView)] = [
             ("Show seconds", showSecondsBox),
             ("Daily reset at", dailyResetField),
-            ("Battery warning at", batteryWarningField),
             ("Fetch history every", fetchIntervalField),
             // Turning the cube to the face somebody wants drags it past the others, and each pass-over is a real
             // segment the device reports. This is how short one has to be to count as getting there rather than as

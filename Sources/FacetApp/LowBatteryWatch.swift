@@ -80,7 +80,7 @@ final class LowBatteryWatch {
         // Read here, at the point of use. `SettingStore` answers `nil` for a missing or malformed row and refuses to
         // guess what absence means, so the fallback is the seed the DDL itself writes.
         let threshold = settings?.integer("low_battery_level", field: "percent")
-            ?? AppSettingsRules.defaultBatteryWarningPercent
+            ?? BatteryRules.defaultWarningPercent
         isBatteryLow = BatteryRules.latched(isBatteryLow, level: level, threshold: threshold)
 
         if isBatteryLow != before.isBatteryLow {

@@ -32,7 +32,6 @@ final class AppSettingsPaneTests: XCTestCase {
         AppSettingsPane.Values(
             showsSeconds: false,
             dailyResetHour24: 4,
-            batteryWarningPercent: 15,
             fetchIntervalSeconds: 600,
             blipSeconds: 2
         )
@@ -43,12 +42,11 @@ final class AppSettingsPaneTests: XCTestCase {
     func testEveryRowTheArchiveHadIsThere() {
         let pane = AppSettingsPane()
 
-        // Five of the archive's six, in its order and its wording (`Archive/TimeFlipApp/ReportSettingsView.swift`).
+        // Four of the archive's six, in its order and its wording (`Archive/TimeFlipApp/ReportSettingsView.swift`).
         for title in [
             "App settings",
             "Show seconds",
             "Daily reset at",
-            "Battery warning at",
             "Fetch history every",
             "Ignore flips under",
         ] {
@@ -56,31 +54,32 @@ final class AppSettingsPaneTests: XCTestCase {
         }
     }
 
-    func testTheLockRowIsNotHereAnyMore() {
-        // It is on the Device tab, above Auto-pause: what it decides is what happens to the cube when the app locks
-        // it, so it sits with the rest of what the cube is set to. Asserted rather than left implied, a row left
-        // behind on both tabs being two controls answering one question.
+    func testTheTwoRowsAboutTheCubeAreNotHereAnyMore() {
+        // Both are on the Device tab now, the first two rows of its Settings section: one decides what happens to
+        // the cube when the app locks it and the other what counts as the cube running flat. Asserted rather than
+        // left implied, a row left behind on both tabs being two controls answering one question.
         let pane = AppSettingsPane()
 
         XCTAssertFalse(labels(of: pane).contains("Pause the device when locking it"))
         XCTAssertFalse(descendants(of: pane).contains { $0.accessibilityIdentifier() == "app-pause-on-lock" })
+        XCTAssertFalse(labels(of: pane).contains("Battery warning at"))
+        XCTAssertFalse(descendants(of: pane).contains { $0.accessibilityIdentifier() == "app-battery-warning" })
     }
 
     func testTheRowsAreInTheArchivesOrder() {
         let pane = AppSettingsPane()
 
         let titles = labels(of: pane).filter { $0.hasPrefix("Show") || $0.hasPrefix("Daily")
-            || $0.hasPrefix("Battery") || $0.hasPrefix("Fetch") || $0.hasPrefix("Ignore") }
+            || $0.hasPrefix("Fetch") || $0.hasPrefix("Ignore") }
         XCTAssertEqual(
             titles,
             [
                 "Show seconds",
                 "Daily reset at",
-                "Battery warning at",
                 "Fetch history every",
                 "Ignore flips under",
             ],
-            "the switch first, then the four numbers"
+            "the switch first, then the three numbers"
         )
     }
 
@@ -90,7 +89,6 @@ final class AppSettingsPaneTests: XCTestCase {
         for identifier in [
             AppSettingsPane.Identifier.showSeconds,
             AppSettingsPane.Identifier.dailyReset,
-            AppSettingsPane.Identifier.batteryWarning,
             AppSettingsPane.Identifier.fetchInterval,
             AppSettingsPane.Identifier.blipTime,
         ] {
@@ -146,14 +144,10 @@ final class AppSettingsPaneTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(field(AppSettingsPane.Identifier.fetchInterval, in: pane)).suffix, "min")
     }
 
-    func testTheBatteryAndBlipRowsShowTheirOwnUnits() throws {
+    func testTheBlipRowShowsItsOwnUnit() throws {
         let pane = AppSettingsPane()
 
         pane.show(stored)
-
-        let battery = try XCTUnwrap(field(AppSettingsPane.Identifier.batteryWarning, in: pane))
-        XCTAssertEqual(battery.value, 15)
-        XCTAssertEqual(battery.suffix, "%")
 
         let blip = try XCTUnwrap(field(AppSettingsPane.Identifier.blipTime, in: pane))
         XCTAssertEqual(blip.value, 2)
@@ -176,7 +170,6 @@ final class AppSettingsPaneTests: XCTestCase {
 
         XCTAssertEqual(pane.values, .seeded)
         XCTAssertEqual(try XCTUnwrap(field(AppSettingsPane.Identifier.blipTime, in: pane)).value, 5)
-        XCTAssertEqual(try XCTUnwrap(field(AppSettingsPane.Identifier.batteryWarning, in: pane)).value, 10)
     }
 
     // MARK: - a change, and what the pane holds
@@ -347,7 +340,6 @@ final class AppSettingsPaneTests: XCTestCase {
         let controls: [NSView] = try [
             XCTUnwrap(control(AppSettingsPane.Identifier.showSeconds, in: pane) as NSButton?),
             XCTUnwrap(field(AppSettingsPane.Identifier.dailyReset, in: pane)),
-            XCTUnwrap(field(AppSettingsPane.Identifier.batteryWarning, in: pane)),
             XCTUnwrap(field(AppSettingsPane.Identifier.fetchInterval, in: pane)),
             XCTUnwrap(field(AppSettingsPane.Identifier.blipTime, in: pane)),
         ]
@@ -386,7 +378,7 @@ final class AppSettingsPaneTests: XCTestCase {
         // between them ended where the archive's did; with no hairlines the panel insets the list instead, which is
         // what the Categories tab has always done.
         let stack = try XCTUnwrap(descendants(of: try section(of: pane)).compactMap { $0 as? NSStackView }.first)
-        XCTAssertEqual(stack.views.count, 5)
+        XCTAssertEqual(stack.views.count, 4)
         let rowWidths = Set(stack.views.map(\.frame.width))
         XCTAssertEqual(
             rowWidths, [panelFrame.width - 2 * SettingsMetrics.panelPadding], "one width: \(rowWidths)"

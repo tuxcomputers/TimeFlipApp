@@ -14,7 +14,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=30
+EXPECTED_CHECKS=29
 start "every row on the App tab, written and read back"
 
 open_settings
@@ -49,20 +49,20 @@ for pair in "app-show-seconds display_seconds enabled"; do
     check "$control puts $row back" "$was" "$(setting "$row" "$field")"
 done
 
-# **And the switch that left is gone rather than drawn on both tabs.** A row still on the App tab as well as on the
-# Device tab would be two controls answering one question, which is exactly the fault the first rule in `CLAUDE.md`
-# is about -- and the two would be found disagreeing at the next lock rather than on screen. Checked as an absence
-# because that is what changed; `13-device-tab` checks it is where it went.
+# **And the two rows that left are gone rather than drawn on both tabs.** A row still on the App tab as well as on
+# the Device tab would be two controls answering one question, which is exactly the fault the first rule in
+# `CLAUDE.md` is about -- and the two would be found disagreeing at the next lock, or at the next reading, rather
+# than on screen. Checked as absences because that is what changed; `13-device-tab` checks where they went.
 check "the lock switch is not on this tab any more" "0" "$(on_tab app-pause-on-lock)"
+check "nor the battery warning, which went with it" "0" "$(on_tab app-battery-warning)"
 
-# ---------------------------------------------------------------------------- the four numbers
+# ---------------------------------------------------------------------------- the numbers
 #
 # The stepper's arrows rather than the field, since the arrows are what a person uses and the field is
 # checked by reading the row back afterwards anyway. Each goes up once and down once.
 
 for quad in \
     "app-daily-reset daily_reset_time hour" \
-    "app-battery-warning low_battery_level percent" \
     "app-blip-time blip_time seconds"
 do
     set -- $quad

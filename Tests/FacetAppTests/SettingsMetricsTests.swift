@@ -52,7 +52,7 @@ final class SettingsMetricsTests: XCTestCase {
 
         let measured = pitch(
             try view(AppSettingsPane.Identifier.dailyReset, in: pane),
-            try view(AppSettingsPane.Identifier.batteryWarning, in: pane),
+            try view(AppSettingsPane.Identifier.fetchInterval, in: pane),
             in: content
         )
 
@@ -85,7 +85,7 @@ final class SettingsMetricsTests: XCTestCase {
 
         let appPitch = pitch(
             try view(AppSettingsPane.Identifier.dailyReset, in: app),
-            try view(AppSettingsPane.Identifier.batteryWarning, in: app),
+            try view(AppSettingsPane.Identifier.fetchInterval, in: app),
             in: appContent
         )
         let devicePitch = pitch(

@@ -27,6 +27,22 @@ enum BatteryRules {
     /// which is the only way this hardware's level rises at all -- clears that in one reading and by a mile.
     static let riseToAdopt = 2
 
+    /// The battery level at or below which the app says the cells are going: what `low_battery_level` may hold.
+    ///
+    /// **Capped at 20%**, which is the archive's decision and its reasoning: the device runs on AA cells, so the
+    /// warning does not have to leave time to source an unusual battery -- it has to leave time to choose *when* to
+    /// swap them, because taking them out resets every device setting to its default. A threshold much above this
+    /// would keep the warning lit for most of the cells' usable life, which only teaches somebody to ignore it.
+    ///
+    /// The floor is 1 rather than 0: a warning at 0% is a warning that arrives once the device is already dead.
+    ///
+    /// **Here rather than in `AppSettingsRules`**, where it was while the row was on the App tab: this type already
+    /// owns every other number the threshold is judged by, and `latched` takes the threshold itself.
+    static let warningRange = 1 ... 20
+    static let warningSuffix = "%"
+    /// The seeded `low_battery_level`.
+    static let defaultWarningPercent = 10
+
     /// How far above the warning level the charge has to climb before the warning is taken back.
     ///
     /// **The archive's five, copied**, and its reasoning survives inspection: without a margin a reading wobbling

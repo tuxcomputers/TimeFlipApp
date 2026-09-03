@@ -8,6 +8,10 @@ import Foundation
 /// re-picked. Where a value has a seeded default, the default here is that seed -- `database/011_setting.sql` -- and
 /// the two must not drift: the fallback exists because `SettingStore` answers `nil` for a missing or malformed row
 /// and refuses to guess what absence means, which is right, and this is where the guess belongs.
+///
+/// **What is *not* here is what is not on that tab.** The battery warning's bounds moved to `BatteryRules` on
+/// 2026-09-03 with the row itself, which is now the Device tab's, and they sit beside the other numbers the
+/// threshold is judged by rather than beside settings it no longer shares a tab with.
 enum AppSettingsRules {
     // MARK: - the daily reset
 
@@ -32,21 +36,6 @@ enum AppSettingsRules {
         let onTheFace = ((hour24 % 12) + 12) % 12
         return onTheFace == 0 ? 12 : onTheFace
     }
-
-    // MARK: - the battery warning
-
-    /// The battery level at or below which the app says the cells are going.
-    ///
-    /// **Capped at 20%**, which is the archive's decision and its reasoning: the device runs on AA cells, so the
-    /// warning does not have to leave time to source an unusual battery -- it has to leave time to choose *when* to
-    /// swap them, because taking them out resets every device setting to its default. A threshold much above this
-    /// would keep the warning lit for most of the cells' usable life, which only teaches somebody to ignore it.
-    ///
-    /// The floor is 1 rather than 0: a warning at 0% is a warning that arrives once the device is already dead.
-    static let batteryWarningPercent = 1 ... 20
-    static let batterySuffix = "%"
-    /// The seeded `low_battery_level`.
-    static let defaultBatteryWarningPercent = 10
 
     // MARK: - the history fetch
 
@@ -118,8 +107,6 @@ enum AppSettingsRules {
             return ("display_seconds", "enabled", .flag(on))
         case let .dailyResetHour12(hour):
             return ("daily_reset_time", "hour", .number(hour24(fromFace: hour)))
-        case let .batteryWarningPercent(percent):
-            return ("low_battery_level", "percent", .number(percent))
         case let .fetchIntervalMinutes(minutes):
             return ("fetch_history_interval_seconds", "seconds", .number(seconds(fromMinutes: minutes)))
         case let .blipSeconds(seconds):
@@ -146,7 +133,6 @@ enum AppSettingsRules {
         switch change {
         case .showsSeconds: return "Show seconds"
         case .dailyResetHour12: return "Daily reset at"
-        case .batteryWarningPercent: return "Battery warning at"
         case .fetchIntervalMinutes: return "Fetch history every"
         case .blipSeconds: return "Ignore flips under"
         case .googleDisconnected, .googleSignInRequested, .googleConnected,

@@ -331,6 +331,7 @@ final class DevicePaneTests: XCTestCase {
             DevicePane.Identifier.battery,
             DevicePane.Identifier.more,
             DevicePane.Identifier.pauseOnLock,
+            DevicePane.Identifier.batteryWarning,
             DevicePane.Identifier.autoPause,
             DevicePane.Identifier.led,
             DevicePane.Identifier.doubleTap,
@@ -429,11 +430,13 @@ final class DevicePaneTests: XCTestCase {
         app.frame = NSRect(x: 0, y: 0, width: 640, height: 800)
         app.layoutSubtreeIfNeeded()
 
+        // **Measured against a field still on the App tab.** Battery warning at was the comparison until it moved
+        // to this one on 2026-09-03, and a cross-tab check drawn from two fields on the same tab checks nothing.
         let autoPause = try XCTUnwrap(stepper(DevicePane.Identifier.autoPause, in: device))
-        let warning = try XCTUnwrap(stepper(AppSettingsPane.Identifier.batteryWarning, in: app))
+        let reset = try XCTUnwrap(stepper(AppSettingsPane.Identifier.dailyReset, in: app))
 
-        XCTAssertEqual(autoPause.frame.width, warning.frame.width, accuracy: 0.5)
-        XCTAssertEqual(autoPause.frame.height, warning.frame.height, accuracy: 0.5)
+        XCTAssertEqual(autoPause.frame.width, reset.frame.width, accuracy: 0.5)
+        XCTAssertEqual(autoPause.frame.height, reset.frame.height, accuracy: 0.5)
     }
 
     func testEveryFieldFollowsTheOneWidthThatDecidesThem() throws {
@@ -447,10 +450,10 @@ final class DevicePaneTests: XCTestCase {
         app.layoutSubtreeIfNeeded()
 
         for (identifier, root) in [
+            (DevicePane.Identifier.batteryWarning, device as NSView),
             (DevicePane.Identifier.autoPause, device as NSView),
             (DevicePane.Identifier.ledBrightness, device as NSView),
             (DevicePane.Identifier.ledBlink, device as NSView),
-            (AppSettingsPane.Identifier.batteryWarning, app as NSView),
             (AppSettingsPane.Identifier.dailyReset, app as NSView),
             (AppSettingsPane.Identifier.fetchInterval, app as NSView),
             (AppSettingsPane.Identifier.blipTime, app as NSView),
@@ -505,6 +508,7 @@ final class DevicePaneTests: XCTestCase {
             DevicePane.Identifier.connection,
             DevicePane.Identifier.battery,
             DevicePane.Identifier.pauseOnLock,
+            DevicePane.Identifier.batteryWarning,
             DevicePane.Identifier.autoPause,
             DevicePane.Identifier.ledBrightness,
             DevicePane.Identifier.ledBlink,
@@ -856,14 +860,85 @@ final class DevicePaneTests: XCTestCase {
         descendants(of: pane).compactMap { $0 as? NSButton }.first { $0.accessibilityIdentifier() == identifier }
     }
 
-    func testTheLockRowSitsAboveAutoPause() {
-        // **Where it was asked to be**, and the order is the point of moving it: it is the coarser of the two
-        // answers to "when does this cube stop counting", so it reads first and Auto-pause qualifies it.
+    func testTheTwoMovedRowsSitAtTheTopOfSettingsInOrder() {
+        // **Where they were asked to be.** Pause on lock first, Battery warning at under it, then Auto-pause. The
+        // order is the point of moving them: the two that no command carries read first, and the rows that go out
+        // to the device follow.
         let pane = DevicePane()
 
-        let titles = labels(of: pane).filter { $0.hasPrefix("Pause the device") || $0.hasPrefix("Auto-pause") }
-        XCTAssertEqual(titles.count, 2, "both rows are on the tab: \(labels(of: pane))")
-        XCTAssertTrue(titles[0].hasPrefix("Pause the device"), "the lock row comes first")
+        let titles = labels(of: pane).filter {
+            $0.hasPrefix("Pause the device") || $0.hasPrefix("Battery warning") || $0.hasPrefix("Auto-pause")
+        }
+        XCTAssertEqual(
+            titles,
+            ["Pause the device when locking it", "Battery warning at", "Auto-pause (0 disable, max 240m)"],
+            "the Settings section reads in the wrong order: \(labels(of: pane))"
+        )
+    }
+
+    func testTheBatteryWarningFieldShowsWhatTheTableSays() {
+        var values = cubeConnected
+        values.batteryWarningPercent = 15
+        let pane = DevicePane()
+
+        pane.show(values)
+
+        XCTAssertEqual(stepper(DevicePane.Identifier.batteryWarning, in: pane)?.value, 15)
+        XCTAssertEqual(stepper(DevicePane.Identifier.batteryWarning, in: pane)?.suffix, "%")
+    }
+
+    func testTheBatteryWarningTakesTheRangeTheWarningCanActedOn() throws {
+        // The bounds are `BatteryRules`, not numbers written out again here: that type holds every other figure the
+        // threshold is judged by, so a field cannot come to accept a level the warning could not act on. Stepping
+        // down from the floor is what shows it.
+        var values = cubeConnected
+        values.batteryWarningPercent = BatteryRules.warningRange.lowerBound
+        let pane = DevicePane()
+        pane.show(values)
+
+        try arrow(-1, of: XCTUnwrap(stepper(DevicePane.Identifier.batteryWarning, in: pane))).performClick(nil)
+
+        XCTAssertEqual(pane.batteryWarningPercent, 1, "a warning at 0% arrives once the device is already dead")
+    }
+
+    func testMovingTheBatteryWarningArrowReportsItAndNothingElse() throws {
+        let pane = DevicePane()
+        pane.show(cubeConnected)
+        var warning = 0
+        var autoPause = 0
+        pane.onBatteryWarningChanged = { warning += 1 }
+        pane.onAutoPauseChanged = { autoPause += 1 }
+
+        try arrow(1, of: XCTUnwrap(stepper(DevicePane.Identifier.batteryWarning, in: pane))).performClick(nil)
+
+        XCTAssertEqual(pane.batteryWarningPercent, 11)
+        XCTAssertEqual(warning, 1)
+        XCTAssertEqual(autoPause, 0, "Auto-pause was not touched")
+    }
+
+    func testTheBatteryWarningIsReadOffTheFieldRatherThanOffWhatWasLastShown() throws {
+        // What a write is built from. A held arrow moves the field several times a second and nothing writes those
+        // back to `values` until one lands, so reading `values` would store the number the row opened with.
+        let pane = DevicePane()
+        pane.show(cubeConnected)
+
+        try arrow(1, of: XCTUnwrap(stepper(DevicePane.Identifier.batteryWarning, in: pane))).performClick(nil)
+
+        XCTAssertEqual(pane.batteryWarningPercent, 11, "what is on screen")
+        XCTAssertEqual(pane.values.batteryWarningPercent, 10, "and what was last shown, still")
+    }
+
+    func testARefusedBatteryWarningWriteCanPutTheFieldBackWithoutSayingSo() throws {
+        let pane = DevicePane()
+        pane.show(cubeConnected)
+        var reported = 0
+        pane.onBatteryWarningChanged = { reported += 1 }
+
+        pane.showBatteryWarning(15)
+
+        XCTAssertEqual(stepper(DevicePane.Identifier.batteryWarning, in: pane)?.value, 15)
+        XCTAssertEqual(pane.values.batteryWarningPercent, 15, "and `values` moved with it, so the next read agrees")
+        XCTAssertEqual(reported, 0, "a correction is not somebody moving an arrow")
     }
 
     func testTheLockBoxShowsWhatTheTableSays() throws {
@@ -925,6 +1000,7 @@ final class DevicePaneTests: XCTestCase {
     private func settingsControls(in pane: DevicePane) -> [(String, Bool)] {
         let boxes = [DevicePane.Identifier.pauseOnLock, DevicePane.Identifier.doubleTapDisable]
         let fields = [
+            DevicePane.Identifier.batteryWarning,
             DevicePane.Identifier.autoPause,
             DevicePane.Identifier.ledBrightness,
             DevicePane.Identifier.ledBlink,

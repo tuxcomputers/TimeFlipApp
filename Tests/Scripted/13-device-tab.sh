@@ -15,7 +15,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=43
+EXPECTED_CHECKS=45
 start "the Device tab's two sections, and the folds that need no cube"
 
 open_settings
@@ -68,9 +68,9 @@ check "so nothing is connected either" "0" "$(setting connection connected)"
 # **Read off the tree in one loop**, because the fault this guards against is a row added to that section and not
 # to this list: naming them here is what makes the next one visible.
 #
-# Pause the device when locking it is in the list with the rest, and it is the one worth saying why about: no
-# command carries it, so it could have been left live, and it is not. A section about a cube answers the question
-# about a cube the same way in every row of it. See `DevicePane.drawSettingsGate`.
+# Pause the device when locking it and Battery warning at are in the list with the rest, and they are the two worth
+# saying why about: no command carries either, so both could have been left live, and neither is. A section about a
+# cube answers the question about a cube the same way in every row of it. See `DevicePane.drawSettingsGate`.
 
 # **Both inner folds are opened first.** LED and Double tap are built folded, so their rows are not in the tree at
 # all until the heading is pressed, and a control that is absent is not a control that is dead. Opened once around
@@ -83,6 +83,7 @@ sleep 0.5
 
 for control in \
     device-pause-on-lock \
+    device-battery-warning \
     device-auto-pause \
     device-led-brightness \
     device-led-blink \
@@ -105,6 +106,8 @@ check "and both inner folds are back as they were built" "0" "$(on_tab device-le
 # The arrows go with the field they belong to: a dead box above two live arrows is a control that is half off.
 check "and the Auto-pause arrows are dead with it" "2" \
     "$(tree | grep -cE "id=device-auto-pause-(up|down)[[:space:]].*disabled" || true)"
+check "as are the Battery warning arrows" "2" \
+    "$(tree | grep -cE "id=device-battery-warning-(up|down)[[:space:]].*disabled" || true)"
 
 # **None of them is pressed here, deliberately.** `AXPress` on a disabled control is refused by the accessibility
 # API itself, so the press would print a red failure line for behaving correctly -- and `00-setup` pins
@@ -113,8 +116,8 @@ check "and the Auto-pause arrows are dead with it" "2" \
 # instead (`DevicePaneTests.testADeadLockBoxReportsNothingWhenItIsClicked` and the Auto-pause one beside it).
 #
 # **What it is like to change one is checked where there is a cube**: `61-lock-without-pause` presses this same box
-# and reads the table both ways, `65-auto-pause` steps the field, `63-led-settings` the LED pair and `59-double-tap`
-# the registers.
+# and reads the table both ways, `54-device-battery` steps the warning level, `65-auto-pause` the delay,
+# `63-led-settings` the LED pair and `59-double-tap` the registers.
 
 # **The Name row will not open either, and for the same reason: renaming is a command (`0x15`) that has to reach the
 # cube.** What it does instead of going dead is say why -- the button stays pressable so that the tooltip and the

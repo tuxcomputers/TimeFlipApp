@@ -115,6 +115,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// **Its own rather than a share of theirs**: `WriteDebounce.schedule` displaces whatever was already queued, so
     /// a shared one would mean nudging Auto-pause silently throwing away a Brightness write half a second old.
     private let autoPauseWrite = WriteDebounce()
+    private let batteryWarningWrite = WriteDebounce()
 
     /// What keeps the paired cube reachable. Told what each login came to and when a link goes, since the radio's
     /// callbacks are set here.
@@ -305,8 +306,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         return AppSettingsPane.Values(
             showsSeconds: settings.flag("display_seconds", field: "enabled") ?? seeded.showsSeconds,
             dailyResetHour24: settings.integer("daily_reset_time", field: "hour") ?? seeded.dailyResetHour24,
-            batteryWarningPercent: settings.integer("low_battery_level", field: "percent")
-                ?? seeded.batteryWarningPercent,
             fetchIntervalSeconds: settings.integer("fetch_history_interval_seconds", field: "seconds")
                 ?? seeded.fetchIntervalSeconds,
             blipSeconds: settings.integer("blip_time", field: "seconds") ?? seeded.blipSeconds,
@@ -352,9 +351,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// control back with an alert if either refuses -- so no row is left showing a number that reached neither. The
     /// folds are recorded, being the one thing elsewhere on the tab that already works.
     ///
-    /// **Pause on lock is the fifth and takes none of that route**: no command carries it, so it is written to the
-    /// table and checked by reading it back, and that is the whole of it. It is dead with the rest of the section
-    /// while no cube is connected all the same. See `applyPauseOnLock`.
+    /// **Pause on lock and Battery warning at take none of that route**: no command carries either, so each is
+    /// written to the table and checked by reading it back, and that is the whole of it. Both are dead with the rest
+    /// of the section while no cube is connected all the same. See `applyPauseOnLock` and `applyBatteryWarning`.
     ///
     /// **What the cube's answer is worth differs by command, and only that.** Auto-pause (`0x05`) and the registers
     /// (`0x16`) are read back and compared, so a confirmation means the cube says it is in that state; the LED pair
@@ -374,6 +373,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         pane.onPauseOnLockChanged = { [weak self, weak pane] pausesOnLock in
             guard let self, let pane else { return }
             self.applyPauseOnLock(pausesOnLock, on: pane)
+        }
+        // Debounced like the steppers below it, though nothing is sent: each tick would otherwise be a row read,
+        // rewritten and read back, and a warning told to think again.
+        pane.onBatteryWarningChanged = { [weak self, weak pane] in
+            guard let self, let pane else { return }
+            self.batteryWarningWrite.schedule { [weak self, weak pane] in
+                guard let self, let pane else { return }
+                self.applyBatteryWarning(on: pane)
+            }
         }
         pane.onDoubleTapEnabledChanged = { [weak self, weak pane] isEnabled in
             guard let self, let pane else { return }
@@ -463,6 +471,45 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             showSettingRefused("Pause the device when locking it")
             return
         }
+    }
+
+    /// Writes what counts as the cube running flat, from the **Battery warning at** field.
+    ///
+    /// **The second row on the Device tab that sends nothing.** No command carries a threshold this app applies to
+    /// readings the cube volunteers, so as with `applyPauseOnLock` the table taking it is the whole of the write,
+    /// and it is dead with the rest of its section while nothing is connected.
+    ///
+    /// **The warning is asked again the moment it lands, and nothing else would ask it.** The warning is worked out
+    /// when a reading arrives, and a cube whose charge is steady may not report one for over an hour -- so somebody
+    /// raising the level from 10 to 20 with a cube sitting at 15 would watch a control that appeared to do nothing.
+    /// It reads `low_battery_level` itself, at that moment, which is why this tells it to think again rather than
+    /// telling it what was written.
+    ///
+    /// **Read off the field, not off `values`**: the field has been ahead of `values` since the first arrow moved,
+    /// so this carries the number the arrows were let go on rather than the one the row opened with.
+    private func applyBatteryWarning(on pane: DevicePane) {
+        let percent = pane.batteryWarningPercent
+        guard let settings else {
+            debugLog?.record(.field, "Battery warning: there is no settings store, so \(percent) percent goes back")
+            pane.showBatteryWarning(deviceSettings().batteryWarningPercent)
+            return
+        }
+        let stored = settings.write("low_battery_level", field: "percent", percent)
+        debugLog?.record(
+            .field,
+            stored
+                ? "Battery warning: the table now holds \(percent) percent"
+                : "Battery warning: the table REFUSED \(percent) percent"
+        )
+        guard stored else {
+            pane.showBatteryWarning(deviceSettings().batteryWarningPercent)
+            showSettingRefused("Battery warning at")
+            return
+        }
+        // Nothing moves on screen: a field stepped again while this was being written holds a newer number with a
+        // write of its own already queued, and assigning this one would take that edit off the screen.
+        pane.recordBatteryWarning(percent)
+        lowBattery?.reconsider(because: "the warning level changed")
     }
 
     /// Turns the cube's double tap off or back on, from the **Disable** box.
@@ -1401,6 +1448,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             hardware: settings.string("device_info", field: "hardware"),
             firmware: settings.string("device_info", field: "firmware"),
             pausesOnLock: settings.flag("pause_on_lock", field: "enabled") ?? seeded.pausesOnLock,
+            batteryWarningPercent: settings.integer("low_battery_level", field: "percent")
+                ?? seeded.batteryWarningPercent,
             autoPauseMinutes: settings.integer("auto_pause_minutes", field: "minutes") ?? seeded.autoPauseMinutes,
             ledBrightnessPercent: settings.integer("led_settings", field: "brightness")
                 ?? seeded.ledBrightnessPercent,
@@ -1493,14 +1542,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             return
         }
         pane.adopt(change)
-        // **What counts as low has just moved, so the warning is asked again now.** Nothing else would ask it: the
-        // warning is worked out when a reading arrives, and a cube whose charge is steady may not report one for over
-        // an hour -- so somebody raising the level from 10 to 20 with a cube sitting at 15 would watch a control that
-        // appeared to do nothing. It reads `low_battery_level` itself, at that moment, which is why this tells it to
-        // think again rather than telling it what was written.
-        if case .batteryWarningPercent = change {
-            lowBattery?.reconsider(because: "the warning level changed")
-        }
         // The status item draws from settings too -- `display_seconds` decides whether its figure carries them -- and
         // it repaints on a tick that only runs while something is being timed. So a setting changed against a paused
         // session would be stored and not shown, which reads as a control that did nothing. Measured, on a paused

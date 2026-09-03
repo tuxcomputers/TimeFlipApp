@@ -15,9 +15,12 @@ import AppKit
 ///   registers are read back off the cube before they are believed; the two LED values are not, the vendor spec
 ///   defining no read-back for either, so for those the write is genuinely all there is.
 ///
-///   **The first row is the exception to how it is written, and only that: Pause on lock is a setting about the cube
-///   that no command carries.** It says what the app does to the cube when it locks it (`CubeLock.lock` reads
-///   `pause_on_lock` at the step that needs it), so the whole of writing it is the table taking it.
+///   **The first two rows are the exception to how they are written, and only that: no command carries either.**
+///   Pause on lock says what the app does to the cube when it locks it (`CubeLock.lock` reads `pause_on_lock` at
+///   the step that needs it), and Battery warning at says what the app treats as flat (`LowBatteryWatch` reads
+///   `low_battery_level` every time it judges a reading), so for both the whole of writing it is the table taking
+///   it. They are about the cube all the same, which is what this section is, and they were on the App tab until
+///   2026-09-03 because the app is what reads them.
 ///
 ///   **The whole section is dead while no cube is connected**, that row included, and `drawSettingsGate` is where
 ///   that is decided for all of them at once. It is a section about a cube, so it answers the question about a cube
@@ -50,6 +53,7 @@ final class DevicePane: NSView {
         static let settingsSection = "device-settings-section"
         static let settingsPanel = "device-settings-section-panel"
         static let pauseOnLock = "device-pause-on-lock"
+        static let batteryWarning = "device-battery-warning"
         static let autoPause = "device-auto-pause"
         static let led = "device-led"
         static let ledBrightness = "device-led-brightness"
@@ -130,6 +134,7 @@ final class DevicePane: NSView {
         var hardware: String?
         var firmware: String?
         var pausesOnLock: Bool
+        var batteryWarningPercent: Int
         var autoPauseMinutes: Int
         var ledBrightnessPercent: Int
         var ledBlinkSeconds: Int
@@ -154,6 +159,7 @@ final class DevicePane: NSView {
             // **On, matching `database/011_setting.sql`.** A cube left locked and still counting against whatever
             // face happens to be up is the thing locking it was meant to stop.
             pausesOnLock: true,
+            batteryWarningPercent: BatteryRules.defaultWarningPercent,
             autoPauseMinutes: 0,
             ledBrightnessPercent: 50,
             ledBlinkSeconds: 15,
@@ -202,6 +208,7 @@ final class DevicePane: NSView {
     private var hardwareValue: NSTextField!
     private var firmwareValue: NSTextField!
     private var pauseOnLockBox: NSButton!
+    private var batteryWarningField: SteppedNumberField!
     private var autoPauseField: SteppedNumberField!
     private var ledBrightnessField: SteppedNumberField!
     private var ledBlinkField: SteppedNumberField!
@@ -282,6 +289,14 @@ final class DevicePane: NSView {
     /// pane: a box is one press with one answer, where a held arrow produces a value a tenth of a second at a time
     /// and only the last one is meant.
     var onPauseOnLockChanged: ((Bool) -> Void)?
+
+    /// The Battery warning field moved. What it moved to is on the pane; this only says that it did.
+    ///
+    /// **Its own report, on its own debounce**, for the reason every stepper on this tab has one: a hold repeats
+    /// every 0.1s (`StepperHoldRules`), and each tick would otherwise be a row read, rewritten and read back
+    /// (`SettingStore.write`) and a warning asked to think again. It was written per tick while it sat on the App
+    /// tab, which has no debounce in it at all.
+    var onBatteryWarningChanged: (() -> Void)?
 
     /// The Auto-pause field moved. What it moved to is on the pane; this only says that it did.
     ///
@@ -392,6 +407,7 @@ final class DevicePane: NSView {
         )
 
         pauseOnLockBox.state = values.pausesOnLock ? .on : .off
+        batteryWarningField.value = values.batteryWarningPercent
         autoPauseField.value = values.autoPauseMinutes
         ledBrightnessField.value = values.ledBrightnessPercent
         ledBlinkField.value = values.ledBlinkSeconds
@@ -416,10 +432,10 @@ final class DevicePane: NSView {
     /// paired cube in another room can be told nothing, and an unpaired app has nothing to tell anyway -- so the
     /// pairing is covered by this gate rather than by a second one beside it. See `docs/state-reference.md` §2.
     ///
-    /// **Pause on lock is gated with the rest, though no command carries it.** It is a setting about what happens to
-    /// the cube, and a section where every row but one goes grey would be saying that one of them is a different kind
-    /// of thing -- which is not something somebody reading a row should have to work out. What it costs is arranging
-    /// that setting before pairing; what it buys is a section with one answer in it.
+    /// **The two rows no command carries are gated with the rest.** Pause on lock and Battery warning at are
+    /// settings about what happens to the cube, and a section where every row but two goes grey would be saying
+    /// those two are a different kind of thing -- which is not something somebody reading a row should have to work
+    /// out. What it costs is arranging them before pairing; what it buys is a section with one answer in it.
     ///
     /// **The section follows the link rather than the window.** Every path that changes the connection redraws this
     /// tab through `show` (`recordConnected` on the way up, `markConnectionDown` on the way back), so this is not
@@ -435,7 +451,7 @@ final class DevicePane: NSView {
             box?.isEnabled = live
             box?.toolTip = help
         }
-        for field in [autoPauseField, ledBrightnessField, ledBlinkField] {
+        for field in [batteryWarningField, autoPauseField, ledBrightnessField, ledBlinkField] {
             field?.isEnabled = live
             field?.disabledHelp = help
         }
@@ -511,6 +527,24 @@ final class DevicePane: NSView {
     func showPauseOnLock(_ pausesOnLock: Bool) {
         values.pausesOnLock = pausesOnLock
         pauseOnLockBox.state = pausesOnLock ? .on : .off
+    }
+
+    /// The battery warning level as this window currently holds it, as a percentage.
+    ///
+    /// **Read off the field rather than off `values`**, for the reason every other stepper here is read that way: a
+    /// held arrow moves the field several times a second and nothing writes those back to `values` until one lands,
+    /// so a write built from `values` would carry the number the row opened with.
+    var batteryWarningPercent: Int { batteryWarningField.value }
+
+    /// Records that a battery warning level reached the table, **without touching the field it came from**.
+    func recordBatteryWarning(_ percent: Int) {
+        values.batteryWarningPercent = percent
+    }
+
+    /// Puts the Battery warning field back where the table says it should be, without telling anybody it moved.
+    func showBatteryWarning(_ percent: Int) {
+        recordBatteryWarning(percent)
+        put(percent, in: batteryWarningField)
     }
 
     /// Auto-pause as this window currently holds it, in whole minutes.
@@ -768,6 +802,19 @@ final class DevicePane: NSView {
         pauseOnLockBox.translatesAutoresizingMaskIntoConstraints = false
         pauseOnLockBox.setAccessibilityIdentifier(Identifier.pauseOnLock)
 
+        // **The archive's wording and bounds, on the archive's control, moved off the archive's tab.** What it
+        // decides is what counts as this device running flat, so it reads under the lock row and above Auto-pause.
+        // `BatteryRules` owns the range now: that type already holds every other number the threshold is judged by
+        // (`recoveryMargin`, `riseToAdopt`), so a field that would accept a level the warning could not act on is
+        // ruled out by the same file that acts on it.
+        batteryWarningField = SteppedNumberField(
+            value: values.batteryWarningPercent,
+            range: BatteryRules.warningRange,
+            suffix: BatteryRules.warningSuffix,
+            identifier: Identifier.batteryWarning
+        )
+        batteryWarningField.onChange = { [weak self] _ in self?.onBatteryWarningChanged?() }
+
         // **Its label states the ceiling, and takes it from the same place the field does.** The archive's wording,
         // with the number now interpolated rather than typed twice: `DeviceCommandRules.autoPauseRange` is what the
         // command clamps to, so the label cannot come to promise a limit the wire does not keep. 0 disables it, which
@@ -855,6 +902,7 @@ final class DevicePane: NSView {
 
         return [
             SettingsRow.make("Pause the device when locking it", pauseOnLockBox),
+            SettingsRow.make("Battery warning at", batteryWarningField),
             SettingsRow.make(
                 "Auto-pause (0 disable, max \(DeviceCommandRules.autoPauseRange.upperBound)m)", autoPauseField
             ),
