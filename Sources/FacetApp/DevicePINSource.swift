@@ -3,9 +3,9 @@ import Foundation
 /// The two places a cube's PIN can be, asked and written as one thing.
 ///
 /// **Two stores, because one of them can refuse.** The Keychain is where a PIN belongs (`DevicePINStore`), and
-/// `config.json` beside it is what a developer build reads and what **any** build falls back to when the Keychain
-/// will not take a write. Without that fallback a refused Keychain write would leave the cube on a PIN nothing can
-/// name, recoverable only by taking its batteries out.
+/// `config.json` beside it is what the app falls back to when the Keychain will not take a write. Without that
+/// fallback a refused Keychain write would leave the cube on a PIN nothing can name, recoverable only by taking its
+/// batteries out.
 ///
 /// **The decisions are `DevicePINRules`' and the doing is here**, which is what lets every one of them be tested
 /// with no Keychain, no file and no cube. What this adds on top is the order things happen in and a row for each,
@@ -20,9 +20,8 @@ import Foundation
 struct DevicePINSource {
     var keychainLookUp: () -> DevicePINStore.Lookup = { DevicePINStore.lookUp() }
     var keychainSave: (String) -> Bool = { DevicePINStore.save(pin: $0) }
-    /// The file, in any build: a release build uses it only as the fallback above.
+    /// The file, used only as the fallback above.
     var configFile: DeveloperConfigFile = .atStandardPath
-    var isDeveloperMode: Bool = DeveloperMode.isDeveloperMode
     var debugLog: DebugLog?
 
     /// The PINs this app holds for a cube, in the order they should be presented.
@@ -31,9 +30,7 @@ struct DevicePINSource {
     /// two stores that are not the database: a launch that reads them once would present a PIN a later rotation had
     /// already replaced.
     func stored() -> [String] {
-        DevicePINRules.readOrder(
-            configFile: configFile.pin(), keychain: keychainPIN(), isDeveloperMode: isDeveloperMode
-        )
+        DevicePINRules.readOrder(configFile: configFile.pin(), keychain: keychainPIN())
     }
 
     /// Writes down a PIN a cube has just proved it is on. Answers where it landed.
@@ -42,16 +39,16 @@ struct DevicePINSource {
     /// is the one order that is safe: `0x30` has no read-back, so a PIN written down before the confirming login
     /// would be this app's record of something the hardware may have refused.
     ///
-    /// **The Keychain refusing is not the end of it.** A release build writes the file in that case, which is the
-    /// whole of the fallback: the PIN is on the cube either way, and the only question is whether this app can still
-    /// name it. `reconcile` is what puts that right on a later launch.
+    /// **The Keychain refusing is not the end of it.** The file is written in that case, which is the whole of the
+    /// fallback: the PIN is on the cube either way, and the only question is whether this app can still name it.
+    /// `reconcile` is what puts that right on a later launch.
     @discardableResult
     func record(_ pin: String) -> Recorded {
         var written: Set<DevicePINRules.Destination> = []
-        for destination in DevicePINRules.destinations(isDeveloperMode: isDeveloperMode) where write(pin, to: destination) {
+        for destination in DevicePINRules.destinations where write(pin, to: destination) {
             written.insert(destination)
         }
-        // **The fallback, in any build**: the Keychain would not take it, so the file has to.
+        // **The fallback**: the Keychain would not take it, so the file has to.
         if !written.contains(.keychain), write(pin, to: .configFile) {
             written.insert(.configFile)
             debugLog?.record(.pin, "The Keychain would not take the new PIN, so it is in the config file instead")
@@ -78,10 +75,7 @@ struct DevicePINSource {
     @discardableResult
     func reconcile(accepted: String) -> Reconciled {
         let decision = DevicePINRules.reconciliation(
-            accepted: accepted,
-            configFile: configFile.pin(),
-            keychain: keychainPIN(),
-            isDeveloperMode: isDeveloperMode
+            accepted: accepted, configFile: configFile.pin(), keychain: keychainPIN()
         )
         guard decision.promotesToKeychain || decision.clearsConfigFileOnSuccess else { return .nothingHappened }
         var promoted = false
@@ -111,17 +105,15 @@ struct DevicePINSource {
     /// Settles what a launch can settle about the two stores, and says whether the cube still has to answer.
     ///
     /// **Two of the three cases need no cube at all.** A file naming nothing is the ordinary state; a file naming
-    /// exactly what the Keychain holds is a redundant copy, and a release build takes it away here and now, the
-    /// Keychain having already proved it holds the same string. Only a real disagreement waits for a login, because
-    /// only the cube can say which of two PINs it took.
+    /// exactly what the Keychain holds is a redundant copy, taken away here and now, the Keychain having already
+    /// proved it holds the same string. Only a real disagreement waits for a login, because only the cube can say
+    /// which of two PINs it took.
     ///
     /// **Called once, at launch**, which is where the state it looks for comes from: the file is written by a failed
     /// Keychain write and read by the next launch.
     @discardableResult
     func settleAtLaunch() -> LaunchOutcome {
-        switch DevicePINRules.launchAction(
-            configFile: configFile.pin(), keychain: keychainPIN(), isDeveloperMode: isDeveloperMode
-        ) {
+        switch DevicePINRules.launchAction(configFile: configFile.pin(), keychain: keychainPIN()) {
         case .nothing:
             return .nothingToSettle
         case .clearConfigFile:

@@ -35,7 +35,7 @@ final class AutoPauseSettlesBeforeItIsSentTests: XCTestCase, @unchecked Sendable
             _ = try database.bootstrap()
             _ = try database.bootstrapDebug()
             settings = SettingStore(connection: database.connection())
-            debugLog = DebugLog(databaseURL: database.debugURL)
+            debugLog = DebugLog(databaseURL: database.debugURL, isRecording: true)
             // **The table has to say a cube is connected, because the field is dead unless it does**
             // (`DevicePane.show`). The radio still has none, and that pairing of a row saying connected with a radio
             // holding nothing is not artificial: it is the state between a link going down and the drop being

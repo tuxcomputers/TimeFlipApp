@@ -46,47 +46,35 @@ let categories = CategoryStore(connection: database)
 let faces = FaceStore(connection: database)
 let timezones = TimezoneStore(connection: database)
 
-// Everything the dev flag gates is decided here, and nowhere else: what it produces is either a thing
-// or `nil`, and the rest of the app takes what it is given without ever asking whether this is a dev
-// build.
+// The badge names which database this launch opened, on every run.
 //
-// The badge names which database this launch opened, which is a developer's question -- a shipped copy
-// only ever has the real one, so a permanent "PROD" tag would occupy the menu bar to answer something
-// nobody asked.
-let databaseBadge = DeveloperMode.isDeveloperMode
-    ? DatabaseBadge.forEnvironment(DatabaseEnvironment.read(from: settings))
-    : nil
-// **The trace goes in its own file**, brought up here rather than at the top: it is only wanted when developer mode
-// is on, and a launch without it should not create a database nobody is going to write to. A failure to open it is
-// not a reason to refuse the launch either -- the app works perfectly well without a trace, and `DebugLog` already
-// keeps printing to the terminal when the recording half cannot start.
+// **It was gated on the developer flag, and the flag was always on**, so taking the gate away changes nothing about
+// what is drawn -- which is the point: the moment this is worth knowing is the moment somebody has forgotten which
+// database they started under, and that is not a moment a build flag can predict. A test database has to be
+// unmistakable or a real day's timings end up in something disposable, and a database that will not say which it is
+// deserves more attention still, not less.
+let databaseBadge = DatabaseBadge.forEnvironment(DatabaseEnvironment.read(from: settings))
+// **The trace goes in its own file**, and both of the `debug` row's fields are read here, at launch.
 //
-// **Which folder it goes in is the `debug` setting's to say** (`DebugTraceRules`), read here rather than held: this
-// is the moment the file is opened, and the App tab writes the row while the app is running. A folder changed there
-// takes effect on the next launch, which is what the row on that tab says out loud -- the connection below is open
-// on the file this line chose.
+// **`enabled` is where it starts, not where it stays.** The logger is built either way and records only while the
+// row says so, so ticking the box on the App tab starts the trace at that moment and unticking it stops it, with no
+// relaunch (`DebugLog.setRecording`). What makes that free to leave off is the message being an autoclosure: with
+// recording off a call site costs one boolean check and builds no string at all.
 //
-// **A folder that cannot be used falls back to the one beside the app's own database, and says so.** The alternative
-// is a launch with no trace at all because somebody picked a folder on a disk that is no longer mounted, which is a
-// silent failure of the one facility a failure is reconstructed from.
+// **Nothing is created here.** `DebugLog` brings its database up on the first message it actually records, so a
+// launch that never records leaves no `debug.sqlite` behind, and a folder that cannot be opened falls back with a
+// line saying so rather than silently taking the trace with it.
+//
+// **The folder is the one part that is not live.** The file is open from the first message to quit, so a folder
+// chosen on the App tab applies at the next launch, which the section says out loud.
 let debugLog: DebugLog? = {
-    guard DeveloperMode.isDeveloperMode else { return nil }
     let stored = settings.string(DebugTraceRules.setting, field: DebugTraceRules.directoryField)
         ?? DebugTraceRules.defaultDirectory
-    let chosen = DebugTraceRules.directoryURL(from: stored)
-    let url: URL
-    do {
-        url = try DatabaseBootstrap.ensureDebugDatabase(
-            at: DatabaseBootstrap.debugDatabaseURL(in: chosen)
-        ).databaseURL
-    } catch {
-        let message = (error as? DatabaseBootstrap.Failure)?.description ?? error.localizedDescription
-        FileHandle.standardError.write(
-            Data("facet: the debug trace cannot be kept in \(stored): \(message)\n".utf8)
-        )
-        url = (try? DatabaseBootstrap.ensureDebugDatabase().databaseURL) ?? DatabaseBootstrap.debugDatabaseURL()
-    }
-    return DebugLog(databaseURL: url)
+    return DebugLog(
+        databaseURL: DatabaseBootstrap.debugDatabaseURL(in: DebugTraceRules.directoryURL(from: stored)),
+        isRecording: settings.flag(DebugTraceRules.setting, field: DebugTraceRules.enabledField)
+            ?? DebugTraceRules.defaultEnabled
+    )
 }()
 
 // With no device paired there is nothing to follow, so the app times by hand.

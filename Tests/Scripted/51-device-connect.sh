@@ -8,10 +8,12 @@
 # covered there in full, but whether a real cube ever answers `0x02`, and whether it honours `0x30`, are questions
 # only a cube can be asked.
 #
-# **The PIN it sets is `123456` and only ever `123456`** in a developer build (`DevicePINRules.target`, which is
-# where the gate is asked; any other build sets six random digits), so a half-done rotation can
-# leave the cube on one of two known values and both are presented on the next attempt. That is what makes it safe to
-# run this against real hardware repeatedly.
+# **The PIN it sets is six random digits** (`DevicePINRules.target`), so nothing here can be written down in
+# advance: what the cube was put on is read out of the trace and every check about it is made against that. The fixed
+# `123456` a developer build used to set went with the developer flag on 2026-09-04, and with it the one thing that
+# made a half-done rotation safe by arithmetic. What makes it safe now is the same thing that makes it safe for a
+# user: the PIN is written down before the app believes in it, and `00-setup` factory resets the cube at the start of
+# every run, so a cube left on a PIN nothing recorded is one wipe from being ordinary again.
 #
 # **And it is the one byte most worth asking about.** The vendor spec says `0x01` means the password is correct and
 # `0x02` means it is wrong; the hardware does the opposite, which the archive found by logging both outcomes. Every
@@ -28,8 +30,9 @@ ensure_app_running
 #
 # **41 rather than 38, and the difference is 00-setup.** The cube arrives here factory reset, so it is on the
 # vendor PIN and the app sets its own: five checks about taking a new PIN, proving it, and writing it down.
-# Before 00 wiped the cube the answer depended on what the last run left -- a cube already on 123456 took the
-# other arm and ran two checks instead, which is why this script has been seen at both 38 and 41 across runs.
+# Before 00 wiped the cube the answer depended on what the last run left -- a cube already on a PIN this app had set
+# took the other arm and ran two checks instead, which is why this script has been seen at both 38 and 41 across
+# runs.
 EXPECTED_CHECKS=41
 start "connecting to a TimeFlip and logging in with a PIN"
 
@@ -176,37 +179,48 @@ step "waiting for the app to settle the cube's PIN..."
 if wait_for "$since" "The cube is now on %" 25 >/dev/null; then
     pass "the cube took a new PIN and proved it by logging in with it"
 
+    # **What the cube was put on, read out of the trace**, because it is six random digits and nothing else on this
+    # machine can say what they were. Every check below is made against it rather than against a written-down value.
+    new_pin=$(dsql "SELECT replace(message, 'The cube is now on ', '') FROM debug_log WHERE debug_log_id > $since AND message LIKE 'The cube is now on %' ORDER BY debug_log_id DESC LIMIT 1;")
+
     # **The bytes of the command, checked as bytes.** `30` is the set-password command and the six that follow are the
     # new PIN in ASCII, which the trace renders beside the hex. This is the only place the whole payload is visible.
+    # The ASCII of a digit is `3<digit>`, so the expected payload is built from the PIN itself.
+    expected_hex="30"
+    for digit in $(printf '%s' "$new_pin" | fold -w1); do
+        expected_hex="$expected_hex 3$digit"
+    done
     sent=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND tag = 'ble-tx' AND message LIKE 'command %' ORDER BY debug_log_id LIMIT 1;")
-    check_contains "0x30 went out on the command characteristic, carrying the new PIN" "$sent" "30 31 32 33 34 35 36"
+    check_contains "0x30 went out on the command characteristic, carrying the new PIN" "$sent" "$expected_hex"
 
     # **The confirmation is a real login, not the command's own acknowledgement.** A cube that acknowledges 0x30 has
     # not thereby promised to honour it, and a PIN is the one value where believing that is unrecoverable.
-    expect_log "the app presents the new PIN to make the cube prove it" "$since" "Presenting 123456,%"
+    expect_log "the app presents the new PIN to make the cube prove it" "$since" "Presenting $new_pin,%"
 
-    # **Both stores, and only after the cube proved it.** A developer build writes the Keychain *and* the file: the
-    # file is what a person and this script can read, and the Keychain is what a release build has, so writing both
-    # keeps a dev run on the same path a release build takes.
+    # **The Keychain, and only after the cube proved it.** The file is the fallback for a Keychain that refuses a
+    # write, not a second store written alongside it, so a run where both are named is a run where the Keychain said
+    # no.
     #
     # **The Keychain is checked from the app's own row rather than with `security`.** That tool is a different
     # program from the one that owns the item, so macOS would put an access prompt in front of the run -- the same
     # trap the Google token hit, written up in README.md.
-    expect_log "and writes it down in both stores" "$since" \
-        "The new PIN is written down in the Keychain and the config file"
+    expect_log "and writes it down in the Keychain" "$since" \
+        "The new PIN is written down in the Keychain"
 
-    check "config.json holds the PIN the cube is now on" "123456" "$(config_pin)"
+    # **And leaves nothing in the clear.** A PIN in `config.json` at this point means the Keychain refused the write,
+    # which is a real fault worth failing on rather than a second copy by design.
+    check "config.json holds no PIN, the Keychain having taken it" "" "$(config_pin)"
 else
     left=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND tag = 'pin' ORDER BY debug_log_id DESC LIMIT 1;")
     check_contains "the cube was on a PIN this app set, so it was left alone" "$left" "a PIN this app put there"
 
-    # The file may legitimately name nothing here: with no PIN written down, the compiled-in constant stands in as the
-    # stored candidate, which is how a cube rotated by an earlier run is still reachable after the file is deleted.
+    # **The file naming nothing is the ordinary state**, the Keychain being where a PIN goes; it only ever holds one
+    # because the Keychain refused a write, and the next login that proves it promotes it and clears the file.
     stored=$(config_pin)
     if [ -n "$stored" ]; then
-        check "and config.json agrees with what the cube accepted" "123456" "$stored"
+        pass "config.json still names a PIN, so the Keychain refused a write at some point ($stored)"
     else
-        pass "config.json names no PIN, so the compiled-in 123456 stood in as the stored candidate"
+        pass "config.json names no PIN, the Keychain being where the cube's PIN is kept"
     fi
 fi
 

@@ -44,7 +44,6 @@ This is AI-generated code all the way down, and it's worth being honest about th
 - **[Features Under Development](docs/TODO-features-under-development.md)** - the longer-form notes behind individual features
 - **[State Reference](docs/state-reference.md)** - the one name every state in the app goes by
 - **[Scripted checks](Tests/Scripted/README.md)** - the suite that drives the real app against a real device
-- **[Developer Mode Removal TODO](docs/TODO-devmode.md)** - everything to remove/decide on before shipping without dev-only config/logging
 
 ## Architecture
 

@@ -26,7 +26,7 @@ else
     fail "no status item found in the menu bar"
 fi
 
-# A developer build opened on the test database says so in the title. It is how somebody glancing at the
+# A launch opened on the test database says so in the title. It is how somebody glancing at the
 # screen knows which database a run is writing to, and this run has just insisted on the test one.
 check_contains "the title names the test database" "$title" "TEST"
 

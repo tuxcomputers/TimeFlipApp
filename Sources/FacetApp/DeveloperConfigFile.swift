@@ -1,6 +1,6 @@
 import Foundation
 
-/// `config.json`, the developer build's one piece of state that is not a row: the PIN this build has put on a cube.
+/// `config.json`, the app's one piece of state that is not a row: a PIN the Keychain would not take.
 ///
 /// **Why a file and not the `setting` table.** The PIN is a credential, and the archive kept it out of its own
 /// database for the same reason it kept the Google client secret out: a database is copied around, switched between
@@ -28,25 +28,15 @@ struct DeveloperConfigFile {
 
     let url: URL
 
-    /// The file a developer build uses, and `nil` in any other build.
+    /// The file.
     ///
-    /// `nil` rather than a path nothing writes to: a build with no developer flag has no `config.json` of its own,
-    /// which is the same thing `DebugLog` does with the `debug_log` rows and for the same reason -- an absent
-    /// facility is clearer than one that exists and declines.
-    static var standard: DeveloperConfigFile? {
-        guard DeveloperMode.isDeveloperMode else { return nil }
-        return atStandardPath
-    }
-
-    /// The same file, in **any** build.
-    ///
-    /// **A release build has one use for it and only one**: somewhere to put a cube's PIN when the Keychain would
-    /// not take it (`DevicePINSource.record`). That is not a developer facility, it is the difference between a
-    /// failed Keychain write and a cube nobody can log into again -- the PIN is on the hardware either way, so the
-    /// only question is whether this app can still name it.
+    /// **There is one use for it and only one**: somewhere to put a cube's PIN when the Keychain would not take it
+    /// (`DevicePINSource.record`). That is the difference between a failed Keychain write and a cube nobody can log
+    /// into again -- the PIN is on the hardware either way, so the only question is whether this app can still name
+    /// it.
     ///
     /// It is written in that one case, read on the next launch, and cleared as soon as the Keychain accepts the
-    /// value (`DevicePINSource.reconcile`), so a release build's file exists only for as long as the fault does.
+    /// value (`DevicePINSource.reconcile`), so it exists only for as long as the fault does.
     static var atStandardPath: DeveloperConfigFile {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
@@ -94,10 +84,9 @@ struct DeveloperConfigFile {
 
     /// Takes the PIN out of the file, leaving every other key in it alone, and answers whether it is gone.
     ///
-    /// **What a release build does once the Keychain has the value** (`DevicePINSource.reconcile`): the fallback
-    /// existed because the Keychain refused a write, and a copy of a live credential in a plain file is not
-    /// something to leave lying about once it is no longer the only one. A developer build keeps its copy, that
-    /// being the file's ordinary job.
+    /// **What happens once the Keychain has the value** (`DevicePINSource.reconcile`): the fallback existed because
+    /// the Keychain refused a write, and a copy of a live credential in a plain file is not something to leave lying
+    /// about once it is no longer the only one.
     ///
     /// **`true` when there was nothing to remove**, for the reason `GoogleTokenStore.clear` gives: the caller asked
     /// for the file not to name a PIN, and it does not. A file that cannot be read is in that state too -- there is

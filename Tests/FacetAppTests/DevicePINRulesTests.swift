@@ -47,17 +47,12 @@ final class DevicePINRulesTests: XCTestCase {
 
     // MARK: - what it is rotated to
 
-    func testADeveloperBuildSetsTheFixedPIN() {
-        // Fixed rather than random so a dev cube's PIN is always known and typeable when something goes wrong.
-        XCTAssertEqual(DevicePINRules.target(isDeveloperMode: true), "123456")
-        XCTAssertEqual(DevicePINRules.developerPIN, "123456")
-    }
-
-    func testAnyOtherBuildSetsSixRandomDigits() {
-        // The half the previous app could not do, because it had nowhere durable to keep the answer.
+    func testARotationSetsSixRandomDigits() {
+        // The half the previous app could not do, because it had nowhere durable to keep the answer. There is one
+        // answer now: the fixed `123456` a developer build used to set went with the developer flag on 2026-09-04.
         var generator = StubGenerator(zeroDigits: 0)
 
-        let pin = DevicePINRules.target(isDeveloperMode: false, using: &generator)
+        let pin = DevicePINRules.target(using: &generator)
 
         XCTAssertEqual(pin.count, DeviceLoginRules.length)
         XCTAssertTrue(pin.allSatisfy(\.isNumber), pin)
@@ -71,28 +66,24 @@ final class DevicePINRulesTests: XCTestCase {
         // as the vendor default, so what this measures is the loop that rejects it rather than a lucky first draw.
         var generator = StubGenerator(zeroDigits: 100)
 
-        XCTAssertNotEqual(DevicePINRules.target(isDeveloperMode: false, using: &generator), "000000")
+        XCTAssertNotEqual(DevicePINRules.target(using: &generator), "000000")
     }
 
     func testTwoRotationsDoNotProduceTheSamePIN() {
         // Not a claim about randomness, but about *when* the digits are drawn: a target worked out once and reused
         // would put one PIN on every cube a launch ever met.
-        let first = DevicePINRules.target(isDeveloperMode: false)
-        let second = DevicePINRules.target(isDeveloperMode: false)
+        let first = DevicePINRules.target()
+        let second = DevicePINRules.target()
 
         XCTAssertNotEqual(first, second, "one in a million, and worth knowing if it ever fires twice")
     }
 
     // MARK: - where it is written
 
-    func testADeveloperBuildWritesBothStores() {
-        // The file is what a person reads; the Keychain is what a release build will have. Writing both keeps the
-        // path a dev build exercises the same path a release build takes.
-        XCTAssertEqual(DevicePINRules.destinations(isDeveloperMode: true), [.keychain, .configFile])
-    }
-
-    func testAnyOtherBuildWritesTheKeychain() {
-        XCTAssertEqual(DevicePINRules.destinations(isDeveloperMode: false), [.keychain])
+    func testARotatedPINIsWrittenToTheKeychain() {
+        // And to the file only when the Keychain refuses, which is `DevicePINSource.record`'s fallback rather than a
+        // destination listed here: this is where a PIN is meant to go.
+        XCTAssertEqual(DevicePINRules.destinations, [.keychain])
     }
 
     // MARK: - which PIN is presented first
@@ -101,7 +92,7 @@ final class DevicePINRulesTests: XCTestCase {
         // Backwards for a release build, and the point of the fallback: the file only ever holds one because the
         // Keychain refused it, so the file's is the newer of the two.
         XCTAssertEqual(
-            DevicePINRules.readOrder(configFile: "654321", keychain: "123456", isDeveloperMode: false),
+            DevicePINRules.readOrder(configFile: "654321", keychain: "123456"),
             ["654321", "123456"]
         )
     }
@@ -109,7 +100,7 @@ final class DevicePINRulesTests: XCTestCase {
     func testTwoStoresThatAgreeArePresentedOnce() {
         // Each candidate costs a whole connect, which is a long way to go to learn nothing.
         XCTAssertEqual(
-            DevicePINRules.readOrder(configFile: "123456", keychain: "123456", isDeveloperMode: false),
+            DevicePINRules.readOrder(configFile: "123456", keychain: "123456"),
             ["123456"]
         )
     }
@@ -118,114 +109,80 @@ final class DevicePINRulesTests: XCTestCase {
         // Six bytes, which the protocol fixes. A wrong-length candidate is a bug on this side, and presenting it
         // would spend a connect on a refusal that reads as the cube's fault.
         XCTAssertEqual(
-            DevicePINRules.readOrder(configFile: "12345", keychain: "1234567", isDeveloperMode: false),
+            DevicePINRules.readOrder(configFile: "12345", keychain: "1234567"),
             []
         )
     }
 
-    func testWithNothingWrittenDownADeveloperBuildStillHasOneToTry() {
-        // The stand-in, and only with nothing written down at all: a dev cube is only ever left on 000000 or this.
-        XCTAssertEqual(
-            DevicePINRules.readOrder(configFile: nil, keychain: nil, isDeveloperMode: true),
-            ["123456"]
-        )
-    }
-
-    func testWithNothingWrittenDownAnyOtherBuildHasNothingToTry() {
+    func testWithNothingWrittenDownThereIsNothingToTry() {
         // Which leaves the vendor default on its own, and that is the honest answer: a cube this app has no record
         // of is either new or somebody else's.
         XCTAssertEqual(
-            DevicePINRules.readOrder(configFile: nil, keychain: nil, isDeveloperMode: false),
+            DevicePINRules.readOrder(configFile: nil, keychain: nil),
             []
         )
     }
 
-    func testTheStandInNeverJoinsAStoredPIN() {
-        // The archive's own bug: offered as an extra guess it let a dev build into a cube whose PIN the app had no
-        // record of, and made "the stored PIN" mean two different things. Asked of the file, which is the store a
-        // dev build reads.
+    func testAFileWithNothingBehindItIsTheWholeOfTheOrder() {
+        // Nothing is invented alongside it. A guess offered as an extra candidate is the archive's own bug: it let a
+        // build into a cube whose PIN the app had no record of, and made "the stored PIN" mean two different things.
         XCTAssertEqual(
-            DevicePINRules.readOrder(configFile: "654321", keychain: nil, isDeveloperMode: true),
+            DevicePINRules.readOrder(configFile: "654321", keychain: nil),
             ["654321"]
         )
     }
 
-    // MARK: - a developer build reads the file and nothing else
-
-    func testADeveloperBuildPresentsTheFilesPINAlone() {
-        // **The whole of the change, and what makes a refusal arrangeable.** A PIN typed into `config.json` is the
-        // only one presented, so a cube that is not on it refuses and the offer dialog appears. While the Keychain
-        // was a second candidate this was untestable: the wrong PIN was refused and the right one, sitting in the
-        // Keychain, got straight in.
+    func testAStoreDisagreeingWithTheOtherPresentsBoth() {
+        // The failed-write case: the file holds the newer PIN and the Keychain what the cube was called before it,
+        // and only the cube can say which it took.
         XCTAssertEqual(
-            DevicePINRules.readOrder(configFile: "123457", keychain: "123456", isDeveloperMode: true),
-            ["123457"]
-        )
-    }
-
-    func testAReleaseBuildStillFallsBackToTheKeychain() {
-        // The same two stores, the other build: nothing about the fallback changes where a person is not editing the
-        // file, and a release build's file only ever holds a PIN because the Keychain refused one.
-        XCTAssertEqual(
-            DevicePINRules.readOrder(configFile: "123457", keychain: "123456", isDeveloperMode: false),
+            DevicePINRules.readOrder(configFile: "123457", keychain: "123456"),
             ["123457", "123456"]
         )
     }
 
-    func testADeveloperBuildWithAnUnusablePINInTheFileFallsBackToTheStandIn() {
+    func testAnUnusablePINInOneStoreLeavesTheOther() {
         // A half-typed PIN is a file somebody is in the middle of editing, and presenting five digits would spend a
-        // connect on a refusal that reads as the cube's fault. The stand-in is one of the two values a dev cube is
-        // ever on, so it is the honest guess.
+        // connect on a refusal that reads as the cube's fault.
         XCTAssertEqual(
-            DevicePINRules.readOrder(configFile: "12345", keychain: "123456", isDeveloperMode: true),
+            DevicePINRules.readOrder(configFile: "12345", keychain: "123456"),
             ["123456"]
         )
     }
 
     // MARK: - what a launch settles on its own
 
-    func testAReleaseBuildTakesAwayARedundantCopy() {
-        // **The case the first version of this missed.** Asking only whether the two disagree left a release build
-        // whose file and Keychain matched holding a live PIN in a plain file for ever -- and it can get there: the
-        // promotion works and the clearing fails, or a developer build wrote both and the machine then runs a
-        // release build.
+    func testARedundantCopyIsTakenAway() {
+        // **The case the first version of this missed.** Asking only whether the two disagree left a launch whose
+        // file and Keychain matched holding a live PIN in a plain file for ever -- and it can get there whenever the
+        // promotion works and the clearing fails.
         XCTAssertEqual(
-            DevicePINRules.launchAction(configFile: "654321", keychain: "654321", isDeveloperMode: false),
+            DevicePINRules.launchAction(configFile: "654321", keychain: "654321"),
             .clearConfigFile
-        )
-    }
-
-    func testADeveloperBuildKeepsItsCopy() {
-        // The file is the dev build's ordinary store, and the place a person looks.
-        XCTAssertEqual(
-            DevicePINRules.launchAction(configFile: "123456", keychain: "123456", isDeveloperMode: true),
-            .nothing
         )
     }
 
     func testADisagreementWaitsForTheCube() {
         // Neither store can say which PIN the hardware took, and promoting the wrong one would overwrite the app's
         // record of the right one.
-        for isDeveloperMode in [true, false] {
-            XCTAssertEqual(
-                DevicePINRules.launchAction(configFile: "654321", keychain: "123456", isDeveloperMode: isDeveloperMode),
-                .askTheCube
-            )
-        }
+        XCTAssertEqual(
+            DevicePINRules.launchAction(configFile: "654321", keychain: "123456"),
+            .askTheCube
+        )
     }
 
     func testAKeychainWithNothingInItStillWaitsForTheCube() {
         // The failed-write case at its starkest: the file is the only record, and it becomes the Keychain's only
         // once a cube has answered to it.
         XCTAssertEqual(
-            DevicePINRules.launchAction(configFile: "654321", keychain: nil, isDeveloperMode: false),
+            DevicePINRules.launchAction(configFile: "654321", keychain: nil),
             .askTheCube
         )
     }
 
     func testAFileNamingNothingIsTheOrdinaryState() {
         XCTAssertEqual(
-            DevicePINRules.launchAction(configFile: nil, keychain: "654321", isDeveloperMode: false),
+            DevicePINRules.launchAction(configFile: nil, keychain: "654321"),
             .nothing
         )
     }
@@ -234,26 +191,16 @@ final class DevicePINRulesTests: XCTestCase {
 
     func testThePINTheCubeAnsweredToIsPromotedWhenTheKeychainDoesNotHaveIt() {
         let decision = DevicePINRules.reconciliation(
-            accepted: "654321", configFile: "654321", keychain: "123456", isDeveloperMode: false
+            accepted: "654321", configFile: "654321", keychain: "123456"
         )
 
         XCTAssertTrue(decision.promotesToKeychain)
-        XCTAssertTrue(decision.clearsConfigFileOnSuccess, "and a release build stops keeping a copy in the clear")
-    }
-
-    func testADeveloperBuildKeepsItsFileAfterPromoting() {
-        // The file is the dev build's ordinary store, not an emergency one, and it is where a person looks.
-        let decision = DevicePINRules.reconciliation(
-            accepted: "654321", configFile: "654321", keychain: "123456", isDeveloperMode: true
-        )
-
-        XCTAssertTrue(decision.promotesToKeychain)
-        XCTAssertFalse(decision.clearsConfigFileOnSuccess)
+        XCTAssertTrue(decision.clearsConfigFileOnSuccess, "and the copy in the clear stops being kept")
     }
 
     func testAPINTheKeychainAlreadyHoldsIsNotPromotedTwice() {
         let decision = DevicePINRules.reconciliation(
-            accepted: "654321", configFile: "654321", keychain: "654321", isDeveloperMode: false
+            accepted: "654321", configFile: "654321", keychain: "654321"
         )
 
         XCTAssertFalse(decision.promotesToKeychain)
@@ -265,7 +212,7 @@ final class DevicePINRulesTests: XCTestCase {
         // would overwrite the app's record of a PIN that may still be the right one for this cube.
         XCTAssertEqual(
             DevicePINRules.reconciliation(
-                accepted: "000000", configFile: "654321", keychain: "123456", isDeveloperMode: false
+                accepted: "000000", configFile: "654321", keychain: "123456"
             ),
             .nothingToDo
         )
@@ -275,7 +222,7 @@ final class DevicePINRulesTests: XCTestCase {
         // The ordinary case, and the reason `storesDisagree` is asked before any of this: there is nothing to heal.
         XCTAssertEqual(
             DevicePINRules.reconciliation(
-                accepted: "123456", configFile: "654321", keychain: "123456", isDeveloperMode: false
+                accepted: "123456", configFile: "654321", keychain: "123456"
             ),
             .nothingToDo
         )
@@ -284,7 +231,7 @@ final class DevicePINRulesTests: XCTestCase {
     func testWithNoFileThereIsNothingToReconcile() {
         XCTAssertEqual(
             DevicePINRules.reconciliation(
-                accepted: "123456", configFile: nil, keychain: "123456", isDeveloperMode: false
+                accepted: "123456", configFile: nil, keychain: "123456"
             ),
             .nothingToDo
         )

@@ -550,6 +550,7 @@ final class AppSettingsPaneTests: XCTestCase {
             AppSettingsPane.Identifier.debugDirectoryChoose,
             AppSettingsPane.Identifier.debugReveal,
             AppSettingsPane.Identifier.debugCopy,
+            AppSettingsPane.Identifier.debugClear,
         ] {
             XCTAssertTrue(
                 descendants(of: pane).contains { $0.accessibilityIdentifier() == identifier },
@@ -572,26 +573,31 @@ final class AppSettingsPaneTests: XCTestCase {
 
         try XCTUnwrap(control(AppSettingsPane.Identifier.debugReveal, in: pane) as NSButton?).performClick(nil)
         try XCTUnwrap(control(AppSettingsPane.Identifier.debugCopy, in: pane) as NSButton?).performClick(nil)
+        try XCTUnwrap(control(AppSettingsPane.Identifier.debugClear, in: pane) as NSButton?).performClick(nil)
 
-        XCTAssertEqual(reported, [.debugRevealRequested, .debugCopyRequested])
+        // Clearing in particular: the pane asks, and the window confirms it before anything is emptied.
+        XCTAssertEqual(reported, [.debugRevealRequested, .debugCopyRequested, .debugClearRequested])
     }
 
     func testTheTraceButtonsAreDeadWhenThereIsNoTrace() throws {
-        // A launch with no logger has no file for either of them to act on, so they say so by being dead rather than
-        // by opening an empty Finder window.
+        // **No *file*, rather than no logger.** The file outlives logging being on, and keying these to the logger
+        // left all three dead beside a trace somebody had just been asked to send in.
         let pane = AppSettingsPane()
         pane.show(stored)
 
         let reveal: NSButton = try XCTUnwrap(control(AppSettingsPane.Identifier.debugReveal, in: pane))
         let copy: NSButton = try XCTUnwrap(control(AppSettingsPane.Identifier.debugCopy, in: pane))
+        let clear: NSButton = try XCTUnwrap(control(AppSettingsPane.Identifier.debugClear, in: pane))
         XCTAssertFalse(reveal.isEnabled)
         XCTAssertFalse(copy.isEnabled)
+        XCTAssertFalse(clear.isEnabled)
 
         var values = stored
         values.hasDebugTrace = true
         pane.show(values)
-        XCTAssertTrue(reveal.isEnabled, "and they come alive when this launch has one")
+        XCTAssertTrue(reveal.isEnabled, "and they come alive when there is a file")
         XCTAssertTrue(copy.isEnabled)
+        XCTAssertTrue(clear.isEnabled)
     }
 
     func testTheDebugRowsShowWhatTheTableSays() throws {

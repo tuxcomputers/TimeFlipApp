@@ -20,7 +20,7 @@ final class DebugLogTests: XCTestCase, @unchecked Sendable {
             database = TemporaryDatabase()
             // The trace's own database, which is the only one that has `debug_log` in it.
             try database.bootstrapDebug()
-            log = DebugLog(databaseURL: database.debugURL)
+            log = DebugLog(databaseURL: database.debugURL, isRecording: true)
         }
     }
 
@@ -131,82 +131,98 @@ final class DebugLogTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(longest?.bracketed, longest.map { "[\($0.rawValue)]" })
     }
 
-    // MARK: - a copy to send in
+    // MARK: - the switch, while the app runs
+
+    func testALogThatIsNotRecordingWritesNothing() {
+        let quiet = DebugLog(databaseURL: database.debugURL, isRecording: false)
+
+        quiet.record(.click, "Nobody asked for this")
+
+        XCTAssertTrue(rows().isEmpty)
+    }
+
+    func testTheMessageIsNotEvenBuiltWhileItIsOff() {
+        // **The property the whole design rests on.** Every call site reads `debugLog?.record(.transmit, "…\(hex)")`,
+        // and Swift would build that string before entering this at all -- so a launch that records nothing would
+        // still pay for a hex dump of every BLE packet. The message is an autoclosure for exactly this, and this is
+        // what says so.
+        let quiet = DebugLog(databaseURL: database.debugURL, isRecording: false)
+        var built = 0
+
+        quiet.record(.click, Self.expensive(counting: &built))
+
+        XCTAssertEqual(built, 0, "the message was composed for a log that was never going to write it")
+    }
+
+    func testTheMessageIsBuiltExactlyOnceWhileItIsOn() {
+        var built = 0
+
+        log.record(.click, Self.expensive(counting: &built))
+
+        XCTAssertEqual(built, 1, "the console and the row take the same string, built once")
+    }
+
+    private static func expensive(counting built: inout Int) -> String {
+        built += 1
+        return "Something that cost a string to say"
+    }
+
+    func testTurningItOnStartsRecordingAtThatMoment() {
+        let log = DebugLog(databaseURL: database.debugURL, isRecording: false)
+        log.record(.click, "Before")
+
+        log.setRecording(true)
+        log.record(.face, "After")
+
+        // The switch is the first row, so a submitted trace says where it begins rather than starting mid-story.
+        XCTAssertEqual(rows().map(\.message), ["Logging turned on", "After"])
+    }
+
+    func testTurningItOffStopsRecordingAtThatMoment() {
+        log.record(.click, "Before")
+
+        log.setRecording(false)
+        log.record(.face, "After")
+
+        // And the switch is the last row, so a trace that ends abruptly is saying it was switched off rather than
+        // that the app died.
+        XCTAssertEqual(rows().map(\.message), ["Before", "Logging turned off"])
+    }
+
+    func testBeingToldWhatItAlreadyIsWritesNothing() {
+        // The window writes the row on every press, including one that did not change the value.
+        log.setRecording(true)
+
+        XCTAssertTrue(rows().isEmpty)
+    }
+
+    func testALaunchThatRecordsNothingLeavesNoFileBehind() {
+        // The file is brought up on the first message, not at launch, so somebody who has never turned this on finds
+        // nothing in the folder.
+        let elsewhere = TemporaryDatabase()
+        defer { elsewhere.remove() }
+        let quiet = DebugLog(databaseURL: elsewhere.debugURL, isRecording: false)
+
+        quiet.record(.click, "Nobody asked for this")
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: elsewhere.debugURL.path))
+    }
+
+    func testTheFileIsBroughtUpByTheFirstMessageRecorded() {
+        let elsewhere = TemporaryDatabase()
+        defer { elsewhere.remove() }
+        let log = DebugLog(databaseURL: elsewhere.debugURL, isRecording: true)
+
+        log.record(.click, "The first thing that happened")
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: elsewhere.debugURL.path))
+    }
+
+    // MARK: - the file it is writing
 
     func testTheLogNamesTheFileItIsWriting() {
         // The file that is open now, which is not the folder the `debug` setting names: a folder chosen on the App
-        // tab holds no trace until the next launch.
+        // tab holds no trace until the next launch. `DebugTraceFile` reads it for exactly that reason.
         XCTAssertEqual(log.databaseURL, database.debugURL)
-    }
-
-    func testACopyOpensOnItsOwnAndCarriesTheRows() throws {
-        log.record(.trace, "Something worth sending in")
-        let destination = database.directory.appendingPathComponent("sent.sqlite")
-
-        XCTAssertTrue(log.copy(to: destination))
-
-        XCTAssertTrue(FileManager.default.fileExists(atPath: destination.path))
-        // Read back through its own connection: what makes the copy worth having is that it opens without the
-        // original beside it.
-        var handle: OpaquePointer?
-        defer { sqlite3_close(handle) }
-        XCTAssertEqual(sqlite3_open_v2(destination.path, &handle, SQLITE_OPEN_READONLY, nil), SQLITE_OK)
-        var statement: OpaquePointer?
-        defer { sqlite3_finalize(statement) }
-        XCTAssertEqual(
-            sqlite3_prepare_v2(handle, "SELECT message FROM debug_log ORDER BY debug_log_id;", -1, &statement, nil),
-            SQLITE_OK
-        )
-        var messages: [String] = []
-        while sqlite3_step(statement) == SQLITE_ROW {
-            messages.append(String(cString: sqlite3_column_text(statement, 0)))
-        }
-        XCTAssertTrue(messages.contains("Something worth sending in"), "\(messages)")
-    }
-
-    func testTakingACopyIsItselfRecorded() throws {
-        let destination = database.directory.appendingPathComponent("sent.sqlite")
-
-        XCTAssertTrue(log.copy(to: destination))
-
-        XCTAssertTrue(
-            rows().contains { $0.tag == "trace" && $0.message.hasPrefix("Trace copied to") },
-            "the trace says where a copy of it went: \(rows().map(\.message))"
-        )
-    }
-
-    func testACopyReplacesWhateverWasThere() throws {
-        // `VACUUM INTO` refuses to write over a file, and the save panel has already had the conversation about
-        // replacing one -- so a second copy to the same name has to work rather than fail silently.
-        let destination = database.directory.appendingPathComponent("sent.sqlite")
-        XCTAssertTrue(log.copy(to: destination))
-        log.record(.trace, "Recorded after the first copy")
-
-        XCTAssertTrue(log.copy(to: destination))
-
-        var handle: OpaquePointer?
-        defer { sqlite3_close(handle) }
-        XCTAssertEqual(sqlite3_open_v2(destination.path, &handle, SQLITE_OPEN_READONLY, nil), SQLITE_OK)
-        var statement: OpaquePointer?
-        defer { sqlite3_finalize(statement) }
-        XCTAssertEqual(
-            sqlite3_prepare_v2(
-                handle,
-                "SELECT count(*) FROM debug_log WHERE message = 'Recorded after the first copy';",
-                -1, &statement, nil
-            ),
-            SQLITE_OK
-        )
-        XCTAssertEqual(sqlite3_step(statement), SQLITE_ROW)
-        XCTAssertEqual(sqlite3_column_int(statement, 0), 1, "the second copy is the trace as it stands now")
-    }
-
-    func testACopyThatCannotBeWrittenSaysSo() {
-        // Never silently: a copy that did not happen looks exactly like one that did until somebody opens it.
-        let destination = database.directory
-            .appendingPathComponent("no-such-folder", isDirectory: true)
-            .appendingPathComponent("sent.sqlite")
-
-        XCTAssertFalse(log.copy(to: destination))
     }
 }

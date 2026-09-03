@@ -19,7 +19,8 @@
 #
 # What this guarantees to everything below:
 #
-#   1. **The database is seeded** -- private seeds applied, `pause_on_lock` enabled, fractional history present.
+#   1. **The database is seeded** -- private seeds applied, `debug` logging and `pause_on_lock` enabled, fractional
+#      history present.
 #   2. **The cube is factory reset**, on the vendor PIN 000000, if there is one.
 #   3. **The app does not know about any device**, so `50-device-scan` starts from nothing.
 #   4. **The app is not running**, so `01-launch` gets a genuine cold start.
@@ -33,7 +34,7 @@
 # **This writes straight to the tables**, which every other script in this folder is forbidden from doing.
 # It is right here for the same reason it is wrong there: the app is not running while the seeds go in, so
 # there is nothing to disagree with, and the app reads all of this when it starts rather than holding it
-# from before.
+# from before. That is **made** true below rather than assumed -- the app is shut before the first write.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/seed-private.sh"
 
@@ -59,6 +60,13 @@ testlog_prepare_scripts
 
 # ---------------------------------------------------------------------------- the database
 
+# **Shut first, and this is the line the rest of the script stands on.** Every setting below is read by the app
+# when it launches, and `debug` decides whether there is a trace at all -- so a copy left running from an earlier
+# session would go on with the settings it started under, and `ensure_app_running` further down would find it up
+# and leave it alone. The polling this script does of its own (the cube's auto-pause, the resting face) would then
+# be reading a `debug_log` nothing is writing to.
+quit_app
+
 step "applying the private seeds"
 apply_private_seeds
 
@@ -71,6 +79,27 @@ if [ "$(sql "SELECT json_extract(setting_value, '\$.enabled') FROM setting WHERE
     trouble "pause_on_lock would not stay enabled"
 else
     step "pause on lock is enabled"
+fi
+
+# **The whole suite stands on this one.** Every check in every script is press by name, then poll for the
+# `debug_log` row (`Tests/Methods.md`), and nothing is recorded unless this row says so. `011_setting.sql` seeds it
+# **off**, which is right for somebody installing the app and wrong for a run that is about to read the trace, so it
+# is turned on here.
+#
+# **Written with the app shut, which is what the quit above is for.** The switch is live *through the App tab* --
+# pressing it tells the running logger -- but a row changed underneath the app by sqlite tells it nothing, and it is
+# only read again at launch.
+#
+# **Here rather than in `lib.sh`**, so it is arranged once, in the script whose whole job is arranging, and by the
+# same hand that pins `pause_on_lock` above. Every script after this one inherits it, and none of them has to ask.
+#
+# **Written with the folder alongside it**, because a row holding only `enabled` would leave the trace to fall back
+# to the seeded folder while the rest of this file addresses `$DEBUG_DB`. The two must name the same place.
+sql "UPDATE setting SET setting_value = '{\"enabled\":true,\"directory\":\"~/Library/Application Support/Facet\"}' WHERE setting_name = 'debug';"
+if [ "$(setting debug enabled)" != "1" ]; then
+    trouble "debug logging would not stay on, so nothing below can poll for a row"
+else
+    step "debug logging is on, and the trace is in $SUPPORT"
 fi
 
 # ---------------------------------------------------------------------------- history with fractions

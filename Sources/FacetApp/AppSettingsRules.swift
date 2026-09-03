@@ -123,8 +123,8 @@ enum AppSettingsRules {
              .googleCredentialChanged, .googleVerified,
              // A panel to run, not a value to store. What comes back out of it is `debugDirectory`.
              .debugDirectoryRequested,
-             // Acts on the file rather than on a row: one opens a Finder window, the other writes a copy.
-             .debugRevealRequested, .debugCopyRequested:
+             // These act on the file rather than on a row: a Finder window, a copy, and emptying it.
+             .debugRevealRequested, .debugCopyRequested, .debugClearRequested:
             return nil
         }
     }
@@ -150,7 +150,7 @@ enum AppSettingsRules {
              .googleCalendarDeleteRequested: return "Calendar"
         case .debugEnabled: return "Debug logging"
         case .debugDirectory, .debugDirectoryRequested: return "Directory"
-        case .debugRevealRequested, .debugCopyRequested: return "Trace file"
+        case .debugRevealRequested, .debugCopyRequested, .debugClearRequested: return "Trace file"
         }
     }
 }

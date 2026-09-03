@@ -23,20 +23,19 @@ final class HistoryTimer {
     /// Where the interval sits when the row is missing or holds something that is not a number, matching the
     /// seed in `database/011_setting.sql`. A named constant rather than a literal for the reason the previous
     /// app gave for its own: a bare number here is a copy of the seed with nothing linking the two together.
-    ///
-    /// Ten seconds is below `productionMinimumSeconds` on purpose. It is a developer's value -- fast polling
-    /// makes history arrive quickly while working on it -- and a shipped build floors it, because a minute is
-    /// as often as a safety net behind live events needs to run.
     static let defaultSeconds = 10
 
-    /// The floor a build without the dev flag applies, and the ceiling every build does. An hour is the far
-    /// end of useful for a safety net; the floor stops a hand-edited row turning the app into a poller.
-    static let productionMinimumSeconds = 60
+    /// The bounds the row is held between. An hour is the far end of useful for a safety net behind the live face
+    /// and pause events; a second is there only so a `0` in the row cannot spin the timer as fast as the run loop
+    /// will go.
+    ///
+    /// **One floor, where there were two.** A minute was applied to any build without the developer flag and a
+    /// second to a build with it, so the seeded 10 meant one thing on a developer's machine and another on
+    /// everybody else's -- two cadences from one row, decided at compile time. What the app polls at is the row's
+    /// answer, and how often that should be is a question about the seeded value rather than about which build this
+    /// is: the App tab offers 1 to 60 minutes, so nothing but a hand-edit can reach below a minute anyway.
+    static let minimumSeconds = 1
     static let maximumSeconds = 3_600
-
-    /// The shortest interval a dev build will accept, which exists only so a `0` in the row cannot spin the
-    /// timer as fast as the run loop will go.
-    static let developerMinimumSeconds = 1
 
     private let settings: SettingStore
     private let debugLog: DebugLog?
@@ -178,10 +177,7 @@ final class HistoryTimer {
     }
 
     private func currentInterval() -> TimeInterval {
-        Self.interval(
-            fromSeconds: settings.integer(Self.settingName, field: Self.settingField),
-            isDeveloperMode: DeveloperMode.isDeveloperMode
-        )
+        Self.interval(fromSeconds: settings.integer(Self.settingName, field: Self.settingField))
     }
 
     /// How long to wait, from what the row says. Pure, so every bound can be asserted without a run loop.
@@ -189,9 +185,7 @@ final class HistoryTimer {
     /// A missing or non-numeric value falls back rather than switching the timer off: with a cube paired, not
     /// asking for history means not recording time, which is a worse answer to a malformed row than using the
     /// value the schema seeds.
-    static func interval(fromSeconds seconds: Int?, isDeveloperMode: Bool) -> TimeInterval {
-        let requested = seconds ?? defaultSeconds
-        let floor = isDeveloperMode ? developerMinimumSeconds : productionMinimumSeconds
-        return TimeInterval(min(maximumSeconds, max(floor, requested)))
+    static func interval(fromSeconds seconds: Int?) -> TimeInterval {
+        TimeInterval(min(maximumSeconds, max(minimumSeconds, seconds ?? defaultSeconds)))
     }
 }

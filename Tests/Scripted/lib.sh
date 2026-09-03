@@ -339,9 +339,8 @@ ask_about_the_device() {
         "pairing the cube and resetting it, so every script after this one starts from a" \
         "factory cube the app has never seen." \
         "" \
-        "The runs also change its PIN. They present 000000 and then the PIN this developer" \
-        "build sets, 123456; a cube answering to the default is put on 123456, which is" \
-        "written to config.json." \
+        "The runs also change its PIN. They present 000000, and a cube answering to it is put" \
+        "on six random digits kept in the login Keychain." \
         "" \
         "Then:" \
         "1. Flip the cube onto any face -- a sleeping cube does not advertise, so it cannot be found." \

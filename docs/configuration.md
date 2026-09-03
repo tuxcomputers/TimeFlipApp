@@ -72,16 +72,13 @@ Each is tried on a connection of its own. If none is accepted, pairing fails and
 
 **A cube that lets the app in on `000000` is always given a PIN of its own.** The default is public — it is printed in the vendor's protocol spec — so a cube left on it is one that anybody within a few metres can take over. A cube already on a PIN this app set keeps it: rotating again would spend a command and a confirming login to replace one known value with another.
 
-What it is given depends on the build:
-
-- **A release build sets six random digits** and keeps them in the **login Keychain**, which is per user and per machine. A cube carried to another Mac is met by an app that knows only the factory default, and the recovery there is the vendor's own: take the batteries out.
-- **A developer build sets `123456`**, fixed so a dev cube's PIN is always known and typeable, and writes it to **both** the Keychain and `config.json`. The file is what a person can read; writing both keeps a dev build on the same path a release build takes.
+**Six random digits**, kept in the **login Keychain**, which is per user and per machine. A cube carried to another Mac is met by an app that knows only the factory default, and the recovery there is the vendor's own: take the batteries out.
 
 **The new PIN is only written down once the device has proved it took it** — the app logs in again with it before recording anything. `0x30` has no read-back, so a PIN recorded on the strength of the command being acknowledged could be one the cube never applied.
 
-**If the Keychain refuses the write, the PIN goes to `config.json` instead, in any build.** The cube is on it either way, so the only question is whether the app can still name it, and a plain file for as long as the fault lasts beats a cube nobody can log into. On the next launch the app notices the two stores disagree, presents the file's PIN first, and — once the cube has accepted it — copies it into the Keychain and (in a release build) removes it from the file. A release build also removes the file's copy outright, with no device needed, whenever it finds the Keychain already holding the same PIN: the copy is redundant at that point, and a live PIN sitting in a plain file is not something to leave lying about. If neither store will take a PIN, the app says so in an alert rather than leaving you to find out at the next launch.
+**If the Keychain refuses the write, the PIN goes to `config.json` instead.** The cube is on it either way, so the only question is whether the app can still name it, and a plain file for as long as the fault lasts beats a cube nobody can log into. On the next launch the app notices the two stores disagree, presents the file's PIN first, and — once the cube has accepted it — copies it into the Keychain and removes it from the file. It removes the file's copy outright, with no device needed, whenever it finds the Keychain already holding the same PIN: the copy is redundant at that point, and a live PIN sitting in a plain file is not something to leave lying about. If neither store will take a PIN, the app says so in an alert rather than leaving you to find out at the next launch.
 
-If nothing is written down at all, a developer build falls back to the compiled-in `123456` as the *stored* candidate. With no file and no Keychain item, a dev build can still reach a cube on either `000000` or `123456`, the two values a dev cube is ever left on. It stands in **as** the second candidate rather than joining as a third — offered as a third guess it would let a build into a cube whose PIN the app had no record of, which is a bug the previous app actually shipped.
+If nothing is written down at all, nothing is invented: the vendor default is the only candidate, which is the honest answer for a cube this app has no record of. A guess offered alongside a stored PIN would let the app into a cube whose PIN it never knew, which is a bug the previous app actually shipped.
 
 ### Renaming Your Device
 
@@ -304,8 +301,9 @@ in the next room that drifted into range would otherwise pull the clock back mid
 - Check Bluetooth permissions in System Preferences > Privacy & Security
 - Check the terminal you launched the app from — every byte in both directions is printed there, and
   recorded in the `debug_log` table of `debug.sqlite`, which outlives the session and can be queried
-  afterwards. **Settings > App > Debug** reveals that file in the Finder and saves a copy of it to send
-  in, and names the folder it is kept in if you would rather move it
+  afterwards. **Settings > App > Debug** reveals that file in the Finder, saves a copy of it to send in,
+  and empties it — clearing it before reproducing a fault is what makes the copy worth sending — and it
+  names the folder the file is kept in if you would rather move it
 
 ### Signing in to Google fails
 

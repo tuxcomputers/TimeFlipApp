@@ -70,6 +70,7 @@ final class AppSettingsPane: NSView {
         static let debugDirectoryChoose = "app-debug-directory-choose"
         static let debugReveal = "app-debug-reveal"
         static let debugCopy = "app-debug-copy"
+        static let debugClear = "app-debug-clear"
         static let debugNote = "app-debug-note"
     }
 
@@ -117,9 +118,11 @@ final class AppSettingsPane: NSView {
         /// Which folder the trace is kept in, **as it is stored**: a leading `~` is expanded where the file is
         /// opened, not here (`DebugTraceRules`).
         var debugDirectory = DebugTraceRules.defaultDirectory
-        /// Whether this launch has a trace to reveal or copy at all. **Not a setting**, and not `isDebugEnabled`
-        /// either: it is whether a logger was built, which is decided at launch and cannot change while the app runs.
-        /// A build with no trace has nothing to send, so both buttons are dead rather than pointing at no file.
+        /// Whether there is a trace file to act on. **Not a setting**, and **not `isDebugEnabled`**: the file
+        /// outlives both the launch that wrote it and logging being on, which is most of a support conversation --
+        /// somebody turns logging on, reproduces the fault, quits, and sends the file from a launch that is
+        /// recording nothing. Keying these buttons to whether a logger exists left all three dead beside an 800KB
+        /// trace. With no file there is nothing to reveal, copy or empty, and they are dead for that reason instead.
         var hasDebugTrace = false
 
         /// What a database with none of these rows would give, which is what the seeds give
@@ -177,6 +180,8 @@ final class AppSettingsPane: NSView {
         case debugRevealRequested
         /// Save a copy of the trace somewhere, to send in. **A request** for the same reason the folder is.
         case debugCopyRequested
+        /// Empty the trace. **A request, and the destructive one**: the window confirms it before carrying it out.
+        case debugClearRequested
     }
 
     /// Called when a row is changed. **A request**: the window writes it, checks the table took it, and says so if it
@@ -228,6 +233,7 @@ final class AppSettingsPane: NSView {
     private var debugDirectoryValue: NSTextField!
     private var debugRevealButton: NSButton!
     private var debugCopyButton: NSButton!
+    private var debugClearButton: NSButton!
     private var dailyResetField: SteppedNumberField!
     private var fetchIntervalField: SteppedNumberField!
     private var blipTimeField: SteppedNumberField!
@@ -296,8 +302,8 @@ final class AppSettingsPane: NSView {
         case .debugDirectoryRequested:
             // A request. Which folder was picked arrives as `debugDirectory` once the table has it.
             break
-        case .debugRevealRequested, .debugCopyRequested:
-            // Neither is a value. Both act on the file and leave every row on this tab as it was.
+        case .debugRevealRequested, .debugCopyRequested, .debugClearRequested:
+            // None of them is a value. All three act on the file and leave every row on this tab as it was.
             break
         case let .debugDirectory(path):
             values.debugDirectory = path
@@ -418,10 +424,18 @@ final class AppSettingsPane: NSView {
         debugDirectoryValue.toolTip = debugDirectoryValue.stringValue
     }
 
-    /// Dead when this launch has no trace, there being no file for either button to act on.
+    /// Takes on whether there is a trace file, which is not a setting and not something this pane can see: the file
+    /// comes into being the moment logging starts writing, and goes when somebody moves it out from under the app.
+    func showTrace(exists: Bool) {
+        values.hasDebugTrace = exists
+        showDebugTrace()
+    }
+
+    /// Dead when there is no trace file, there being nothing for any of the three to act on.
     private func showDebugTrace() {
-        debugRevealButton.isEnabled = values.hasDebugTrace
-        debugCopyButton.isEnabled = values.hasDebugTrace
+        for button in [debugRevealButton, debugCopyButton, debugClearButton] {
+            button?.isEnabled = values.hasDebugTrace
+        }
     }
 
     /// The Calendar row: the name, editable, or a button to make one when there is none.
@@ -704,6 +718,10 @@ final class AppSettingsPane: NSView {
     /// trace in presses Reveal in Finder and the file is selected in front of them, or presses Save a copy and picks
     /// where it goes. Neither asks them to navigate to a path, which is what the folder would otherwise be for.
     ///
+    /// **Clear is beside them because it belongs to the same gesture**: the useful thing to do before reproducing a
+    /// fault is to empty the trace, so what gets sent is the fault and not a fortnight of everything else. It is the
+    /// destructive one, so the window confirms it.
+    ///
     /// **Inside the panel rather than under it**, unlike the Google footnote: this one has no reason to outlive its
     /// section, so being a row of the list is the whole of making it fold.
     private func addDebugRows() {
@@ -735,15 +753,19 @@ final class AppSettingsPane: NSView {
             "Save a copy", identifier: Identifier.debugCopy, action: #selector(debugCopyPressed)
         )
         debugCopyButton.toolTip = "Write a copy of the trace to send in"
-        let buttons = NSStackView(views: [debugRevealButton, debugCopyButton])
+        debugClearButton = traceButton(
+            "Clear", identifier: Identifier.debugClear, action: #selector(debugClearPressed)
+        )
+        debugClearButton.toolTip = "Empty the trace, so what follows starts from nothing"
+        let buttons = NSStackView(views: [debugRevealButton, debugCopyButton, debugClearButton])
         buttons.orientation = .horizontal
         buttons.spacing = Layout.headingSpacing
         buttons.translatesAutoresizingMaskIntoConstraints = false
         showDebugTrace()
 
         let note = NSTextField(
-            labelWithString: "The trace is a file called debug.sqlite in this folder. "
-                + "A folder chosen here is used from the next time Facet starts."
+            labelWithString: "Logging starts and stops as this is switched, and is kept in a file called "
+                + "debug.sqlite in this folder. A folder chosen here is used from the next time Facet starts."
         )
         note.translatesAutoresizingMaskIntoConstraints = false
         note.font = .preferredFont(forTextStyle: .footnote)
@@ -782,6 +804,11 @@ final class AppSettingsPane: NSView {
     @objc
     private func debugCopyPressed() {
         onChange?(.debugCopyRequested)
+    }
+
+    @objc
+    private func debugClearPressed() {
+        onChange?(.debugClearRequested)
     }
 
     private func traceButton(_ title: String, identifier: String, action: Selector) -> NSButton {

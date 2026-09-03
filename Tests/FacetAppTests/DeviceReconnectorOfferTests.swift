@@ -22,7 +22,7 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
             try database.bootstrap()
             try database.bootstrapDebug()
             settings = SettingStore(connection: database.connection())
-            debugLog = DebugLog(databaseURL: database.debugURL)
+            debugLog = DebugLog(databaseURL: database.debugURL, isRecording: true)
         }
     }
 
