@@ -30,7 +30,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=38
+EXPECTED_CHECKS=39
 start "pausing and locking the cube from the status item"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -225,6 +225,20 @@ expect_log "and the pause the first click scheduled is dropped rather than also 
 # whatever its pause byte says, so a pause confirmed after the lock would be confirming nothing.
 expect_log "the lock pauses the cube first" "$since" "The cube is paused" 20
 expect_log "and then locks it" "$since" "The cube is locked" 20
+
+# **Both commands on the wire, in that order, which the two rows above do not say.** They are `CubeLock`'s account of
+# what it believed; these are the bytes. `06 01` is pause-on and `04 01` is lock-on (`DeviceCommandRules`), and the
+# order is read off the row ids rather than asserted twice: what makes it load-bearing is the pause being confirmed
+# *before* the lock, so a run that sent both in the wrong order would satisfy a pair of presence checks and still be
+# the bug. `61-lock-without-pause` is the same reading with the setting off, where the pause must be absent.
+pause_sent=$(dsql "SELECT MIN(debug_log_id) FROM debug_log WHERE debug_log_id > $since AND tag = 'command' AND message LIKE 'Sending 06 01%';")
+lock_sent=$(dsql "SELECT MIN(debug_log_id) FROM debug_log WHERE debug_log_id > $since AND tag = 'command' AND message LIKE 'Sending 04 01%';")
+if [ -n "$pause_sent" ] && [ -n "$lock_sent" ] && [ "$pause_sent" -lt "$lock_sent" ]; then
+    pass "and both went out on the wire, the pause before the lock"
+else
+    fail "the wire does not show a pause then a lock (pause row ${pause_sent:-none}, lock row ${lock_sent:-none})"
+fi
+
 check_contains "the menu bar shows the lock" "$(status_item)" "device locked"
 
 # ---------------------------------------------------------------------------- and a click on a locked cube does nothing
