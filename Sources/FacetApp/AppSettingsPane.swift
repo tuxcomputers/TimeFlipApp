@@ -2,16 +2,21 @@ import AppKit
 
 /// The App tab: how the app itself behaves, as opposed to what it is timing.
 ///
-/// **Two sections: "App settings" first, with all six of the archive's rows in its order and its wording
+/// **Two sections: "App settings" first, in the archive's order and its wording
 /// (`Archive/TimeFlipApp/ReportSettingsView.swift`), then Google underneath.** Each folds away behind its own
 /// triangle, on the same `PanelSection` the Categories tab's two lists sit on.
+///
+/// **Five of the archive's six rows, not all six.** "Pause the device when locking it" is on the Device tab, above
+/// Auto-pause, and it is the one departure from that view's contents: what it decides is what happens to the cube
+/// when the app locks it, so it sits with the rest of what the cube is set to rather than among the app's own
+/// behaviour. Its wording and its control are the archive's still, and only the tab is not.
 ///
 /// **The archive did not fold these**, and that is worth saying rather than leaving as a silent departure: its App
 /// tab was two plain `Section`s of a grouped form, and it reserved `DisclosureGroup` for the Device tab's *More*,
 /// *LED* and *Double tap*. The intent it had is the one kept here -- a fold is for a group somebody is not working
 /// in -- and what changed is only that this tab now has two groups big enough for that to be worth offering.
 ///
-/// The archive put Google at the top. It is at the bottom here, which is the better place for it on merit: the six
+/// The archive put Google at the top. It is at the bottom here, which is the better place for it on merit: the five
 /// settings above are what somebody opens this tab to change, and the Google section is a connection you make once
 /// and then read occasionally.
 ///
@@ -37,7 +42,6 @@ final class AppSettingsPane: NSView {
         /// measures it, and because deriving it at the call site would be a second copy of that type's convention.
         static let panel = "app-settings-section-panel"
         static let showSeconds = "app-show-seconds"
-        static let pauseOnLock = "app-pause-on-lock"
         static let dailyReset = "app-daily-reset"
         static let batteryWarning = "app-battery-warning"
         static let fetchInterval = "app-fetch-interval"
@@ -77,7 +81,6 @@ final class AppSettingsPane: NSView {
     /// two places.
     struct Values: Equatable {
         var showsSeconds: Bool
-        var pausesOnLock: Bool
         var dailyResetHour24: Int
         var batteryWarningPercent: Int
         var fetchIntervalSeconds: Int
@@ -102,7 +105,6 @@ final class AppSettingsPane: NSView {
         /// mean two different things.
         static let seeded = Values(
             showsSeconds: true,
-            pausesOnLock: true,
             dailyResetHour24: AppSettingsRules.defaultResetHour24,
             batteryWarningPercent: AppSettingsRules.defaultBatteryWarningPercent,
             fetchIntervalSeconds: AppSettingsRules.defaultFetchIntervalSeconds,
@@ -117,7 +119,6 @@ final class AppSettingsPane: NSView {
     /// stores, for the same reason: converting is a rule, and doing it here would be a second place it happens.
     enum Change: Equatable {
         case showsSeconds(Bool)
-        case pausesOnLock(Bool)
         case dailyResetHour12(Int)
         case batteryWarningPercent(Int)
         case fetchIntervalMinutes(Int)
@@ -181,7 +182,6 @@ final class AppSettingsPane: NSView {
     /// Transient, and deliberately not in `Values`: it is what the app is doing, not what the table says.
     private var isSigningIn = false
     private var showSecondsBox: NSButton!
-    private var pauseOnLockBox: NSButton!
     private var dailyResetField: SteppedNumberField!
     private var batteryWarningField: SteppedNumberField!
     private var fetchIntervalField: SteppedNumberField!
@@ -205,7 +205,6 @@ final class AppSettingsPane: NSView {
     func adopt(_ change: Change) {
         switch change {
         case let .showsSeconds(value): values.showsSeconds = value
-        case let .pausesOnLock(value): values.pausesOnLock = value
         case let .dailyResetHour12(value): values.dailyResetHour24 = AppSettingsRules.hour24(fromFace: value)
         case let .batteryWarningPercent(value): values.batteryWarningPercent = value
         case let .fetchIntervalMinutes(value): values.fetchIntervalSeconds = AppSettingsRules.seconds(fromMinutes: value)
@@ -263,7 +262,6 @@ final class AppSettingsPane: NSView {
     func show(_ values: Values) {
         self.values = values
         showSecondsBox.state = values.showsSeconds ? .on : .off
-        pauseOnLockBox.state = values.pausesOnLock ? .on : .off
         dailyResetField.value = AppSettingsRules.hour12(from: values.dailyResetHour24)
         batteryWarningField.value = values.batteryWarningPercent
         fetchIntervalField.value = AppSettingsRules.minutes(fromSeconds: values.fetchIntervalSeconds)
@@ -495,7 +493,7 @@ final class AppSettingsPane: NSView {
 
         // **App settings first, because that is the order they are drawn in.** Subview order is what
         // accessibility reads, and it is not the constraints: the Google section moved to the bottom of the
-        // tab, and adding it first left VoiceOver announcing it before the six settings sitting above it on
+        // tab, and adding it first left VoiceOver announcing it before the five settings sitting above it on
         // screen. Nothing looks wrong, which is exactly why it stayed wrong -- it was found by a script
         // dumping the tree, not by looking at the tab.
         for view in [app as NSView, google, googleNote] {
@@ -545,10 +543,12 @@ final class AppSettingsPane: NSView {
         view.translatesAutoresizingMaskIntoConstraints = false
     }
 
-    /// The archive's six rows, in the archive's order: the two switches first, then the four numbers.
+    /// The archive's rows, in the archive's order: the switch first, then the four numbers.
+    ///
+    /// **Its second switch is not here.** "Pause the device when locking it" is on the Device tab, above Auto-pause,
+    /// which is where a setting about what the cube does belongs.
     private func addRows() {
         showSecondsBox = box(identifier: Identifier.showSeconds, action: #selector(showSecondsChanged))
-        pauseOnLockBox = box(identifier: Identifier.pauseOnLock, action: #selector(pauseOnLockChanged))
 
         dailyResetField = field(
             identifier: Identifier.dailyReset,
@@ -581,7 +581,6 @@ final class AppSettingsPane: NSView {
 
         let built: [(String, NSView)] = [
             ("Show seconds", showSecondsBox),
-            ("Pause the device when locking it", pauseOnLockBox),
             ("Daily reset at", dailyResetField),
             ("Battery warning at", batteryWarningField),
             ("Fetch history every", fetchIntervalField),
@@ -635,8 +634,4 @@ final class AppSettingsPane: NSView {
         onChange?(.showsSeconds(showSecondsBox.state == .on))
     }
 
-    @objc
-    private func pauseOnLockChanged() {
-        onChange?(.pausesOnLock(pauseOnLockBox.state == .on))
-    }
 }

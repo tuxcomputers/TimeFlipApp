@@ -116,23 +116,21 @@ final class AppSettingsRulesTests: XCTestCase {
         // each end half-knew is how a control comes to write the right number into the wrong column.
         let destinations = [
             AppSettingsPane.Change.showsSeconds(false),
-            .pausesOnLock(false),
             .dailyResetHour12(2),
             .batteryWarningPercent(15),
             .fetchIntervalMinutes(9),
             .blipSeconds(3),
         ].compactMap { AppSettingsRules.destination(for: $0) }
 
-        XCTAssertEqual(destinations.count, 6, "every one of these maps to a column")
+        XCTAssertEqual(destinations.count, 5, "every one of these maps to a column")
         XCTAssertEqual(destinations.map(\.setting), [
             "display_seconds",
-            "pause_on_lock",
             "daily_reset_time",
             "low_battery_level",
             "fetch_history_interval_seconds",
             "blip_time",
         ])
-        XCTAssertEqual(destinations.map(\.field), ["enabled", "enabled", "hour", "percent", "seconds", "seconds"])
+        XCTAssertEqual(destinations.map(\.field), ["enabled", "hour", "percent", "seconds", "seconds"])
     }
 
     func testAChangeIsConvertedToTheUnitItsColumnStores() {

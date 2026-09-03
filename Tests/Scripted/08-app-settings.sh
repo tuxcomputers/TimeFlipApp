@@ -14,18 +14,22 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=31
+EXPECTED_CHECKS=30
 start "every row on the App tab, written and read back"
 
 open_settings
 select_tab App
 
 
-# ---------------------------------------------------------------------------- the two switches
+# ---------------------------------------------------------------------------- the switch
 #
-# Each is pressed twice, so whichever way it started it ends where it began.
+# Pressed twice, so whichever way it started it ends where it began.
+#
+# **One switch, where there were two.** Pause the device when locking it moved to the Device tab, above
+# Auto-pause, and is checked there in `13-device-tab`. The loop is kept for the one that is left, since a
+# second switch on this tab is a row away rather than a rewrite.
 
-for pair in "app-show-seconds display_seconds enabled" "app-pause-on-lock pause_on_lock enabled"; do
+for pair in "app-show-seconds display_seconds enabled"; do
     set -- $pair
     control="$1" row="$2" field="$3"
 
@@ -44,6 +48,12 @@ for pair in "app-show-seconds display_seconds enabled" "app-pause-on-lock pause_
     sleep 1
     check "$control puts $row back" "$was" "$(setting "$row" "$field")"
 done
+
+# **And the switch that left is gone rather than drawn on both tabs.** A row still on the App tab as well as on the
+# Device tab would be two controls answering one question, which is exactly the fault the first rule in `CLAUDE.md`
+# is about -- and the two would be found disagreeing at the next lock rather than on screen. Checked as an absence
+# because that is what changed; `13-device-tab` checks it is where it went.
+check "the lock switch is not on this tab any more" "0" "$(on_tab app-pause-on-lock)"
 
 # ---------------------------------------------------------------------------- the four numbers
 #
@@ -130,8 +140,11 @@ fi
 #
 # **Subview order is what accessibility reads, and it is not the constraints.** The Google section sits at
 # the bottom of the tab, and it was being added to the view first, so VoiceOver announced it before the
-# six settings drawn above it. Nothing looks wrong on screen, which is why it survived until a script
+# settings drawn above it. Nothing looks wrong on screen, which is why it survived until a script
 # dumped the tree.
+#
+# **Five settings now, not six**, the lock row having moved to the Device tab. What is being read is the
+# order of the two section headings, which that did not touch.
 order=$(tree | grep -n "section-heading" | head -2)
 first=$(printf '%s' "$order" | head -1)
 check_contains "the tab reads in the order it is drawn: App settings first" "$first" "app-settings-section-heading"

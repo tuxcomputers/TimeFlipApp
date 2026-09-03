@@ -69,9 +69,24 @@ final class DevicePaneTests: XCTestCase {
     /// **Stated rather than inherited.** These tests are about what the box and the four registers do when it is
     /// switched, not about which way the database seeds it -- and a test that reads the default is a test that breaks
     /// when the default changes, which is exactly what happened when it was seeded off on 2026-08-28.
+    ///
+    /// **Connected, because the gesture is not the only gate.** Every control in the Settings section is dead while
+    /// no cube is connected, so a pane built from the seed alone has four dead registers however the box is set, and
+    /// a test of the gesture would be reading the connection instead. The two gates are told apart by
+    /// `testEverySettingsControlIsDeadWhileAPairedCubeIsOutOfReach` and the tests around it.
     private var gestureOn: DevicePane.Values {
         var values = DevicePane.Values.seeded
+        values.isCubePaired = true
+        values.isCubeConnected = true
         values.isDoubleTapEnabled = true
+        return values
+    }
+
+    /// The tab with a cube connected and the gesture off: the seed's answer to double tap, with the connection the
+    /// seed does not have.
+    private var gestureOff: DevicePane.Values {
+        var values = gestureOn
+        values.isDoubleTapEnabled = false
         return values
     }
 
@@ -315,6 +330,7 @@ final class DevicePaneTests: XCTestCase {
             DevicePane.Identifier.connection,
             DevicePane.Identifier.battery,
             DevicePane.Identifier.more,
+            DevicePane.Identifier.pauseOnLock,
             DevicePane.Identifier.autoPause,
             DevicePane.Identifier.led,
             DevicePane.Identifier.doubleTap,
@@ -488,6 +504,7 @@ final class DevicePaneTests: XCTestCase {
         for identifier in [
             DevicePane.Identifier.connection,
             DevicePane.Identifier.battery,
+            DevicePane.Identifier.pauseOnLock,
             DevicePane.Identifier.autoPause,
             DevicePane.Identifier.ledBrightness,
             DevicePane.Identifier.ledBlink,
@@ -697,7 +714,7 @@ final class DevicePaneTests: XCTestCase {
         // The correction path moves both, for the same reason the click does: a box put back to ticked with four live
         // fields under it is the two controls answering one question differently.
         let pane = DevicePane()
-        pane.show(.seeded)
+        pane.show(gestureOn)
 
         pane.showDoubleTapEnabled(false)
 
@@ -747,7 +764,7 @@ final class DevicePaneTests: XCTestCase {
         // something the command would then quietly change. Stepping down from the seed is what shows it: brightness
         // stops at 1 and the blink period at 5, neither of them at 0.
         let pane = DevicePane()
-        var values = DevicePane.Values.seeded
+        var values = cubeConnected
         values.ledBrightnessPercent = DeviceCommandRules.brightnessRange.lowerBound
         values.ledBlinkSeconds = DeviceCommandRules.blinkRange.lowerBound
         pane.show(values)
@@ -764,7 +781,7 @@ final class DevicePaneTests: XCTestCase {
         // cube told about one has been told nothing about the other -- and the window debounces them separately for
         // the same reason. One callback firing for both would put that back together again.
         let pane = DevicePane()
-        pane.show(.seeded)
+        pane.show(cubeConnected)
         var brightness = 0
         var blink = 0
         pane.onLEDBrightnessChanged = { brightness += 1 }
@@ -781,7 +798,7 @@ final class DevicePaneTests: XCTestCase {
         // What a command is built from. A held arrow moves the field several times a second and nothing writes those
         // back to `values` until one lands, so reading `values` would send the number the row opened with.
         let pane = DevicePane()
-        pane.show(.seeded)
+        pane.show(cubeConnected)
 
         try arrow(1, of: XCTUnwrap(stepper(DevicePane.Identifier.ledBrightness, in: pane))).performClick(nil)
 
@@ -794,7 +811,7 @@ final class DevicePaneTests: XCTestCase {
         // assigned rather than the arrow pressed, so putting a field back cannot be mistaken for somebody moving it
         // and start a second write.
         let pane = DevicePane()
-        pane.show(.seeded)
+        pane.show(cubeConnected)
         var changes = 0
         pane.onLEDBrightnessChanged = { changes += 1 }
 
@@ -811,7 +828,7 @@ final class DevicePaneTests: XCTestCase {
         // screen -- and the next debounced write reads the field, so it would send 51 again and the 52 nobody refused
         // would be gone. What landed is recorded; what is on screen is left where its owner put it.
         let pane = DevicePane()
-        pane.show(.seeded)
+        pane.show(cubeConnected)
         try arrow(1, of: XCTUnwrap(stepper(DevicePane.Identifier.ledBrightness, in: pane))).performClick(nil)
         try arrow(1, of: XCTUnwrap(stepper(DevicePane.Identifier.ledBrightness, in: pane))).performClick(nil)
 
@@ -825,12 +842,178 @@ final class DevicePaneTests: XCTestCase {
         // A failure puts back the setting that failed. The other may have an edit of its own still waiting on its
         // own debounce, and taking that out from under somebody would lose a change nothing had refused.
         let pane = DevicePane()
-        pane.show(.seeded)
+        pane.show(cubeConnected)
 
         pane.showLEDBrightness(30)
 
         XCTAssertEqual(pane.ledBlinkSeconds, 15, "untouched")
     }
+
+    // MARK: - the Pause on lock box
+
+    /// The box, which carries the identifier itself rather than owning a field that does.
+    private func box(_ identifier: String, in pane: DevicePane) -> NSButton? {
+        descendants(of: pane).compactMap { $0 as? NSButton }.first { $0.accessibilityIdentifier() == identifier }
+    }
+
+    func testTheLockRowSitsAboveAutoPause() {
+        // **Where it was asked to be**, and the order is the point of moving it: it is the coarser of the two
+        // answers to "when does this cube stop counting", so it reads first and Auto-pause qualifies it.
+        let pane = DevicePane()
+
+        let titles = labels(of: pane).filter { $0.hasPrefix("Pause the device") || $0.hasPrefix("Auto-pause") }
+        XCTAssertEqual(titles.count, 2, "both rows are on the tab: \(labels(of: pane))")
+        XCTAssertTrue(titles[0].hasPrefix("Pause the device"), "the lock row comes first")
+    }
+
+    func testTheLockBoxShowsWhatTheTableSays() throws {
+        var off = DevicePane.Values.seeded
+        off.pausesOnLock = false
+        let pane = DevicePane()
+
+        pane.show(off)
+        XCTAssertEqual(try XCTUnwrap(box(DevicePane.Identifier.pauseOnLock, in: pane)).state, .off)
+
+        pane.show(DevicePane.Values.seeded)
+        XCTAssertEqual(
+            try XCTUnwrap(box(DevicePane.Identifier.pauseOnLock, in: pane)).state, .on,
+            "and a second read replaces the first, rather than being ignored"
+        )
+    }
+
+    func testTickingTheLockBoxReportsWhatItNowShows() throws {
+        let pane = DevicePane()
+        pane.show(cubeConnected)
+        var reported: [Bool] = []
+        pane.onPauseOnLockChanged = { reported.append($0) }
+
+        // **Clicked rather than assigned**, because a click is what flips the state and fires the action together:
+        // setting `state` and then clicking moves it twice, and the box that started on would report itself on.
+        let control = try XCTUnwrap(box(DevicePane.Identifier.pauseOnLock, in: pane))
+        XCTAssertEqual(control.state, .on, "the seed, which is what the click moves off")
+        control.performClick(nil)
+
+        XCTAssertEqual(reported, [false])
+        XCTAssertFalse(pane.values.pausesOnLock, "and `values` moved with the box, so the next read agrees")
+
+        control.performClick(nil)
+        XCTAssertEqual(reported, [false, true], "and back, so it reports what it now shows rather than that it moved")
+    }
+
+    func testARefusedLockWriteCanPutTheBoxBackWithoutSayingSo() throws {
+        let pane = DevicePane()
+        pane.show(cubeConnected)
+        var reported = 0
+        pane.onPauseOnLockChanged = { _ in reported += 1 }
+
+        pane.showPauseOnLock(false)
+
+        XCTAssertEqual(try XCTUnwrap(box(DevicePane.Identifier.pauseOnLock, in: pane)).state, .off)
+        XCTAssertFalse(pane.values.pausesOnLock, "and `values` moved with it, so the next read agrees")
+        XCTAssertEqual(reported, 0, "a correction is not somebody ticking it")
+    }
+
+    // MARK: - the section is dead without a cube
+
+    /// Every control the Settings section holds, each with whether it may currently be touched.
+    ///
+    /// **Listed once**, so a row added to that section and not to this list is a row nothing checks the gate on --
+    /// which is exactly how Pause on lock came to be live in a section that was otherwise dead.
+    ///
+    /// The four registers are in the list with the rest: their second gate is the gesture, and the live case below
+    /// is drawn from `gestureOn` so that one list means the same thing in all three tests.
+    private func settingsControls(in pane: DevicePane) -> [(String, Bool)] {
+        let boxes = [DevicePane.Identifier.pauseOnLock, DevicePane.Identifier.doubleTapDisable]
+        let fields = [
+            DevicePane.Identifier.autoPause,
+            DevicePane.Identifier.ledBrightness,
+            DevicePane.Identifier.ledBlink,
+            DevicePane.Identifier.doubleTapThreshold,
+            DevicePane.Identifier.doubleTapLimit,
+            DevicePane.Identifier.doubleTapLatency,
+            DevicePane.Identifier.doubleTapWindow,
+        ]
+        return boxes.map { ($0, box($0, in: pane)?.isEnabled ?? false) }
+            + fields.map { ($0, stepper($0, in: pane)?.isEnabled ?? false) }
+    }
+
+    func testEverySettingsControlIsDeadWithNothingPaired() {
+        // The state every launch starts in. Nothing is paired, so nothing is connected -- which is why this is the
+        // easy half, and the test below it is the one that says what the gate actually reads.
+        let pane = DevicePane()
+
+        pane.show(DevicePane.Values.seeded)
+
+        for (identifier, isEnabled) in settingsControls(in: pane) {
+            XCTAssertFalse(isEnabled, "\(identifier) is live with nothing paired")
+        }
+    }
+
+    func testEverySettingsControlIsDeadWhileAPairedCubeIsOutOfReach() {
+        // **The case that tells the two questions apart**, and the only one that can: the pairing and the connection
+        // give the same answer in every other state, so a gate written against the pairing by mistake would pass
+        // every test but this one. A cube in another room can be told nothing, so the section is dead for it too.
+        var values = DevicePane.Values.seeded
+        values.isCubePaired = true
+        values.isCubeConnected = false
+        values.isDoubleTapEnabled = true
+        let pane = DevicePane()
+
+        pane.show(values)
+
+        for (identifier, isEnabled) in settingsControls(in: pane) {
+            XCTAssertFalse(isEnabled, "\(identifier) is live while the paired cube is out of reach")
+        }
+    }
+
+    func testEverySettingsControlComesBackWhenACubeAnswers() {
+        // **Live again the moment one answers**, rather than being decided when the window opened: every path that
+        // changes the connection redraws this tab through `show`, so the section follows the link.
+        let pane = DevicePane()
+        pane.show(DevicePane.Values.seeded)
+
+        pane.show(gestureOn)
+
+        for (identifier, isEnabled) in settingsControls(in: pane) {
+            XCTAssertTrue(isEnabled, "\(identifier) is still dead with a cube connected")
+        }
+    }
+
+    func testTheDeadSectionSaysWhyRatherThanJustGoingGrey() throws {
+        // One sentence for the whole section, from `notConnectedHelp`, so the rows that share a gate cannot come to
+        // explain it differently. It names the device rather than the row, since what is wrong is not the value
+        // somebody was reaching for.
+        let pane = DevicePane()
+
+        pane.show(DevicePane.Values.seeded)
+
+        let help = stepper(DevicePane.Identifier.autoPause, in: pane)?.disabledHelp
+        XCTAssertEqual(help, "The TimeFlip is not connected, so this cannot be changed.")
+        XCTAssertEqual(stepper(DevicePane.Identifier.ledBrightness, in: pane)?.disabledHelp, help)
+        XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapWindow, in: pane)?.disabledHelp, help)
+        XCTAssertEqual(try XCTUnwrap(box(DevicePane.Identifier.pauseOnLock, in: pane)).toolTip, help)
+        XCTAssertEqual(try XCTUnwrap(box(DevicePane.Identifier.doubleTapDisable, in: pane)).toolTip, help)
+
+        pane.show(gestureOn)
+
+        XCTAssertNil(stepper(DevicePane.Identifier.autoPause, in: pane)?.disabledHelp, "gone when the cube answers")
+        XCTAssertNil(try XCTUnwrap(box(DevicePane.Identifier.pauseOnLock, in: pane)).toolTip)
+    }
+
+    func testADeadLockBoxReportsNothingWhenItIsClicked() throws {
+        // The counterpart of `testADeadAutoPauseFieldReportsNothingWhenItsArrowIsPressed`: a dead control is dead in
+        // the way that matters, which is that pressing it starts no write.
+        let pane = DevicePane()
+        pane.show(DevicePane.Values.seeded)
+        var reported = 0
+        pane.onPauseOnLockChanged = { _ in reported += 1 }
+
+        try XCTUnwrap(box(DevicePane.Identifier.pauseOnLock, in: pane)).performClick(nil)
+
+        XCTAssertEqual(reported, 0)
+        XCTAssertTrue(pane.values.pausesOnLock, "and the box did not move either")
+    }
+
 
     // MARK: - the Auto-pause field
 

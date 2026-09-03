@@ -52,7 +52,10 @@ require_a_paired_cube "there is no cube to lock"
 # **Through the checkbox, not the table.** Every script in this folder except `00-setup` is forbidden from writing to
 # the tables, and here the rule earns it twice over: the app reads this setting at the moment it locks, so the value
 # that matters is the one the app's own write left behind, and pressing the control is the only way to get that.
-# `08-app-settings` presses the same one.
+# `13-device-tab` presses the same one.
+#
+# **On the Device tab, above Auto-pause.** It was on the App tab until 2026-09-03, which is the only thing that
+# changed here: the same box, in the section holding the rest of what the cube is set to.
 
 PAUSE_ON_LOCK_IS_OFF=0
 
@@ -60,8 +63,8 @@ put_pause_on_lock_back() {
     [ "$PAUSE_ON_LOCK_IS_OFF" = "1" ] || return 0
     yellow "  putting pause_on_lock back on"
     open_settings
-    select_tab App
-    press app-pause-on-lock
+    select_tab Device
+    press device-pause-on-lock
     sleep 1
     close_settings
     PAUSE_ON_LOCK_IS_OFF=0
@@ -69,11 +72,11 @@ put_pause_on_lock_back() {
 trap put_pause_on_lock_back EXIT INT TERM
 
 open_settings
-select_tab App
+select_tab Device
 
 check "pause_on_lock starts on, which is what 00-setup pins it to" "1" "$(setting pause_on_lock enabled)"
 
-press app-pause-on-lock
+press device-pause-on-lock
 PAUSE_ON_LOCK_IS_OFF=1
 check "and the checkbox turns it off" "0" "$(wait_sql "0" \
     "SELECT json_extract(setting_value, '\$.enabled') FROM setting WHERE setting_name = 'pause_on_lock';" 5)"
@@ -178,8 +181,8 @@ esac
 
 press open-settings
 sleep 1
-select_tab App
-press app-pause-on-lock
+select_tab Device
+press device-pause-on-lock
 PAUSE_ON_LOCK_IS_OFF=0
 check "pause_on_lock is back on for whatever runs next" "1" "$(wait_sql "1" \
     "SELECT json_extract(setting_value, '\$.enabled') FROM setting WHERE setting_name = 'pause_on_lock';" 5)"

@@ -376,7 +376,7 @@ final class GoogleSectionTests: XCTestCase {
     }
 
     func testTheSectionSitsBelowAppSettings() throws {
-        // The archive put Google first. It is last here: the six settings above are what somebody opens this tab to
+        // The archive put Google first. It is last here: the five settings above are what somebody opens this tab to
         // change, and a connection made once belongs under them.
         let pane = self.pane()
         pane.frame = NSRect(x: 0, y: 0, width: 640, height: 700)

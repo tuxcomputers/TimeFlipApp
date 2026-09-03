@@ -116,8 +116,6 @@ enum AppSettingsRules {
         switch change {
         case let .showsSeconds(on):
             return ("display_seconds", "enabled", .flag(on))
-        case let .pausesOnLock(on):
-            return ("pause_on_lock", "enabled", .flag(on))
         case let .dailyResetHour12(hour):
             return ("daily_reset_time", "hour", .number(hour24(fromFace: hour)))
         case let .batteryWarningPercent(percent):
@@ -147,7 +145,6 @@ enum AppSettingsRules {
     static func title(for change: AppSettingsPane.Change) -> String {
         switch change {
         case .showsSeconds: return "Show seconds"
-        case .pausesOnLock: return "Pause the device when locking it"
         case .dailyResetHour12: return "Daily reset at"
         case .batteryWarningPercent: return "Battery warning at"
         case .fetchIntervalMinutes: return "Fetch history every"
