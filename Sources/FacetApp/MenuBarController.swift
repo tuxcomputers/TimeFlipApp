@@ -46,10 +46,6 @@ final class MenuBarController: NSObject {
 
     private var statusMenu: NSMenu?
 
-    /// The database tag drawn ahead of everything else, or `nil` for no tag at all. Fixed for the
-    /// life of the launch, so it is stored rather than looked up per redraw.
-    private let databaseBadge: DatabaseBadge?
-
     /// The app's own name, which is the whole title while nothing is being timed, and the tail of the spoken
     /// label the rest of the time.
     private static let appLabel = "Facet"
@@ -173,7 +169,6 @@ final class MenuBarController: NSObject {
     private var tick: Timer?
 
     init(
-        databaseBadge: DatabaseBadge?,
         debugLog: DebugLog?,
         openSettings: @escaping () -> Void,
         timing: @escaping () -> TimingReadout.Reading = { .idle },
@@ -188,7 +183,6 @@ final class MenuBarController: NSObject {
         self.cube = cube
         self.toggleCubeLock = toggleCubeLock
         self.toggleCubePause = toggleCubePause
-        self.databaseBadge = databaseBadge
         self.debugLog = debugLog
         self.openSettings = openSettings
         self.timing = timing
@@ -242,7 +236,6 @@ final class MenuBarController: NSObject {
         guard let button = statusItem?.button else { return }
         let title = StatusItemTitle.make(
             appLabel: Self.appLabel,
-            badgeDescription: databaseBadge?.spokenDescription,
             reading: reading,
             showingSeconds: showingSeconds(),
             // Asked per draw, like everything else here: the limit lands part way through a session, so a copy taken
@@ -311,12 +304,6 @@ final class MenuBarController: NSObject {
         let plain: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: parts.colour]
         let named: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: parts.nameColour]
         let title = NSMutableAttributedString()
-        if let databaseBadge {
-            title.append(NSAttributedString(
-                string: "\(databaseBadge.text) ",
-                attributes: [.font: NSFont.boldSystemFont(ofSize: font.pointSize), .foregroundColor: databaseBadge.color]
-            ))
-        }
         let size = max(Layout.minimumAttachmentSize, font.capHeight * Layout.attachmentScale)
         // Both images take the colour of the text beside them, which is the previous app's rule: whatever is legible
         // for the category's name is legible for its icon, and the icon then carries the same state the rest of the

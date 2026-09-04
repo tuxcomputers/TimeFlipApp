@@ -32,7 +32,7 @@ final class RenamingTheCubeReachesItFirstTests: XCTestCase, @unchecked Sendable 
             _ = try database.bootstrap()
             _ = try database.bootstrapDebug()
             settings = SettingStore(connection: database.connection())
-            debugLog = DebugLog(databaseURL: database.debugURL)
+            debugLog = DebugLog(databaseURL: database.debugURL, isRecording: true)
             // **The state the Name row opens in**, which is the only one where renaming is offered at all: a cube
             // paired, reachable, and having said what it is called (`DeviceNameRules.renameRefusal`). The radio still
             // has no cube on it, and that pairing of rows saying connected with a radio holding nothing is not

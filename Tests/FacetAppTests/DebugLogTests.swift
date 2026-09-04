@@ -20,7 +20,7 @@ final class DebugLogTests: XCTestCase, @unchecked Sendable {
             database = TemporaryDatabase()
             // The trace's own database, which is the only one that has `debug_log` in it.
             try database.bootstrapDebug()
-            log = DebugLog(databaseURL: database.debugURL)
+            log = DebugLog(databaseURL: database.debugURL, isRecording: true)
         }
     }
 
@@ -129,5 +129,100 @@ final class DebugLogTests: XCTestCase, @unchecked Sendable {
         // number that happens to be big enough today.
         let longest = DebugLog.Tag.allCases.max { $0.rawValue.count < $1.rawValue.count }
         XCTAssertEqual(longest?.bracketed, longest.map { "[\($0.rawValue)]" })
+    }
+
+    // MARK: - the switch, while the app runs
+
+    func testALogThatIsNotRecordingWritesNothing() {
+        let quiet = DebugLog(databaseURL: database.debugURL, isRecording: false)
+
+        quiet.record(.click, "Nobody asked for this")
+
+        XCTAssertTrue(rows().isEmpty)
+    }
+
+    func testTheMessageIsNotEvenBuiltWhileItIsOff() {
+        // **The property the whole design rests on.** Every call site reads `debugLog?.record(.transmit, "…\(hex)")`,
+        // and Swift would build that string before entering this at all -- so a launch that records nothing would
+        // still pay for a hex dump of every BLE packet. The message is an autoclosure for exactly this, and this is
+        // what says so.
+        let quiet = DebugLog(databaseURL: database.debugURL, isRecording: false)
+        var built = 0
+
+        quiet.record(.click, Self.expensive(counting: &built))
+
+        XCTAssertEqual(built, 0, "the message was composed for a log that was never going to write it")
+    }
+
+    func testTheMessageIsBuiltExactlyOnceWhileItIsOn() {
+        var built = 0
+
+        log.record(.click, Self.expensive(counting: &built))
+
+        XCTAssertEqual(built, 1, "the console and the row take the same string, built once")
+    }
+
+    private static func expensive(counting built: inout Int) -> String {
+        built += 1
+        return "Something that cost a string to say"
+    }
+
+    func testTurningItOnStartsRecordingAtThatMoment() {
+        let log = DebugLog(databaseURL: database.debugURL, isRecording: false)
+        log.record(.click, "Before")
+
+        log.setRecording(true)
+        log.record(.face, "After")
+
+        // The switch is the first row, so a submitted trace says where it begins rather than starting mid-story.
+        XCTAssertEqual(rows().map(\.message), ["Logging turned on", "After"])
+    }
+
+    func testTurningItOffStopsRecordingAtThatMoment() {
+        log.record(.click, "Before")
+
+        log.setRecording(false)
+        log.record(.face, "After")
+
+        // And the switch is the last row, so a trace that ends abruptly is saying it was switched off rather than
+        // that the app died.
+        XCTAssertEqual(rows().map(\.message), ["Before", "Logging turned off"])
+    }
+
+    func testBeingToldWhatItAlreadyIsWritesNothing() {
+        // The window writes the row on every press, including one that did not change the value.
+        log.setRecording(true)
+
+        XCTAssertTrue(rows().isEmpty)
+    }
+
+    func testALaunchThatRecordsNothingLeavesNoFileBehind() {
+        // The file is brought up on the first message, not at launch, so somebody who has never turned this on finds
+        // nothing in the folder.
+        let elsewhere = TemporaryDatabase()
+        defer { elsewhere.remove() }
+        let quiet = DebugLog(databaseURL: elsewhere.debugURL, isRecording: false)
+
+        quiet.record(.click, "Nobody asked for this")
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: elsewhere.debugURL.path))
+    }
+
+    func testTheFileIsBroughtUpByTheFirstMessageRecorded() {
+        let elsewhere = TemporaryDatabase()
+        defer { elsewhere.remove() }
+        let log = DebugLog(databaseURL: elsewhere.debugURL, isRecording: true)
+
+        log.record(.click, "The first thing that happened")
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: elsewhere.debugURL.path))
+    }
+
+    // MARK: - the file it is writing
+
+    func testTheLogNamesTheFileItIsWriting() {
+        // The file that is open now, which is not the folder the `debug` setting names: a folder chosen on the App
+        // tab holds no trace until the next launch. `DebugTraceFile` reads it for exactly that reason.
+        XCTAssertEqual(log.databaseURL, database.debugURL)
     }
 }

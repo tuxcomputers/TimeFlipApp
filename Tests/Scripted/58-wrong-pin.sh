@@ -16,21 +16,24 @@
 # the state a user reaches by pairing a cube to another app, or restoring a machine from a backup with a stale PIN
 # in it.
 #
-# **There are two stores, and there used to be one.** `config.json` is what a developer build reads and what any
-# build falls back to; the Keychain (`DevicePINStore`) arrived with the per-cube PIN and is read first-class beside
-# it. This script broke the file alone until run 146 caught it: the cube refused the file's PIN, the app went on to
-# the Keychain's, and the Keychain still held the right one -- so it logged in, correctly, and the attempt never ran
-# out. The app was right and this script's premise was a version behind. So both stores are made wrong here, which
-# for the Keychain means removing the item: nothing in the app clears it (`DevicePINStore.clear` has no callers),
-# and there is nothing to write that would be wrong in a useful way.
+# **There are two stores and both have to be wrong.** `config.json` is the fallback the app writes when the Keychain
+# refuses, and the Keychain (`DevicePINStore`) is where a PIN belongs; `DevicePINRules.readOrder` presents the file's
+# first and the Keychain's behind it. This script broke the file alone until run 146 caught it: the cube refused the
+# file's PIN, the app went on to the Keychain's, and the Keychain still held the right one -- so it logged in,
+# correctly, and the attempt never ran out.
 #
-# **Both stores come back, by different routes, and neither is left to chance.** The file is put back by the trap
-# below -- leaving it wrong would send every script after this one, and the next real launch against production, to
-# a cube it can no longer open. The Keychain is rebuilt by the app rather than by this script: the next login that
-# the file's PIN wins promotes it (`DevicePINRules.reconciliation` -- the accepted PIN is the file's and the
-# Keychain does not hold it), and a developer build keeps the file's copy while that happens. Writing it back with
-# `security` instead would need `-A` to stop the app prompting on it, which would leave the cube's PIN readable by
-# every program on the machine long after this script had finished.
+# **The cube's real PIN is read out of the trace first, and that is what makes this safe.** It is six random digits
+# now, chosen at pairing and written to the Keychain alone -- the fixed 123456 went with the developer flag on
+# 2026-09-04 -- so deleting that item without a copy would leave a cube nothing on this machine can open.
+# `DeviceLogin` records `The cube is now on <pin>` when it rotates one, so the trace holds it, and `00-setup` turns
+# the trace on before anything runs.
+#
+# **Both stores come back, by different routes, and neither is left to chance.** The trap below writes the real PIN
+# into the file, which is exactly the state the fallback exists for: the next launch finds the two stores
+# disagreeing, presents the file's, the cube accepts it, and `DevicePINRules.reconciliation` promotes it back into
+# the Keychain and clears the file. Writing the Keychain back with `security` instead would need `-A` to stop the app
+# prompting on it, which would leave the cube's PIN readable by every program on the machine long after this script
+# had finished.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 require_test_database
@@ -45,8 +48,10 @@ ensure_app_running
 # the one verdict that went with it.
 #
 # **21 since the Keychain became a store this has to break too**, the check that reads the item back after clearing
-# it being the verdict that came with it.
-EXPECTED_CHECKS=20
+# it being the verdict that came with it. It fell to 20 while a developer build read the file alone, and is back at
+# 21 now the developer flag is gone and both stores are candidates again -- plus one for reading the cube's own PIN
+# out of the trace, which is what makes breaking the Keychain safe.
+EXPECTED_CHECKS=22
 start "a cube that refuses this app's PIN: the offer, Rescan, and timing by hand"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -56,13 +61,48 @@ start "a cube that refuses this app's PIN: the offer, Rescan, and timing by hand
 
 CONFIG="$SUPPORT/config.json"
 PIN_RESTORED=1
+# The cube's real PIN, read below. Everything this script breaks is put back from it.
+PIN_REAL=""
+
+# The Keychain item the app keeps the cube's PIN in -- `DevicePINStore`'s `service` and `account`, which are the
+# bundle identifier plus `.device`, and `device-pin`. Written out rather than derived, so a rename over there shows
+# up here as this script failing to clear anything rather than as it silently clearing nothing.
+PIN_SERVICE="au.com.tux.facet.device"
+PIN_ACCOUNT="device-pin"
+KEYCHAIN_CLEARED=0
+
+# Puts the cube's own PIN into `config.json`, leaving every other key alone.
+write_real_pin() {
+    python3 - "$CONFIG" "$PIN_REAL" <<'PY'
+import json, os, sys
+path, pin = sys.argv[1], sys.argv[2]
+config = {}
+if os.path.exists(path):
+    try:
+        with open(path) as handle:
+            config = json.load(handle)
+    except ValueError:
+        config = {}
+config["PIN"] = pin
+with open(path, "w") as handle:
+    json.dump(config, handle, indent=2)
+PY
+}
 
 restore_pin() {
+    # **Said whichever way this ends, and it is not a failure.** The app puts the item back on the next login the
+    # file's PIN wins, which is the fallback healing itself rather than anything this script has to do.
+    if [ "$KEYCHAIN_CLEARED" = "1" ]; then
+        step "the Keychain PIN is cleared; the app puts it back on the next login the config PIN wins"
+    fi
     [ "$PIN_RESTORED" = "1" ] && return 0
-    if [ -f "$CONFIG.58-backup" ]; then
-        mv "$CONFIG.58-backup" "$CONFIG"
+    # **The cube's own PIN goes into the file, rather than the file going back to what it was.** What it was is very
+    # often no PIN at all -- the app clears that copy the moment the Keychain holds one -- and this script has just
+    # emptied the Keychain, so restoring the backup verbatim would leave both stores naming nothing.
+    if [ -n "$PIN_REAL" ] && write_real_pin; then
+        rm -f "$CONFIG.58-backup"
         PIN_RESTORED=1
-        step "the PIN in config.json has been put back"
+        step "the cube's own PIN is in config.json; the app promotes it back to the Keychain on the next login"
         return 0
     fi
     yellow "##############################################################################"
@@ -71,8 +111,9 @@ restore_pin() {
     yellow "##"
     yellow "##  This script set it to 123457 and could not put it back."
     yellow "##  Every script after this one will fail to open the cube, and so will"
-    yellow "##  the next ordinary launch. Put it back to 123456 by hand:"
+    yellow "##  the next ordinary launch. Put it back by hand:"
     yellow "##    $CONFIG"
+    yellow "##  The cube is on ${PIN_REAL:-a PIN this script could not read}."
     yellow "##"
     yellow "##############################################################################"
     echo ""
@@ -97,30 +138,55 @@ require_a_paired_cube "there is no paired cube for the PIN to be wrong for"
 quit_app
 sleep 1
 
-if [ ! -f "$CONFIG" ]; then
-    fail "there is no config.json, so there is no PIN to make wrong -- is this a developer build?"
-    finish
-    exit $?
+# **What the cube is actually on, before anything is broken.** The PIN is six random digits chosen at pairing and
+# written to the Keychain alone, so without a copy the deletion below would strand the cube. The file is asked first,
+# it being the newer of the two whenever it holds one at all (`DevicePINRules.readOrder`); the trace answers
+# otherwise, `DeviceLogin` having recorded the rotation.
+PIN_REAL=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('PIN',''))" "$CONFIG" 2>/dev/null || true)
+if [ -z "$PIN_REAL" ]; then
+    PIN_REAL=$(dsql "SELECT replace(message, 'The cube is now on ', '') FROM debug_log WHERE message LIKE 'The cube is now on %' ORDER BY debug_log_id DESC LIMIT 1;")
 fi
-cp "$CONFIG" "$CONFIG.58-backup"
+case "$PIN_REAL" in
+    [0-9][0-9][0-9][0-9][0-9][0-9])
+        pass "the cube's own PIN was found, so both stores can be broken and put back ($PIN_REAL)"
+        ;;
+    *)
+        fail "the cube PIN is in neither config.json nor the trace, so breaking the stores would strand it"
+        finish
+        exit $?
+        ;;
+esac
+
+[ -f "$CONFIG" ] && cp "$CONFIG" "$CONFIG.58-backup"
 PIN_RESTORED=0
 python3 - "$CONFIG" <<'PY'
-import json, sys
+import json, os, sys
 path = sys.argv[1]
-with open(path) as f:
-    config = json.load(f)
+config = {}
+if os.path.exists(path):
+    try:
+        with open(path) as handle:
+            config = json.load(handle)
+    except ValueError:
+        config = {}
 config["PIN"] = "123457"
-with open(path, "w") as f:
-    json.dump(config, f, indent=2)
+with open(path, "w") as handle:
+    json.dump(config, handle, indent=2)
 PY
 check "config.json now holds a PIN the cube is not on" "123457" \
     "$(python3 -c "import json;print(json.load(open('$CONFIG'))['PIN'])" 2>/dev/null)"
 
-# **The file is the whole of it, and the Keychain is deliberately left alone.** A developer build presents the PIN in
-# `config.json` and no other stored one (`DevicePINRules.readOrder`, Method 16), so the cube has nothing else of this
-# app to accept. This script used to delete the Keychain item as well, and had to: the Keychain was a second
-# candidate, so the wrong PIN was refused and the right one got straight in. It no longer is, so a real credential is
-# no longer destroyed to run a test.
+# **And the Keychain's, which is the other half of being out of PINs.** Deleting is prompt-free: the dialog the
+# Keychain raises is for *reading* an item another program owns, and this reads nothing (confirmed 2026-08-31,
+# `security delete-generic-password` returned at once). `find` without `-w` is the same -- attributes, not the
+# secret -- which is what makes the check below safe to run at all inside a suite nobody is watching.
+#
+# Asserted rather than assumed. A delete that quietly did nothing would leave the app holding the real PIN, and the
+# failure would arrive four checks later as the cube accepting a login this script is here to see refused.
+security delete-generic-password -s "$PIN_SERVICE" -a "$PIN_ACCOUNT" >/dev/null 2>&1
+KEYCHAIN_CLEARED=1
+check "and the Keychain no longer holds one either, so every store is wrong" "gone" \
+    "$(security find-generic-password -s "$PIN_SERVICE" -a "$PIN_ACCOUNT" >/dev/null 2>&1 && echo present || echo gone)"
 
 # ---------------------------------------------------------------------------- found, and refused
 #
@@ -239,7 +305,11 @@ check "nor is the question put again" "0" \
 # reach, and `99-quit` wipes it -- which it cannot do through a PIN this app does not have.
 
 restore_pin
-check "config.json holds the working PIN again" "123456" \
+# **Compared against the PIN this script read off the cube's own trace, not a value written here.** It is six random
+# digits chosen at pairing (the fixed `123456` went with the developer flag on 2026-09-04), so a literal in this
+# check would fail on every cube that has ever been re-paired. Run 157 failed here reading `688247`, which was the
+# right answer arriving at a check that had been left behind.
+check "config.json holds the working PIN again" "$PIN_REAL" \
     "$(python3 -c "import json;print(json.load(open('$CONFIG'))['PIN'])" 2>/dev/null)"
 
 quit_app

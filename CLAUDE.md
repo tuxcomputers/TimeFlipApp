@@ -475,10 +475,12 @@ The two honest exceptions, and both have to earn it in a comment at the call sit
   bare `print(...)` call. It prepends the timestamp, and it writes a `debug_log` row as well as
   printing, which is the half that matters: a terminal transcript is whatever happened to still be in
   a scrollback buffer, while a row outlives the session and is what every scripted check polls for.
-- `DebugLog` is **injected, not global**. It is built once in `main.swift`, gated there on
-  `DeveloperMode.isDeveloperMode`, and handed to whatever needs it as an optional -- so a build
-  without the dev flag has no logger at all rather than one that returns early, and no call site
-  needs an `if` around it.
+- `DebugLog` is **injected, not global**. It is built once in `main.swift`, gated there on the `debug`
+  setting's `enabled` field, and handed to whatever needs it as an optional -- so a launch with logging
+  off has no logger at all rather than one that returns early, and no call site needs an `if` around it.
+  It is read at launch and then told by the App tab's Debug section, so logging starts and stops as the box
+  is pressed rather than at the next launch. A row edited behind the app's back is not noticed until it
+  restarts, which is why `Tests/Scripted/00-setup.sh` writes it with the app shut.
 - The tag names all pad to the same bracket width (right-padded with spaces) so console lines stay
   aligned, per the example above. This is enforced by `DebugLog.Tag`: its cases hold the tag names,
   and `bracketed` pads to the width of the longest case, so adding a case automatically re-pads every

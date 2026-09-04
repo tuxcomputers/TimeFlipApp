@@ -14,7 +14,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=29
+EXPECTED_CHECKS=44
 start "every row on the App tab, written and read back"
 
 open_settings
@@ -204,6 +204,124 @@ press app-google-section-heading-button
 sleep 1
 check "and opening it puts back exactly what the account state says" "$note_before" \
     "$(on_tab app-google-note)"
+
+# ---------------------------------------------------------------------------- the Debug section
+#
+# **The one section on this tab that is built folded.** The two above it are what somebody opens the tab
+# to change; this one carries the trace, which is of no interest until something needs looking into.
+#
+# **Its rows are the `debug` row's two fields**: the switch, and the folder `debug.sqlite` is kept in --
+# which is the folder a user is pointed at when they are asked to send the trace in.
+
+check_contains "the Debug section is on the tab" "$(tree)" "id=app-debug-section"
+# Read off the contents, as the two above are: a section with its rows showing is what open means.
+check "it starts folded, where the other two start open" "0" "$(on_tab app-debug-enabled)"
+
+since=$(mark)
+press app-debug-section-heading-button
+sleep 1
+expect_log "pressing the Debug heading opens it" "$since" "App section app-debug-section opened"
+check "and its rows come with it" "1" "$(on_tab app-debug-enabled)"
+
+# **This is the one check in the suite that can blind the suite**, so it is trapped before it is made.
+# Every check in every script after this one polls `debug_log`, and pressing this switch stops the app
+# writing rows at that moment -- so a failure between the press that turns it off and the press that puts
+# it back would leave the rest of the run reading a trace nothing is adding to, and reporting it as the
+# app being broken.
+#
+# **The way back is the control, not the table.** A row written by sqlite under a running app tells the
+# app nothing (`DebugLog.isRecording` is told by the Settings window, and otherwise read at launch), so
+# the trap presses the switch, and only falls back to writing the row and quitting the app -- which makes
+# the next launch read it -- when the press did not take.
+restore_debug_logging() {
+    [ "$(setting debug enabled)" = "1" ] && return 0
+    press app-debug-enabled
+    sleep 1
+    [ "$(setting debug enabled)" = "1" ] && { step "debug logging has been switched back on"; return 0; }
+    sql "UPDATE setting SET setting_value = json_set(setting_value, '\$.enabled', json('true')) \
+        WHERE setting_name = 'debug';"
+    quit_app
+    if [ "$(setting debug enabled)" = "1" ]; then
+        step "debug logging was written back on; the app was quit so the next launch reads it"
+        return 0
+    fi
+    yellow "##############################################################################"
+    yellow "##"
+    yellow "##  DEBUG LOGGING IS STILL OFF"
+    yellow "##"
+    yellow "##  Every script after this one polls debug_log and will find nothing, which"
+    yellow "##  reads as the app being broken. Turn it back on before running any more:"
+    yellow "##    Settings > App > Debug > Debug logging"
+    yellow "##"
+    yellow "##############################################################################"
+    echo ""
+}
+trap restore_debug_logging EXIT INT TERM
+
+# Pressed twice, as every other row on this tab is, so it ends where it began. What is being checked is
+# the write reaching the table and coming back, and then the thing that write is for: the logging itself
+# stopping and starting as the switch moves.
+was=$(setting debug enabled)
+since=$(mark)
+press app-debug-enabled
+sleep 1
+now=$(setting debug enabled)
+if [ "$now" != "$was" ] && [ -n "$now" ]; then
+    pass "the switch writes debug.enabled ($was -> $now)"
+else
+    fail "debug.enabled still reads '$now' after the switch was pressed"
+fi
+# **Written while it was still recording**, which is the order `SettingsWindowController.store` takes: the
+# row goes down, and only then is the logger told to stop. A trace that stopped before saying why would be
+# missing the one line explaining its own end.
+# **The trailing `%` is the whole of it, and it is not decoration.** `wait_for` matches with
+# `message LIKE '$pattern'` and adds no wildcards of its own, so a pattern that stops where the message
+# carries on cannot match: the row reads `App setting debug.enabled -> flag(false)`. Run 156 failed here
+# with that row sitting in the table 170ms after the mark, exactly the shape `wait_for`'s own comment
+# describes for an unescaped apostrophe -- a confident verdict pointing at the app for a fault in the
+# check. Every other pattern in this suite carries its own `%`; this one did not.
+expect_log "and the write is recorded" "$since" "App setting debug.enabled ->%"
+expect_log "and the trace says it is stopping" "$since" "Logging turned off"
+
+# **The switch is live, and this is what says so.** With logging off, a gesture that always writes a row
+# writes none: the folds above proved `App section % folded` arrives within a second, so a second of
+# silence here is the logger being off rather than the press being missed.
+silent=$(mark)
+press app-debug-section-heading-button
+sleep 2
+press app-debug-section-heading-button
+sleep 2
+check "with logging off, nothing is recorded at all" "0" \
+    "$(dsql "SELECT count(*) FROM debug_log WHERE debug_log_id > $silent;")"
+
+since=$(mark)
+press app-debug-enabled
+sleep 1
+check "and pressing it again puts it back" "$was" "$(setting debug enabled)"
+# **The first row of the resumed trace.** The write that turned it back on was itself not recorded -- the
+# logger was still off when `store` wrote the row -- so this line is what says the trace resumes here.
+expect_log "and the trace starts again at that moment" "$since" "Logging turned on"
+
+# **Present, and deliberately not pressed.** Reveal in Finder brings the Finder to the front and Save a
+# copy puts a save panel up, and both take the keyboard away from the app every remaining step of this run
+# is addressing. What they do is covered hermetically instead (`DebugLogTests`, `AppSettingsPaneTests`);
+# what only a running app can say is that the row is there and its buttons are alive.
+check "the Trace file row offers Reveal in Finder" "1" "$(on_tab app-debug-reveal)"
+check "and a copy of the trace to send in" "1" "$(on_tab app-debug-copy)"
+# **Clear least of all.** It empties the very trace every check after this one polls, so pressing it here would end
+# the run rather than test anything. What it does is covered in `DebugLogTests`.
+check "and a way to empty it" "1" "$(on_tab app-debug-clear)"
+
+# **The folder is read off the row and compared with the table**, rather than against a path written here.
+# A check naming the folder itself would fail on any machine that had chosen a different one, which is
+# exactly the thing the row exists to let somebody do.
+folder=$(element app-debug-directory | sed -n 's/.*value=\(.*\)$/\1/p')
+check "the Directory row names the folder the table holds" "$(setting debug directory)" "$folder"
+
+# **Left folded, as it was found**, which is what the window would put it back to on the next open anyway.
+press app-debug-section-heading-button
+sleep 1
+check "the Debug section is folded again" "0" "$(on_tab app-debug-enabled)"
 
 # **Left as they were found.** Both sections open, which is what the next script expects and what the
 # window would put them back to anyway on the next open.

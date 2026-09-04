@@ -33,7 +33,7 @@ final class DevicePINSourceTests: XCTestCase {
         super.tearDown()
     }
 
-    private func source(isDeveloperMode: Bool) -> DevicePINSource {
+    private func source() -> DevicePINSource {
         DevicePINSource(
             keychainLookUp: { [self] in
                 guard keychainReadable else { return .unavailable(-25300) }
@@ -46,7 +46,6 @@ final class DevicePINSourceTests: XCTestCase {
                 return true
             },
             configFile: file,
-            isDeveloperMode: isDeveloperMode,
             debugLog: nil
         )
     }
@@ -57,13 +56,13 @@ final class DevicePINSourceTests: XCTestCase {
         file.record(pin: "654321")
         keychain = "123456"
 
-        XCTAssertEqual(source(isDeveloperMode: false).stored(), ["654321", "123456"])
+        XCTAssertEqual(source().stored(), ["654321", "123456"])
     }
 
     func testTheOrdinaryCaseIsOnePIN() {
         keychain = "123456"
 
-        XCTAssertEqual(source(isDeveloperMode: false).stored(), ["123456"])
+        XCTAssertEqual(source().stored(), ["123456"])
     }
 
     func testAKeychainThatWillNotAnswerIsNotTheSameAsAnEmptyOne() {
@@ -72,26 +71,13 @@ final class DevicePINSourceTests: XCTestCase {
         keychain = "123456"
         keychainReadable = false
 
-        XCTAssertEqual(source(isDeveloperMode: false).stored(), [])
-    }
-
-    func testADeveloperBuildWithNothingWrittenDownStillHasOneToTry() {
-        XCTAssertEqual(source(isDeveloperMode: true).stored(), ["123456"])
+        XCTAssertEqual(source().stored(), [])
     }
 
     // MARK: - writing a rotated PIN down
 
-    func testADeveloperBuildWritesBothStores() {
-        let recorded = source(isDeveloperMode: true).record("654321")
-
-        XCTAssertEqual(recorded.destinations, [.keychain, .configFile])
-        XCTAssertEqual(keychain, "654321")
-        XCTAssertEqual(file.pin(), "654321")
-        XCTAssertFalse(recorded.isFallback)
-    }
-
-    func testAnyOtherBuildWritesTheKeychainAndLeavesNoCopyInTheClear() {
-        let recorded = source(isDeveloperMode: false).record("654321")
+    func testARotatedPINGoesToTheKeychainAndLeavesNoCopyInTheClear() {
+        let recorded = source().record("654321")
 
         XCTAssertEqual(recorded.destinations, [.keychain])
         XCTAssertEqual(keychain, "654321")
@@ -104,7 +90,7 @@ final class DevicePINSourceTests: XCTestCase {
         // the cube no longer has, and the only recovery is the batteries.
         keychainAccepts = false
 
-        let recorded = source(isDeveloperMode: false).record("654321")
+        let recorded = source().record("654321")
 
         XCTAssertTrue(recorded.isRecorded)
         XCTAssertTrue(recorded.isFallback)
@@ -116,7 +102,7 @@ final class DevicePINSourceTests: XCTestCase {
         keychainAccepts = false
         file = DeveloperConfigFile(url: URL(fileURLWithPath: "/dev/null/not-a-directory/config.json"))
 
-        let recorded = source(isDeveloperMode: false).record("654321")
+        let recorded = source().record("654321")
 
         XCTAssertFalse(recorded.isRecorded)
         XCTAssertEqual(recorded.destinations, [])
@@ -130,23 +116,12 @@ final class DevicePINSourceTests: XCTestCase {
         file.record(pin: "654321")
         keychain = "123456"
 
-        let reconciled = source(isDeveloperMode: false).reconcile(accepted: "654321")
+        let reconciled = source().reconcile(accepted: "654321")
 
         XCTAssertTrue(reconciled.promoted)
         XCTAssertTrue(reconciled.clearedConfigFile)
         XCTAssertEqual(keychain, "654321")
         XCTAssertNil(file.pin())
-    }
-
-    func testADeveloperBuildKeepsItsFile() {
-        file.record(pin: "654321")
-        keychain = "123456"
-
-        let reconciled = source(isDeveloperMode: true).reconcile(accepted: "654321")
-
-        XCTAssertTrue(reconciled.promoted)
-        XCTAssertFalse(reconciled.clearedConfigFile)
-        XCTAssertEqual(file.pin(), "654321", "the file is where a person looks")
     }
 
     func testTheFileIsNotClearedWhileThePromotionFailed() {
@@ -155,7 +130,7 @@ final class DevicePINSourceTests: XCTestCase {
         keychain = "123456"
         keychainAccepts = false
 
-        let reconciled = source(isDeveloperMode: false).reconcile(accepted: "654321")
+        let reconciled = source().reconcile(accepted: "654321")
 
         XCTAssertFalse(reconciled.promoted)
         XCTAssertFalse(reconciled.clearedConfigFile)
@@ -166,7 +141,7 @@ final class DevicePINSourceTests: XCTestCase {
         file.record(pin: "654321")
         keychain = "123456"
 
-        let reconciled = source(isDeveloperMode: false).reconcile(accepted: "000000")
+        let reconciled = source().reconcile(accepted: "000000")
 
         XCTAssertEqual(reconciled, .nothingHappened)
         XCTAssertEqual(keychain, "123456")
@@ -177,7 +152,7 @@ final class DevicePINSourceTests: XCTestCase {
         file.record(pin: "123456")
         keychain = "123456"
 
-        let reconciled = source(isDeveloperMode: true).reconcile(accepted: "123456")
+        let reconciled = source().reconcile(accepted: "123456")
 
         XCTAssertFalse(reconciled.promoted)
         XCTAssertEqual(saved, [], "the Keychain is not written to for the sake of it")
@@ -191,31 +166,23 @@ final class DevicePINSourceTests: XCTestCase {
         file.record(pin: "654321")
         keychain = "654321"
 
-        XCTAssertEqual(source(isDeveloperMode: false).settleAtLaunch(), .clearedARedundantCopy)
+        XCTAssertEqual(source().settleAtLaunch(), .clearedARedundantCopy)
         XCTAssertNil(file.pin())
         XCTAssertEqual(keychain, "654321", "and the PIN itself is untouched")
-    }
-
-    func testADeveloperLaunchLeavesItsFileAlone() {
-        file.record(pin: "123456")
-        keychain = "123456"
-
-        XCTAssertEqual(source(isDeveloperMode: true).settleAtLaunch(), .nothingToSettle)
-        XCTAssertEqual(file.pin(), "123456")
     }
 
     func testALaunchThatFindsThemDisagreeingWaitsForTheCube() {
         file.record(pin: "654321")
         keychain = "123456"
 
-        XCTAssertEqual(source(isDeveloperMode: false).settleAtLaunch(), .awaitingTheCube)
+        XCTAssertEqual(source().settleAtLaunch(), .awaitingTheCube)
         XCTAssertEqual(file.pin(), "654321", "and nothing is thrown away in the meantime")
     }
 
     func testALaunchWithNoFileHasNothingToSettle() {
         keychain = "123456"
 
-        XCTAssertEqual(source(isDeveloperMode: false).settleAtLaunch(), .nothingToSettle)
+        XCTAssertEqual(source().settleAtLaunch(), .nothingToSettle)
     }
 
     func testAFileThatWillNotGiveUpItsCopyIsNotReportedAsSettled() {
@@ -226,7 +193,7 @@ final class DevicePINSourceTests: XCTestCase {
         try? FileManager.default.setAttributes([.immutable: true], ofItemAtPath: readOnly.path)
         defer { try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: readOnly.path) }
 
-        XCTAssertEqual(source(isDeveloperMode: false).settleAtLaunch(), .nothingToSettle)
+        XCTAssertEqual(source().settleAtLaunch(), .nothingToSettle)
         XCTAssertEqual(file.pin(), "654321")
     }
 }

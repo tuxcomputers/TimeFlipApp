@@ -396,31 +396,46 @@ a plausible-looking run and an image nobody had seen.
 <a id="method-16"></a>
 ## Method 16: Make a paired cube refuse the login, with the cube on the desk
 
-**A developer build presents the PIN in `config.json` and no other stored PIN**, so a value the cube is not on gets a
-refusal instead of a fall-through. One digit off the dev PIN is enough:
+**Both stores have to be wrong, and the cube's own PIN has to be readable before you break either.**
+`DevicePINRules.readOrder` presents `config.json` first and the Keychain behind it, so a wrong value in the file
+alone is refused and the Keychain's real one gets straight in.
+
+**Read the PIN the cube is actually on first.** It is six random digits chosen at pairing and written to the Keychain
+alone, so there is no compiled-in value to fall back on. `DeviceLogin` records the rotation:
+
+```sh
+sqlite3 ~/Library/Application\ Support/Facet/debug.sqlite \
+  "SELECT message FROM debug_log WHERE message LIKE 'The cube is now on %' ORDER BY debug_log_id DESC LIMIT 1;"
+```
+
+Then put a wrong PIN in the file and delete the Keychain item:
 
 ```sh
 # ~/Library/Application Support/Facet/config.json -- the key is "PIN", the archive's own
 {"PIN": "123457"}
+security delete-generic-password -s au.com.tux.facet.device -a device-pin
 ```
+
+Deleting is prompt-free: the Keychain dialog is for *reading* an item another program owns, and this reads nothing.
 
 Quit and start the app with the cube in range. The login is refused, `Offering manual mode: the cube was found and
 refused the PIN this app has` is written, and the offer dialog comes up ([Method 13](#method-13)) without the cube
 having gone anywhere. This is what `58-wrong-pin` needs; `56-manual-mode` still needs the radio off, its subject
 being a cube that answers nothing at all.
 
-**The cube has to be on `123456` for it to hold.** `DeviceLoginRules.reconnectCandidates` appends `000000` after the
-stored list, so a cube whose batteries have been out logs in on the vendor default, and `DevicePINRules.rotates` then
-rotates it to `123456` and writes that over the file -- the run passes through a working login and the edit is gone.
+**Put the real PIN in `config.json` afterwards**, and let the app heal the rest: the next launch finds the two stores
+disagreeing, presents the file's, and once the cube accepts it promotes it back into the Keychain and clears the
+file. Writing the Keychain back by hand with `security` would need `-A`, which leaves the cube's PIN readable by
+every program on the machine.
 
-**Put the dev PIN back afterwards**, or delete the key and let the stand-in answer: `DevicePINRules.developerPIN` is
-what a dev build presents when the file names nothing, and it is the value the cube is on. The Keychain's copy is
-untouched throughout and a dev build does not read it.
+**The cube must not be on `000000` when you do this.** `DeviceLoginRules.reconnectCandidates` appends the vendor
+default after the stored list, so a cube whose batteries have been out logs straight in on it, and
+`DevicePINRules.rotates` then gives it a fresh random PIN -- the run passes through a working login and the
+arrangement is gone.
 
-**Before 2026-09-02 this did not work, and looked as though it did.** The Keychain was a second candidate in a dev
-build, so the wrong PIN was refused and the right one got straight in: `Refused, and there is another PIN to try`
-followed by `PIN accepted`, measured at 19:47 that day. A run set up this way reached a connected cube and reported
-the wrong-PIN path as covered.
+**Between 2026-09-02 and 2026-09-04 the Keychain step was not needed**, a developer build having read the file alone.
+The developer flag is gone and both stores are candidates again, which is what this method was before it and is
+again.
 
 ## An ad-hoc build silently switches Google sync off
 

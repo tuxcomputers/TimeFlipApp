@@ -13,10 +13,19 @@ import SQLite3
 /// the log of what the app was doing when it went wrong would disappear along with the work that went
 /// wrong. Separate connection, no shared transaction, nothing to undo it.
 ///
-/// Gated on `DeveloperMode.isDeveloperMode` at the point of construction (in `main.swift`), so an app built
-/// without the dev flag has no logger at all rather than a logger that returns early. (`011_setting.sql` also
-/// seeds a `debug` setting for turning this on and off without a rebuild. Nothing reads it yet -- one gate is
-/// enough while the only audience is a developer with a terminal open. See `docs/TODO-devmode.md`.)
+/// **The `debug` row's `enabled` field decides whether it records, and it can change while the app runs.** Ticking
+/// the box on the App tab's Debug section starts the trace at that moment and unticking it stops it, with no
+/// relaunch: `isRecording` is set from the row at launch and told by the Settings window afterwards, once the write
+/// has been read back.
+///
+/// **What makes the off case free is `@autoclosure`, not the absence of a logger.** Every call site reads
+/// `debugLog?.record(.transmit, "command \(hex)")`, and the message is an autoclosure, so with recording off that
+/// string is never built: a BLE packet costs one boolean check. Returning early after composing the message would
+/// have put the cost of a full trace on every launch that did not want one, which is what the old
+/// construct-it-or-not gate was avoiding.
+///
+/// **The file is opened on the first message, not at launch.** A launch that never records creates no
+/// `debug.sqlite` at all, which is what somebody who has never turned this on should find in their folder.
 @MainActor
 final class DebugLog {
     /// Which subsystem a message came from. The table's `tag` column and the console prefix are the
@@ -105,6 +114,10 @@ final class DebugLog {
         /// `DeviceLogin.send`). Its own tag rather than `login`, because these are the app changing the device's
         /// behaviour rather than reaching it -- and an acknowledgement here says the cube heard, never that it obeyed.
         case command
+        /// The trace file itself: where it is kept, and copies taken of it to send in. Its own tag because these
+        /// rows are *about* the log rather than in it -- somebody reading a submitted trace to find out what the app
+        /// did should not have to step over the act of submitting it.
+        case trace
         /// Bytes written to the device. See `BLETrace` for why the traffic is logged in full and in both directions.
         case transmit = "ble-tx"
         /// Bytes received from it, whether asked for or notified.
@@ -133,6 +146,36 @@ final class DebugLog {
         }
     }
 
+    /// The file this log writes to.
+    ///
+    /// **Held rather than re-derived**, and it is not a second copy of the setting that chose it: the folder in the
+    /// `debug` row is what the *next* launch will use, and this is the file this launch has. Revealing, copying or
+    /// emptying the trace has to act on this one -- see `DebugTraceFile.inUse(by:directory:)`, which is where those
+    /// three live, because they have to work whether or not anything is being recorded.
+    ///
+    /// It moves in one case only: a folder that cannot be opened falls back to the one beside the app's own
+    /// database, and this then names where the trace actually went.
+    private(set) var databaseURL: URL
+
+    /// Whether messages are being recorded **right now**.
+    ///
+    /// **This is a copy of `setting.debug.enabled` held in memory, which the first rule in `CLAUDE.md` forbids by
+    /// default, and here is the licence being taken and why.** Reading the row inside `record` is the alternative,
+    /// and it would put a `SELECT` on every call site in the common case where logging is off -- a database read per
+    /// BLE packet to discover that nobody wants it. So this is set from the row at launch and told by the one place
+    /// that can change it, `SettingsWindowController.store`, which tells it only after the write has been read back
+    /// (`SettingStore.write`). One writer, and a copy that is only ever adopted once the table holds it, which is
+    /// the same condition the Settings window's own held values are allowed under.
+    ///
+    /// **What it does not survive is an edit made behind the app's back.** A row changed in sqlite while the app is
+    /// running is not noticed until the next launch. That is the honest cost of the licence, and it is why
+    /// `Tests/Scripted/00-setup.sh` writes the row with the app shut.
+    private(set) var isRecording: Bool
+
+    /// Whether opening the file has been tried. A bootstrap that failed is not retried per message: that would turn
+    /// one fault into a fault reported on every packet.
+    private var hasTriedToOpen = false
+
     private let connection = Connection()
     /// Resolved once. The zone identifier only changes if the machine moves between zones mid-session
     /// -- daylight saving stays within one IANA id -- so re-resolving per row would be a lookup per
@@ -142,12 +185,36 @@ final class DebugLog {
     /// from an empty table looks like a run where nothing happened.
     private var hasReportedWriteFailure = false
 
-    init(databaseURL: URL) {
+    /// - Parameters:
+    ///   - databaseURL: where the trace goes. Nothing is created here; the file is brought up on the first message
+    ///     actually recorded.
+    ///   - isRecording: what the `debug` row says at launch.
+    init(databaseURL: URL, isRecording: Bool) {
+        self.databaseURL = databaseURL
+        self.isRecording = isRecording
         // Line-buffered stdout. Otherwise a click's line sits in the buffer until the process exits
         // normally, so a killed run prints nothing at all -- and this app is quit from a menu, which
         // is exactly the case where somebody reaches for Ctrl-C instead and loses the lot.
         setvbuf(stdout, nil, _IOLBF, 0)
-        openDatabase(at: databaseURL)
+    }
+
+    /// Starts or stops recording, now.
+    ///
+    /// **Told rather than asked**, for the reason `isRecording` gives, and told only after the table has taken the
+    /// value.
+    ///
+    /// **The change is the first and last thing in the trace either way.** Turning it on writes a line saying so, so
+    /// a submitted trace says where it begins; turning it off writes one before it stops, so a trace that ends
+    /// abruptly is telling you it was switched off rather than that the app died.
+    func setRecording(_ recording: Bool) {
+        guard recording != isRecording else { return }
+        if !recording {
+            record(.trace, "Logging turned off")
+        }
+        isRecording = recording
+        if recording {
+            record(.trace, "Logging turned on")
+        }
     }
 
     /// Prints the message and records it.
@@ -158,10 +225,18 @@ final class DebugLog {
     ///
     /// Writes synchronously, on the main thread the click arrived on. Fine at the rate a person
     /// clicks; if a tag ever logs on a timer, this needs a queue before it gets one.
-    func record(_ tag: Tag, _ message: String) {
+    ///
+    /// **The message is an `@autoclosure`, which is what makes recording free to leave off.** Swift would otherwise
+    /// build the string at every call site before this is even entered, so a launch that records nothing would still
+    /// pay for a hex dump of every BLE packet. Nothing here reads `message()` until it is known that somebody wants
+    /// it, and it is read exactly once.
+    func record(_ tag: Tag, _ message: @autoclosure () -> String) {
+        guard isRecording else { return }
+        openIfNeeded()
         let now = Date()
-        print("\(Self.consoleTime.string(from: now)) \(tag.bracketed) \(message)")
-        write(tag: tag, message: message, at: now)
+        let text = message()
+        print("\(Self.consoleTime.string(from: now)) \(tag.bracketed) \(text)")
+        write(tag: tag, message: text, at: now)
     }
 
     // MARK: - the row
@@ -186,10 +261,41 @@ final class DebugLog {
         guard !hasReportedWriteFailure else { return }
         hasReportedWriteFailure = true
         let message = connection.db.map { String(cString: sqlite3_errmsg($0)) } ?? "no database connection"
-        print("\(Self.consoleTime.string(from: Date())) \(Tag.click.bracketed) debug_log rows are not being written: \(message)")
+        report("debug_log rows are not being written: \(message)")
+    }
+
+    /// Says something on the terminal that cannot go in the table, the table being the thing that is not working.
+    private func report(_ message: String) {
+        print("\(Self.consoleTime.string(from: Date())) \(Tag.trace.bracketed) \(message)")
     }
 
     // MARK: - the connection
+
+    /// Brings the trace database up and opens it, the first time anything is actually recorded.
+    ///
+    /// **Not at launch**, so a launch that records nothing leaves no `debug.sqlite` behind, and **not per message**,
+    /// so a failure is one line rather than one per packet.
+    ///
+    /// **A folder that cannot be used falls back to the one beside the app's own database, and says so.** The
+    /// alternative is a trace nobody can find because a folder was chosen on a disk that is no longer mounted, which
+    /// is a silent failure of the one facility a failure is reconstructed from.
+    private func openIfNeeded() {
+        guard !hasTriedToOpen else { return }
+        hasTriedToOpen = true
+        do {
+            try DatabaseBootstrap.ensureDebugDatabase(at: databaseURL)
+        } catch {
+            let message = (error as? DatabaseBootstrap.Failure)?.description ?? error.localizedDescription
+            report("the trace cannot be kept in \(databaseURL.deletingLastPathComponent().path): \(message)")
+            let fallback = DatabaseBootstrap.debugDatabaseURL()
+            guard fallback != databaseURL, (try? DatabaseBootstrap.ensureDebugDatabase(at: fallback)) != nil else {
+                reportWriteFailure()
+                return
+            }
+            databaseURL = fallback
+        }
+        openDatabase(at: databaseURL)
+    }
 
     private func openDatabase(at databaseURL: URL) {
         var handle: OpaquePointer?

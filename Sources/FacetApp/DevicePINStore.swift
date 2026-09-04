@@ -22,8 +22,8 @@ import Security
 /// developer's own would be writing to the machine it runs on. What is tested is every decision around it
 /// (`DevicePINRules`, `DevicePINSource`), and what says the item itself works is a device run.
 enum DevicePINStore {
-    /// Keyed by the bundle identifier so a developer build and a release build do not fight over one item, and
-    /// suffixed so the cube's PIN and the Google refresh token are two items rather than one overwritten by turns.
+    /// Keyed by the bundle identifier so two builds do not fight over one item, and suffixed so the cube's PIN and
+    /// the Google refresh token are two items rather than one overwritten by turns.
     private static var service: String {
         (Bundle.main.bundleIdentifier ?? "au.com.tux.facet") + ".device"
     }

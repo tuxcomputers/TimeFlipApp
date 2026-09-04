@@ -78,9 +78,12 @@ enum DatabaseBootstrap {
     /// confirmed pairing was lost to exactly that (see `DatabaseConnection`'s busy timeout).
     ///
     /// It sits in the same directory as `production.sqlite` and `test.sqlite` so a session switching between those
-    /// finds its log in the one place.
-    static func debugDatabaseURL() -> URL {
-        defaultDatabaseURL().deletingLastPathComponent().appendingPathComponent("debug.sqlite")
+    /// finds its log in the one place. That is only the default: the `debug` setting names the folder, which is what
+    /// `directory` carries, and this is where the file inside it gets its name.
+    ///
+    /// - Parameter directory: the folder to keep the trace in. `nil` for the one beside the app's own database.
+    static func debugDatabaseURL(in directory: URL? = nil) -> URL {
+        (directory ?? defaultDatabaseURL().deletingLastPathComponent()).appendingPathComponent("debug.sqlite")
     }
 
     /// Brings the debug database up: `debug.sqlite`, with the `500` files and nothing else.

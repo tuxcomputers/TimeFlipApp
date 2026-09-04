@@ -128,5 +128,36 @@ final class AppSettingsRulesTests: XCTestCase {
         // Nobody reading an alert knows what `daily_reset_time` is.
         XCTAssertEqual(AppSettingsRules.title(for: .dailyResetHour12(3)), "Daily reset at")
         XCTAssertEqual(AppSettingsRules.title(for: .showsSeconds(true)), "Show seconds")
+        XCTAssertEqual(AppSettingsRules.title(for: .debugEnabled(true)), "Debug logging")
+        XCTAssertEqual(AppSettingsRules.title(for: .debugDirectory("~/Documents/Facet")), "Directory")
+    }
+
+    // MARK: - the Debug section
+
+    func testTheDebugRowsWriteTheirOwnFieldsOfOneRow() {
+        // Both live in the `debug` row, which is why they are read and written as fields rather than as rows: a write
+        // that replaced the object would take the other field with it.
+        XCTAssertEqual(
+            AppSettingsRules.destination(for: .debugEnabled(true))?.setting, DebugTraceRules.setting
+        )
+        XCTAssertEqual(AppSettingsRules.destination(for: .debugEnabled(true))?.field, "enabled")
+        XCTAssertEqual(AppSettingsRules.destination(for: .debugEnabled(true))?.value, .flag(true))
+
+        XCTAssertEqual(
+            AppSettingsRules.destination(for: .debugDirectory("~/Documents/Facet"))?.setting, DebugTraceRules.setting
+        )
+        XCTAssertEqual(
+            AppSettingsRules.destination(for: .debugDirectory("~/Documents/Facet"))?.field, "directory"
+        )
+        XCTAssertEqual(
+            AppSettingsRules.destination(for: .debugDirectory("~/Documents/Facet"))?.value,
+            .text("~/Documents/Facet"),
+            "stored with the tilde it was given: expanding it here would store one machine's home directory"
+        )
+    }
+
+    func testAskingForTheFolderPickerLandsNowhere() {
+        // It is a panel to run, not a value to store. What comes back out of it is `debugDirectory`.
+        XCTAssertNil(AppSettingsRules.destination(for: .debugDirectoryRequested))
     }
 }

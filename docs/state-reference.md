@@ -54,9 +54,9 @@ wanted to work without the cube.
 | Name | Values | Truth |
 | --- | --- | --- |
 | `isManualMode` | true / false | `ManualTimerRules.isManualMode(isCubePaired:hasGivenUpOnCube:)`, both read at the point of use |
-| `isDeveloperMode` | true / false | `DeveloperMode` |
 | `isTestDatabase` | true / false | `DatabaseEnvironment`, from `setting.db_type.type` |
 | `isQuitting` | true / false | `setting.connection.quit_request`, plus `QuitSequence` progress |
+| `isDebugEnabled` | true / false | `setting.debug.enabled`, read at launch and told to `DebugLog` by the Settings window |
 
 ## 2. Pairing and the link
 

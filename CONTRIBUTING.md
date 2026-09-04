@@ -80,8 +80,9 @@ or `database/` does.
   Google project to build or test this repo.**
 - The Google refresh token is the only thing in the macOS Keychain (`GoogleTokenStore`), one item, per user and per
   machine.
-- A developer build's device PIN is in `~/Library/Application Support/Facet/config.json`, deliberately not in the
-  database: a database gets copied, switched between production and test, and rebuilt from the DDL by the test suite,
-  and a cube does not know which one is in play -- so a PIN kept in one is a PIN a database swap loses.
+- The device PIN is in the Keychain, and in `~/Library/Application Support/Facet/config.json` only while the
+  Keychain has refused a write. Neither is the database, deliberately: a database gets copied, switched between
+  production and test, and rebuilt from the DDL by the test suite, and a cube does not know which one is in play --
+  so a PIN kept in one is a PIN a database swap loses.
 
 For build and test commands, see [Installation](docs/installation.md#building-and-testing).

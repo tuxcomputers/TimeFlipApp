@@ -38,9 +38,8 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
         super.tearDown()
     }
 
-    private func controller(badge: DatabaseBadge? = nil, showingSeconds: Bool = true) -> MenuBarController {
+    private func controller(showingSeconds: Bool = true) -> MenuBarController {
         let controller = MenuBarController(
-            databaseBadge: badge,
             debugLog: nil,
             openSettings: {},
             timing: { self.reading },
@@ -324,7 +323,6 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
         controller.makeTitle(
             StatusItemTitle.make(
                 appLabel: "Facet",
-                badgeDescription: nil,
                 reading: reading,
                 showingSeconds: true,
                 isLimitReached: isLimitReached,
@@ -346,7 +344,7 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
         return title.attribute(.foregroundColor, at: range.location, effectiveRange: nil) as? NSColor
     }
 
-    func testTheOrderIsBadgeIconCategoryGlyphThenTime() {
+    func testTheOrderIsIconCategoryGlyphThenTime() {
         reading = TimingReadout.Reading(
             category: CategoryRecord(
                 id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
@@ -355,11 +353,11 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
             seconds: 30
         )
 
-        // The badge is first because it qualifies everything to its right, and the icon is inside the line rather
-        // than the button's own image, which would draw it to the badge's left.
+        // The icon is inside the line rather than the button's own image, which would draw it to the left of
+        // everything and outside the run of text the rest of the line is.
         XCTAssertEqual(
-            line(controller(badge: .forEnvironment(.test))),
-            "TEST \(attachment) Meeting \(attachment) 0:00:30"
+            line(controller()),
+            "\(attachment) Meeting \(attachment) 0:00:30"
         )
     }
 
@@ -376,8 +374,8 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
         cube = MenuBarController.CubeReading(isCubeConnected: true, cubeLockState: .locked)
 
         XCTAssertEqual(
-            line(controller(badge: .forEnvironment(.test))),
-            "TEST \(attachment) Meeting \(attachment) \(attachment) 0:00:30",
+            line(controller()),
+            "\(attachment) Meeting \(attachment) \(attachment) 0:00:30",
             "the lock badge sits between the name and the play glyph"
         )
     }
@@ -412,18 +410,13 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     func testWithNothingBeingTimedItIsTheAppsNameAlone() {
         reading = .idle
 
-        XCTAssertEqual(line(controller(badge: .forEnvironment(.test))), "TEST Facet")
-    }
-
-    func testWithoutTheDevFlagThereIsNoBadgeInTheLine() {
-        reading = .idle
-
-        // A shipped copy only ever has the real database, so a permanent "PROD" tag would take up menu bar space
-        // answering something nobody asked.
         XCTAssertEqual(line(controller()), "Facet")
     }
 
-    func testTheBadgeKeepsItsOwnColourWhileTheSessionIsCyan() {
+    func testNothingInTheLineNamesTheDatabase() {
+        // **The `TEST`/`PROD`/`DB?` tag is gone** (2026-09-04). It was a developer's question drawn permanently in
+        // the menu bar, and it went with the developer flag: which database a launch opened is asked in the Report
+        // tab's figures and in `setting.db_type`, not by occupying the one line the app has to say what it is doing.
         reading = TimingReadout.Reading(
             category: CategoryRecord(
                 id: 2, name: "Meeting", iconName: "ic_calls", colourID: 0, colour: nil, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
@@ -432,13 +425,11 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
             seconds: 30
         )
 
-        let title = title(controller(badge: .forEnvironment(.test)))
+        let line = line(controller())
 
-        // Two separate things being said: which database this launch writes to, and what the app is doing. A cyan
-        // "TEST" would lose the warning the red is there to carry.
-        XCTAssertEqual(colour(of: "TEST", in: title), .systemRed)
-        XCTAssertEqual(colour(of: "Meeting", in: title), .systemCyan)
-        XCTAssertEqual(colour(of: "0:00:30", in: title), .systemCyan)
+        for tag in ["TEST", "PROD", "DB?"] {
+            XCTAssertFalse(line.contains(tag), "\(tag) is still in the title: \(line)")
+        }
     }
 
     func testASpentLimitReddensTheFigureAndNotTheName() {

@@ -9,7 +9,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=10
+EXPECTED_CHECKS=9
 start "the menu bar item, its title and its menu"
 
 close_settings
@@ -26,9 +26,10 @@ else
     fail "no status item found in the menu bar"
 fi
 
-# A developer build opened on the test database says so in the title. It is how somebody glancing at the
-# screen knows which database a run is writing to, and this run has just insisted on the test one.
-check_contains "the title names the test database" "$title" "TEST"
+# **Nothing in the title names the database any more.** The `TEST`/`PROD`/`DB?` tag was removed on
+# 2026-09-04 with the developer flag it was drawn for: which database a run writes to is `setting.db_type`
+# and `require_test_database`'s job, which every script in this folder already goes through before it
+# starts, rather than a permanent tag in the one line the app has to say what it is doing.
 
 # ---------------------------------------------------------------------------- the left half
 

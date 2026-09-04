@@ -327,7 +327,20 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             googleCalendar: GoogleCalendarRules.calendar(
                 id: settings.string(GoogleAccountRules.setting, field: GoogleCalendarRules.idField),
                 name: settings.string(GoogleAccountRules.setting, field: GoogleCalendarRules.nameField)
-            )
+            ),
+            isDebugEnabled: settings.flag(DebugTraceRules.setting, field: DebugTraceRules.enabledField)
+                ?? seeded.isDebugEnabled,
+            debugDirectory: settings.string(DebugTraceRules.setting, field: DebugTraceRules.directoryField)
+                ?? seeded.debugDirectory,
+            // Not a row, and **not whether this launch has a logger**: it is whether there is a trace file to act
+            // on. The two are different for most of a support conversation -- somebody turns logging on, reproduces
+            // the fault, quits, and sends the file from a launch that is recording nothing -- and keying the buttons
+            // to the logger left all three dead beside an 800KB trace.
+            hasDebugTrace: DebugTraceFile.inUse(
+                by: debugLog,
+                directory: settings.string(DebugTraceRules.setting, field: DebugTraceRules.directoryField)
+                    ?? seeded.debugDirectory
+            ).exists
         )
     }
 
@@ -1513,6 +1526,22 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             createGoogleCalendar(from: pane, using: settings)
             return
         }
+        if case .debugDirectoryRequested = change {
+            chooseDebugDirectory(from: pane)
+            return
+        }
+        if case .debugRevealRequested = change {
+            revealTrace()
+            return
+        }
+        if case .debugCopyRequested = change {
+            copyTrace()
+            return
+        }
+        if case .debugClearRequested = change {
+            clearTrace()
+            return
+        }
         if case .googleCalendarChanged = change {
             pane.adopt(change)
             return
@@ -1529,6 +1558,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             stored = settings.write(setting, field: field, flag)
         case let .number(number):
             stored = settings.write(setting, field: field, number)
+        case let .text(text):
+            stored = settings.write(setting, field: field, text)
         }
         debugLog?.record(
             .field,
@@ -1542,11 +1573,182 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             return
         }
         pane.adopt(change)
+        if case let .debugEnabled(on) = change {
+            // **Told here, and only here, and only now.** `DebugLog.isRecording` is a copy of this row held in
+            // memory, which that property's own comment argues for; what keeps the copy honest is that this is the
+            // single place it is set, and that it is set after `SettingStore.write` has read the value back. A
+            // logger told before the table agreed would be recording on the strength of a write that did not happen.
+            debugLog?.setRecording(on)
+            // Turning it on writes the first row, which brings the file into being: the three buttons above are
+            // drawn from whether there is a file, so they are told again rather than staying dead until the window
+            // is next opened.
+            pane.showTrace(exists: traceFile().exists)
+        }
         // The status item draws from settings too -- `display_seconds` decides whether its figure carries them -- and
         // it repaints on a tick that only runs while something is being timed. So a setting changed against a paused
         // session would be stored and not shown, which reads as a control that did nothing. Measured, on a paused
         // session: the table said `false` and the menu bar went on showing seconds.
         onTimingChanged?()
+    }
+
+    /// Asks for the folder the debug trace is kept in.
+    ///
+    /// **The window runs the panel, not the pane.** Anything modal belongs to whoever owns the window, and the pane
+    /// reports the press as a request for exactly that reason.
+    ///
+    /// Nothing is written when the panel is cancelled, which is the difference between choosing a folder and thinking
+    /// better of it. What is chosen goes through `store` like any other row, so it is written, read back, and put
+    /// back with an alert if the table refuses it.
+    private func chooseDebugDirectory(from pane: AppSettingsPane) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose"
+        panel.message = "Where Facet keeps its debug trace"
+        // Opened on the folder in force, so choosing the one next to it is a click rather than a hunt.
+        panel.directoryURL = DebugTraceRules.directoryURL(from: pane.values.debugDirectory)
+        guard panel.runModal() == .OK, let url = panel.url else {
+            debugLog?.record(.field, "Debug trace folder left as \(pane.values.debugDirectory)")
+            return
+        }
+        store(.debugDirectory(DebugTraceRules.stored(for: url)), from: pane)
+    }
+
+    /// Shows the trace in the Finder, selected.
+    ///
+    /// **The file this launch is writing, not the folder the setting names.** A folder chosen a moment ago holds no
+    /// trace until the next launch, so revealing it there would open an empty window and look like the file was
+    /// missing.
+    private func revealTrace() {
+        let trace = traceFile()
+        guard trace.exists else {
+            debugLog?.record(.trace, "There is no trace at \(trace.url.path) to reveal")
+            showTraceMissing(at: trace.url)
+            return
+        }
+        debugLog?.record(.trace, "Revealing the trace at \(trace.url.path)")
+        NSWorkspace.shared.activateFileViewerSelecting([trace.url])
+    }
+
+    /// The trace this window's buttons act on: the file the app has open, or the one the setting names when there is
+    /// no logger. **Asked at the point of use**, since a folder chosen while the window is open changes the answer
+    /// for a launch that has nothing open.
+    private func traceFile() -> DebugTraceFile {
+        DebugTraceFile.inUse(
+            by: debugLog,
+            directory: settings?.string(DebugTraceRules.setting, field: DebugTraceRules.directoryField)
+                ?? DebugTraceRules.defaultDirectory
+        )
+    }
+
+    /// Saves a copy of the trace somewhere the user picks, to be sent in.
+    ///
+    /// **A copy rather than the file itself**, and taken through sqlite rather than by copying bytes: the app is
+    /// still writing to the trace, so what is wanted is one consistent file that opens on its own
+    /// (`DebugLog.copy(to:)`).
+    private func copyTrace() {
+        let trace = traceFile()
+        guard trace.exists else {
+            showTraceMissing(at: trace.url)
+            return
+        }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = DebugTraceRules.copyName(at: Date())
+        panel.message = "Save a copy of the debug trace to send in"
+        panel.prompt = "Save"
+        // Downloads rather than the folder the trace lives in: this copy exists to be attached to something, and it
+        // is the folder every browser and mail client already opens on.
+        panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        guard panel.runModal() == .OK, let destination = panel.url else {
+            debugLog?.record(.trace, "The trace was not copied")
+            return
+        }
+        guard trace.copy(to: destination) else {
+            showTraceCopyFailed(to: destination)
+            return
+        }
+        debugLog?.record(.trace, "Trace copied to \(destination.path)")
+    }
+
+    /// Empties the trace, once somebody has confirmed it.
+    ///
+    /// **Confirmed, because it cannot be undone and the thing it destroys is evidence.** Clearing before reproducing
+    /// a fault is the ordinary use, and a run of the app that has just gone wrong is exactly when an accidental press
+    /// costs the most.
+    private func clearTrace() {
+        let trace = traceFile()
+        guard trace.exists else {
+            showTraceMissing(at: trace.url)
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Clear the debug trace?"
+        alert.informativeText = """
+        This removes every message Facet has recorded so far. It cannot be undone, and anything you have been \
+        asked to send in goes with it.
+
+        Nothing else is affected: your recorded time, categories and settings are in a different file.
+        """
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Clear Trace")
+        // Return must not clear anything, and adding Cancel first is not enough to arrange that: AppKit puts a
+        // button titled "Cancel" on the left whatever order it went in, so the rightmost button -- the one Return
+        // activates -- ends up being the destructive one. The same measurement the calendar delete carries.
+        alert.buttons[0].keyEquivalent = "\r"
+        alert.buttons[1].keyEquivalent = ""
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertSecondButtonReturn else {
+                self?.debugLog?.record(.trace, "The trace was not cleared")
+                return
+            }
+            guard trace.clear() else {
+                self?.showTraceClearFailed()
+                return
+            }
+            // **After the rows are gone, so it is the first row of the new trace.** A file that begins mid-story
+            // reads as one that lost its beginning; this one says it was emptied on purpose. Nothing is written when
+            // this launch has no logger, which is the case where nothing was being written anyway.
+            self?.debugLog?.record(.trace, "Trace cleared")
+        }
+    }
+
+    private func showTraceClearFailed() {
+        let alert = NSAlert()
+        alert.messageText = "The trace was not cleared"
+        alert.informativeText = """
+        Facet could not empty its debug trace, so it still holds everything it did before.
+
+        Nothing else has been changed, and trying again is safe.
+        """
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window)
+    }
+
+    private func showTraceMissing(at url: URL) {
+        let alert = NSAlert()
+        alert.messageText = "There is no trace to show"
+        alert.informativeText = """
+        Facet expected its debug trace at \(url.path), and there is no file there.
+
+        It is written as the app runs, so there is nothing to show until something has been logged.
+        """
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window)
+    }
+
+    private func showTraceCopyFailed(to destination: URL) {
+        let alert = NSAlert()
+        alert.messageText = "The trace was not copied"
+        alert.informativeText = """
+        Facet could not write a copy of its debug trace to \(destination.path).
+
+        Nothing has been changed. The trace itself is untouched, and trying again, or choosing another \
+        folder, is safe.
+        """
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window)
     }
 
     /// Runs the sign-in, and writes what comes back.
