@@ -16,7 +16,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=26
+EXPECTED_CHECKS=32
 start "the Settings window, its tabs, and the calendar this run will fill"
 
 open_settings
@@ -28,9 +28,24 @@ check "the window is open" "yes" "$(settings_is_open && echo yes || echo no)"
 # says as much where it logs the open.
 select_tab Device
 
-# Every tab, in the order they sit in the window. Each one is selected and then checked twice: the app
-# said it selected it, and the pane it names is actually in the tree. The first alone would pass on a
-# tab that logged the change and drew nothing.
+# **The width the window opens at, before any tab is chosen.** Every tab is drawn into the same window, so
+# switching between them must not move it: a tab that arrives wider is one whose content is demanding room the
+# window then has to find, and the person who left the window where they wanted it gets it dragged out from
+# under them.
+opening_width=$(window_width settings-window)
+if [ -n "$opening_width" ]; then
+    pass "the window opens at a width that can be read ($opening_width points)"
+else
+    fail "the window's width could not be read, so nothing below can tell whether a tab moves it"
+fi
+
+# Every tab, in the order they sit in the window. Each one is selected and then checked three times: the app
+# said it selected it, the pane it names is actually in the tree, and the window is still the width it was.
+# The first alone would pass on a tab that logged the change and drew nothing.
+#
+# **The width is the half `swift test` cannot check.** A pane is measured there inside a container of a fixed
+# width, which simply obliges a control asking for more; on screen the window obliges instead. This is what
+# selecting App did on 2026-09-04, and the hermetic tests were green throughout.
 for tab in Faces Categories Report App Device; do
     since=$(mark)
     select_tab "$tab"
@@ -42,6 +57,8 @@ for tab in Faces Categories Report App Device; do
     else
         fail "the $tab tab was selected but its pane is not in the tree"
     fi
+
+    check "and the window is the width it was" "$opening_width" "$(window_width settings-window)"
 done
 
 # ---------------------------------------------------------------------------- coming back

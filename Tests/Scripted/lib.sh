@@ -1448,6 +1448,23 @@ press_sheet() { python3 scripts/ax-press.py --sheet --title "$1" >/dev/null 2>&1
 # whole window -- and a failure prints that line rather than several hundred.
 element() { tree | grep -m1 "id=$1 " || true; }
 
+# `window_width <identifier>` -- how wide a window is on screen, in points, or empty if it is not there.
+#
+# **The only thing in this suite that reads geometry**, and the reason it can exist at all is that
+# `ax-dump.py --frames` reports each element's position and size. Nothing else here needs it: what a script
+# usually wants to know is whether an element is present and what it says, and both come off the plain tree.
+#
+# **What it is for is a fault `swift test` cannot see.** A pane's constraints are checked hermetically against a
+# container of a fixed width, so a control that demands more width than the window has looks perfectly correct
+# there -- the container simply obliges. On screen the *window* obliges instead, and grows. Measured 2026-09-04:
+# selecting the App tab widened the window by two hundred points, because a wrapping footnote asks for its whole
+# text on one line, and `AppSettingsPane.fittingSize` reported the same number before and after the fix.
+window_width() {
+    python3 scripts/ax-dump.py --frames 2>/dev/null \
+        | grep -m1 "id=$1 " \
+        | sed -n 's/.*size=w:\([0-9]*\)\.*[0-9]* .*/\1/p'
+}
+
 # Whether the tree holds a string, **asked without a pipeline**, which is the whole point of it existing.
 #
 # **`something | grep -q ...` is not a reliable test under `set -o pipefail`, and this file sets it.** `grep -q`
