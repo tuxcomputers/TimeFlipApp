@@ -408,6 +408,7 @@ final class CategoryTableRow: NSStackView {
             width: CategoryTable.Layout.nameColumnWidth,
             identifier: "category-name-\(category.id)"
         )
+        cell.maximumLength = CategoryCreateRules.maximumLength
         cell.onCommit = { [weak self] typed in self?.onRename?(typed) }
         cell.onEditingChanged = { [weak self] isEditing in self?.onRenameEditingChanged?(isEditing) }
         cell.isEnabled = editRefusal == nil

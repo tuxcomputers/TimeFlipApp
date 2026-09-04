@@ -103,6 +103,17 @@ final class RetiredCategoryTableTests: XCTestCase {
         XCTAssertTrue(cell.isEnabled, "never disabled: a rename touches no face, so a lock has nothing to protect")
     }
 
+    func testTheNameCellIsHeldToTheLimit() throws {
+        // A retired row can be renamed, so it is a way into `category_name` like any other and holds to the same
+        // ceiling. Its own names can already be over the limit, having been written before there was one.
+        let table = RetiredCategoryTable()
+        table.show([retired(3, "Old")])
+
+        let cell = try XCTUnwrap(rows(of: table).first?.nameCell)
+
+        XCTAssertEqual(cell.maximumLength, CategoryCreateRules.maximumLength)
+    }
+
     func testACommittedNameIsReportedWithItsCategory() throws {
         let table = RetiredCategoryTable()
         var asked: (name: String, typed: String)?

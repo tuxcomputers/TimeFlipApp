@@ -106,4 +106,21 @@ final class CategoryCreateControlTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(control.nameField.accessibilityIdentifier(), CategoryCreateControl.Identifier.nameField)
         XCTAssertEqual(control.saveButton.accessibilityIdentifier(), CategoryCreateControl.Identifier.save)
     }
+
+    func testTheFieldStopsAtTheLimit() {
+        // Truncated as it is typed rather than refused at the end, which is what a length limit can do honestly: what
+        // is on screen is what will be saved. `normalise` cuts it as well and is the guarantee; this is so that a name
+        // does not quietly lose its tail somewhere between the field and the table.
+        let control = laidOutControl()
+        var saved: [String] = []
+        control.onSave = { saved.append($0) }
+        control.createButton.performClick(nil)
+
+        control.nameField.stringValue = String(repeating: "a", count: CategoryCreateRules.maximumLength + 10)
+        control.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: control.nameField))
+        control.saveButton.performClick(nil)
+
+        XCTAssertEqual(control.nameField.stringValue.count, CategoryCreateRules.maximumLength)
+        XCTAssertEqual(saved.first?.count, CategoryCreateRules.maximumLength, "and that is what Save is handed")
+    }
 }

@@ -31,6 +31,42 @@ final class CategoryCreateRulesTests: XCTestCase {
         XCTAssertEqual(CategoryCreateRules.normalise("   "), "")
     }
 
+    func testANameIsCutToTheLimit() {
+        // 35 is `category_name`'s own `CHECK` as well (`database/007_category.sql`), and this is what stops a name
+        // ever reaching it: every name the table sees comes through `normalise`, from both fields and both decisions.
+        let long = String(repeating: "a", count: CategoryCreateRules.maximumLength + 20)
+
+        XCTAssertEqual(
+            CategoryCreateRules.normalise(long).count, CategoryCreateRules.maximumLength,
+            "a name over the limit is cut to it rather than refused: the fields hold to it as it is typed, so this is the guarantee behind them"
+        )
+        XCTAssertEqual(
+            CategoryCreateRules.normalise(String(repeating: "b", count: CategoryCreateRules.maximumLength)).count,
+            CategoryCreateRules.maximumLength, "a name exactly at the limit is untouched"
+        )
+    }
+
+    func testTheCutIsMadeAfterWhitespaceIsCollapsedAndLeavesNoTrailingSpace() {
+        // Cut first and the limit would count spaces that are about to disappear. A trailing space left *by* the cut
+        // goes too: it is invisible on screen, and a name nobody can retype is a name that collides with itself.
+        let name = String(repeating: "c", count: CategoryCreateRules.maximumLength - 1) + "   xy"
+
+        let cut = CategoryCreateRules.normalise(name)
+
+        XCTAssertEqual(cut, String(repeating: "c", count: CategoryCreateRules.maximumLength - 1), "cut at the space, which then goes")
+        XCTAssertFalse(cut.hasSuffix(" "))
+    }
+
+    func testANameCutToTheLimitStillCollidesWithTheOneAlreadyThere() {
+        // The cut happens before the lookup, so two names differing only past the limit are one name to the table --
+        // which is what the `CHECK` and the unique index between them mean.
+        let existing = String(repeating: "d", count: CategoryCreateRules.maximumLength)
+
+        let decision = decide(existing + " and more", against: [category(1, existing, active: true)])
+
+        XCTAssertEqual(decision, .alreadyActive(category(1, existing, active: true)))
+    }
+
     func testANameIsCheckedInItsNormalisedForm() {
         // Otherwise a trailing space is a second category that looks identical in every list.
         XCTAssertEqual(decide("Break ", against: [category(1, "Break", active: true)]),

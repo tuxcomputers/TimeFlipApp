@@ -464,6 +464,15 @@ already pinned by its container. `preferredMaxLayoutWidth` is the usual advice a
 frames `super.layout()` has not yet resized, so it is a pass behind on a window being dragged, and
 `NSTextFieldCell` sizes the wrapped height correctly without it.
 
+**So is tail truncation, and so is shrink-to-fit**, which is where this showed a second time. Measured on the same
+day: a category named `When there is a long category it makes the windows wider` drew the window 1295pt wide, the
+Faces tab's 56pt name label asking for 1436pt of it, and `TimingView`'s shrink-to-fit never firing because a label
+that cannot be squeezed is never short of room. `LabelWidth.mayGiveWay` is the fix in one place now.
+
+**A check for it needs text somebody typed, not the default data.** A category name has no maximum length, so the
+long name has to be created by the check: `05-faces-timing` makes one on the Faces tab, which starts it and so puts
+it in the big label as well as in the list, then walks the tabs reading `window_width` after each.
+
 ## An ad-hoc build silently switches Google sync off
 
 A build made without the signing identity is a *different application* to the Keychain, so the refresh token

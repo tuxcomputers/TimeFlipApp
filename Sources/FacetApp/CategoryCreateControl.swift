@@ -75,6 +75,21 @@ final class CategoryCreateControl: NSView, NSTextFieldDelegate {
 
     // MARK: - the field's keys
 
+    /// Holds the field to `CategoryCreateRules.maximumLength` as it is typed into, the way the rename cell holds its
+    /// own (`EditableNameCell.controlTextDidChange`).
+    ///
+    /// **The caret goes to the end**, which is where it already is in the case this fires in: a keystroke that would
+    /// take the name past the limit. A paste into the middle of a full name moves it, which is the price of not
+    /// tracking a selection through a truncation, and it is visible rather than surprising.
+    ///
+    /// `normalise` cuts it too, and that is the one that guarantees it. This is so that what is on screen is what
+    /// will be saved, rather than a name that quietly loses its tail on the way to the table.
+    func controlTextDidChange(_ notification: Notification) {
+        guard nameField.stringValue.count > CategoryCreateRules.maximumLength else { return }
+        nameField.stringValue = String(nameField.stringValue.prefix(CategoryCreateRules.maximumLength))
+        nameField.currentEditor()?.selectedRange = NSRange(location: (nameField.stringValue as NSString).length, length: 0)
+    }
+
     func control(_ control: NSControl, textView: NSTextView, doCommandBy command: Selector) -> Bool {
         switch command {
         case #selector(NSResponder.insertNewline(_:)):

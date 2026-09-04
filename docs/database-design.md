@@ -152,7 +152,7 @@ Named activity category, linked to the icon and colour assigned to it.
 | Column       | Type    | Description                                              |
 |--------------|---------|------------------------------------------------------------|
 | `category_id`  | INTEGER | Row identifier, primary key, autoincrementing.             |
-| `category_name`| TEXT    | Category name (e.g. an activity mapped to a face).        |
+| `category_name`| TEXT    | Category name (e.g. an activity mapped to a face). At most **35 characters**, by `CHECK`. Long enough for anything a person calls an activity, short enough that the Faces tab can draw it at a readable size: the name is the largest text in that column, and an unbounded one made the Settings window as wide as whatever somebody typed. Both fields that take a name hold to the same limit as it is typed (`CategoryCreateRules.maximumLength`), so the constraint is never what a person meets. |
 | `icon_id`    | INTEGER | References `icon.icon_id` — the icon assigned to this category. Use `0` (the seeded `None` icon) if no real icon is assigned. |
 | `colour_id`  | INTEGER | References `colour.colour_id` — the colour assigned to this category. Use `0` (the seeded `None` colour) if no real colour is assigned. |
 | `project_id` | INTEGER | References `project.project_id` — the project this category belongs to. Use `0` (the seeded `None` project) if no project is assigned. |
@@ -166,6 +166,7 @@ Foreign keys — all three parents are seeded with an id-`0` sentinel row, which
 - The `project_id` column references the PK of the table `project` described above. `NOT NULL DEFAULT 0` (the `None` project), for the same reason.
 
 Constraints:
+- `category_name` is `CHECK`ed at **35 characters**, which is the table's own answer rather than a restatement of the app's: a name arriving from anywhere else -- a script writing straight to the file, a paste that never passed through a field -- is refused here. Applying it to a database that predates it means rebuilding the table (sqlite cannot `ALTER` a `CHECK`), and any name already over the limit has to be cut to it first or the rebuild fails on its own constraint.
 - Seeded with an `Unassigned` row (linked to the `None` icon and the `None` colour), a `Break` row (linked to the `ic_break` icon), and a `Meeting` row (linked to the `ic_meeting` icon) -- both seeded with the `None` colour, since none was specified.
 - `UN1_category` is a **partial** unique index: `category_name COLLATE NOCASE` where `active = 1`. Only one *active* category may hold a name, while any number of retired ones may share it. That is what makes "create a new category with the same name" a real choice rather than a way to end up with two live categories nobody can tell apart, and it is why the index cannot simply be `UNIQUE (category_name)` the way `colour_name` and `icon_name` are.
 - `COLLATE NOCASE` deliberately matches `CategoryStore.matching(name:)`, which is also case-insensitive. An index without it would let `email` and `Email` both be active while the app's own collision check considered them the same name, so the two would disagree about what a duplicate is.

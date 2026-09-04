@@ -106,25 +106,92 @@ final class TimingViewTests: XCTestCase {
         )
     }
 
-    func testTheNameIsLargeAndShrinksRatherThanWrapping() {
+    func testTheNameIsTheSizeTheConstantSaysWhateverItSays() {
+        // **One size, decided by `nameFontSize` and by nothing else.** It used to be fitted -- stepped down from the
+        // constant until the name fit the column, floored at 0.4 of it -- so what a category was drawn at depended on
+        // how long a name somebody had typed, and the same column drew at 56 for one and 22 for the next. A name too
+        // long for the column is truncated now, which is what `lineBreakMode` is for.
         let view = view()
+        let long = CategoryRecord(
+            id: 8, name: "Quarterly planning and review workshop that will not fit", iconName: nil,
+            colourID: 0, colour: .red, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
+        )
+
+        for category in [category(), long] {
+            view.show(category: category, timingState: .running, elapsed: 0)
+            view.layoutSubtreeIfNeeded()
+            XCTAssertEqual(
+                view.categoryNameLabel.font?.pointSize, TimingView.Layout.nameFontSize,
+                "\(category.name) is drawn at some other size, so the constant is not what decides it"
+            )
+        }
+        XCTAssertEqual(view.categoryNameLabel.maximumNumberOfLines, TimingView.Layout.nameMaximumLines)
+    }
+
+    func testALongNameWrapsRatherThanBeingCutAtOneLine() throws {
+        // **`.byTruncatingTail` does not wrap on macOS**, whatever `maximumNumberOfLines` says, which is the trap
+        // this pins. Measured on an `NSTextFieldCell` holding this name at 40pt in a 380pt column: 47pt for
+        // truncating tail, 94pt for word wrapping. So a line-break mode that looks like the one asking for an
+        // ellipsis quietly buys a single line, and the name loses two thirds of itself with room to spare below.
+        let view = view()
+
         view.show(category: category(), timingState: .running, elapsed: 0)
         view.layoutSubtreeIfNeeded()
-        XCTAssertEqual(view.categoryNameLabel.font?.pointSize, TimingView.Layout.nameFontSize)
-        XCTAssertEqual(view.categoryNameLabel.maximumNumberOfLines, 1)
+        let oneLine = view.categoryNameLabel.frame.height
 
         let long = CategoryRecord(
-            id: 8, name: "Quarterly planning and review workshop", iconName: nil,
+            id: 9, name: "When there is a long category it makes the windows wider", iconName: nil,
             colourID: 0, colour: .red, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
         )
         view.show(category: long, timingState: .running, elapsed: 0)
         view.layoutSubtreeIfNeeded()
 
-        let size = try? XCTUnwrap(view.categoryNameLabel.font?.pointSize)
-        XCTAssertLessThan(size ?? 0, TimingView.Layout.nameFontSize, "shrunk to fit")
-        XCTAssertGreaterThanOrEqual(
-            size ?? 0, (TimingView.Layout.nameFontSize * TimingView.Layout.nameMinimumScale).rounded(),
-            "but not past the floor, below which it truncates instead"
+        XCTAssertEqual(
+            view.categoryNameLabel.frame.height, oneLine * 2, accuracy: 2,
+            "a long name is drawn on two lines, and Break on one"
+        )
+        XCTAssertEqual(view.categoryNameLabel.lineBreakMode, .byWordWrapping, "the only mode that wraps")
+        XCTAssertTrue(
+            view.categoryNameLabel.cell?.truncatesLastVisibleLine ?? false,
+            "so a name too long even for the lines it is allowed ends in an ellipsis rather than mid-sentence"
+        )
+    }
+
+    func testTheNameIsTheSameSizeHoweverWideTheColumnIs() {
+        // A wider window draws the glyph and the clock bigger, both being fractions of the square. The name is not:
+        // it is a point size, so it stays where it is set while everything around it grows.
+        let narrow = view(width: 320)
+        let wide = view(width: 900)
+
+        for view in [narrow, wide] {
+            view.show(category: category(), timingState: .running, elapsed: 0)
+            view.layoutSubtreeIfNeeded()
+        }
+
+        XCTAssertEqual(narrow.categoryNameLabel.font?.pointSize, TimingView.Layout.nameFontSize)
+        XCTAssertEqual(wide.categoryNameLabel.font?.pointSize, TimingView.Layout.nameFontSize)
+        XCTAssertGreaterThan(
+            wide.playPauseButton.frame.width, narrow.playPauseButton.frame.width,
+            "precondition: the rest of the column does scale, which is what makes the name not scaling deliberate"
+        )
+    }
+
+    func testALongNameCannotWidenTheWindow() {
+        // **The fault this pins, measured on the running app**: a category named "When there is a long category it
+        // makes the windows wider" drew the Settings window 1295pt wide. The name label asked for 1436pt at 56pt
+        // semibold, and a label holds out for its intrinsic width at `.defaultHigh`.
+        //
+        // It cannot be asserted from the frame: in a fixed-width host the label is squeezed either way, which is
+        // why the test above passed throughout. The window is what obliges, and no hermetic container does.
+        //
+        // The shrink-to-fit above depends on this: a label that is never short of room has nothing to shrink for.
+        let view = view()
+
+        view.show(category: category(), timingState: .running, elapsed: 0)
+
+        XCTAssertEqual(
+            view.categoryNameLabel.contentCompressionResistancePriority(for: .horizontal), .defaultLow,
+            "the name may still insist on its own width, which is what widened the window"
         )
     }
 

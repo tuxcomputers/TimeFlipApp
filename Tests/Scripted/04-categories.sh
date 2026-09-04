@@ -13,7 +13,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=98
+EXPECTED_CHECKS=101
 start "creating, renaming, retiring and reinstating a category"
 
 open_settings
@@ -145,6 +145,36 @@ check "under the name that was typed" "$NAME" "$(sql "SELECT category_name FROM 
 
 # On screen as well as in the table. A row written and not drawn is the case a table-only check misses.
 check_contains "its row is on the tab" "$(tree)" "id=category-name-$ID"
+
+# ---------------------------------------------------------------------------- the length limit
+#
+# **35 characters, and the table is what enforces it**: `category_name` carries a `CHECK`, so a name past it is
+# refused by sqlite whatever the app believes. Both fields hold to the same number as they are typed into, which
+# is what makes the constraint something nobody meets.
+#
+# **Checked on what the row holds, not on what the field shows.** A field is filled here by writing its `AXValue`
+# (Methods.md Method 7), which is not a keystroke and so is not what the field's own truncation reacts to. What
+# survives either way is `CategoryCreateRules.normalise`, which every name goes through on its way to the table.
+
+# The 35th character is not a space, deliberately: `normalise` cuts and then trims, so a phrase breaking on one
+# would land at 34 and read like an off-by-one in the app rather than in the name this check chose.
+OVER="A category name far beyond the limit it is given"
+since=$(mark)
+press create-category
+sleep 0.5
+set_field category-name-field "$OVER"
+press save-category
+sleep 1
+
+CUT_ID=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $since AND message LIKE '%Save new category%' ORDER BY debug_log_id LIMIT 1;" | sed -E 's/.*category_id ([0-9]+).*/\1/')
+if [ -n "$CUT_ID" ]; then
+    pass "a name over the limit still creates a category (id $CUT_ID)"
+else
+    fail "nothing was created from a name over the limit, so the app refused what it should have cut"
+fi
+
+check "the table holds 35 characters of it" "35" "$(sql "SELECT LENGTH(category_name) FROM category WHERE category_id = ${CUT_ID:-0};")"
+check "and they are the first 35 that were typed" "${OVER:0:35}" "$(sql "SELECT category_name FROM category WHERE category_id = ${CUT_ID:-0};")"
 
 # ---------------------------------------------------------------------------- rename
 #

@@ -180,6 +180,11 @@ final class CategoryRowView: NSButton {
     private func addContent() {
         let swatch = makeSwatch()
         let name = NSTextField(labelWithString: category.name)
+        // The row is as wide as the list and the name takes what is left of it, cut off at the tail rather
+        // than pushing the window out to whatever length somebody typed.
+        name.lineBreakMode = .byTruncatingTail
+        name.maximumNumberOfLines = 1
+        LabelWidth.mayGiveWay(name)
         name.translatesAutoresizingMaskIntoConstraints = false
         addSubview(swatch)
         addSubview(name)
