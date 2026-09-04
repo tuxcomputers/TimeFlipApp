@@ -9,7 +9,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=19
+EXPECTED_CHECKS=28
 start "starting, pausing and resuming the clock"
 
 open_settings
@@ -151,6 +151,49 @@ fi
 # finished segment; resuming is the same category continuing, so it reuses the face rather than cycling
 # the pool for no reason.
 check "on the same face it was using" "$face" "$(sql "SELECT device_face FROM device_event WHERE device_event_id = $resumed;")"
+
+# ---------------------------------------------------------------------------- a long name and the window
+#
+# **A category name has no maximum length, and a label asks for its whole string on one line.** Whatever it
+# has been told about truncating or shrinking decides how it *draws*: the width it demands is the unwrapped
+# text, and the window is what finds the room. Measured on 2026-09-04, a 56-character name drew this window
+# 1295pt wide, with the Faces tab's 56pt name label asking for 1436pt of it.
+#
+# **It is created on this tab because that starts it**, which is what puts the name in the big label as well
+# as in the list on the right. Creating the same name on the Categories tab exercises only the list.
+#
+# `swift test` cannot see any of this: a pane is measured there inside a container of a fixed width, which
+# obliges a control asking for more room than it has. On screen the window obliges instead, and grows.
+
+LONG=$(next_name "Timing with a name long enough to widen the window if nothing stops it")
+
+before=$(window_width settings-window)
+if [ -n "$before" ]; then
+    pass "the window's width can be read before the long name exists ($before points)"
+else
+    fail "the window's width could not be read, so nothing below can tell whether the name moves it"
+fi
+
+since=$(mark)
+press create-category
+sleep 0.5
+set_field category-name-field "$LONG"
+press save-category
+sleep 1.5
+expect_log "a long name is saved like any other" "$since" "%Save new category $LONG%"
+
+# The whole name, not the drawn one: truncation is what the label does with the room it is given, and the
+# value it carries is still the name somebody typed.
+check_contains "and the Timing column carries all of it" "$(tree)" "id=timing-category-name  value=$LONG"
+
+check "creating it does not widen the window" "$before" "$(window_width settings-window)"
+
+# Every tab, since the name is drawn on three of them: the big label and the list here, a row on Categories,
+# a totals heading on Report. **Ending on Faces**, because the control pressed below lives on this tab.
+for tab in Categories Report App Device Faces; do
+    select_tab "$tab"
+    check "the $tab tab is still the width it was" "$before" "$(window_width settings-window)"
+done
 
 # Left paused, so the next script starts from a known state and the status item is not counting.
 press timing-play-pause

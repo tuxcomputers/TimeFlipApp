@@ -141,4 +141,24 @@ final class CategoryListViewTests: XCTestCase {
         XCTAssertNotNil(row.action, "pressing it, by mouse or by keyboard or by script, does something")
         XCTAssertNotNil(row.target, "and there is something for it to do it to")
     }
+
+    func testALongNameGivesWayRatherThanWideningTheList() throws {
+        // **Measured on the running app**: a 56-character category name drew the Settings window 1295pt wide. A row
+        // is as wide as the list, so the name has to take what is left of it -- and until the priority came down it
+        // demanded its whole string instead, with nothing on the row to stop it.
+        let list = CategoryListView()
+
+        list.show([category(1, "When there is a long category it makes the windows wider")])
+
+        let row = try XCTUnwrap(rowViews(of: list).first)
+        let name = try XCTUnwrap(
+            row.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue.hasPrefix("When there is") }
+        )
+        XCTAssertEqual(
+            name.contentCompressionResistancePriority(for: .horizontal), .defaultLow,
+            "the name may still insist on its own width, which is what widened the window"
+        )
+        XCTAssertEqual(name.lineBreakMode, .byTruncatingTail, "and being squeezed has to end in an ellipsis, not a cut glyph")
+        XCTAssertEqual(name.maximumNumberOfLines, 1, "a row is one line tall")
+    }
 }

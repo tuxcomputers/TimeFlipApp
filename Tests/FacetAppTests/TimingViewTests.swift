@@ -128,6 +128,25 @@ final class TimingViewTests: XCTestCase {
         )
     }
 
+    func testALongNameCannotWidenTheWindow() {
+        // **The fault this pins, measured on the running app**: a category named "When there is a long category it
+        // makes the windows wider" drew the Settings window 1295pt wide. The name label asked for 1436pt at 56pt
+        // semibold, and a label holds out for its intrinsic width at `.defaultHigh`.
+        //
+        // It cannot be asserted from the frame: in a fixed-width host the label is squeezed either way, which is
+        // why the test above passed throughout. The window is what obliges, and no hermetic container does.
+        //
+        // The shrink-to-fit above depends on this: a label that is never short of room has nothing to shrink for.
+        let view = view()
+
+        view.show(category: category(), timingState: .running, elapsed: 0)
+
+        XCTAssertEqual(
+            view.categoryNameLabel.contentCompressionResistancePriority(for: .horizontal), .defaultLow,
+            "the name may still insist on its own width, which is what widened the window"
+        )
+    }
+
     func testTheElapsedFigureIsTruncatedNotRounded() {
         let view = view()
 

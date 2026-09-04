@@ -425,27 +425,18 @@ final class AppSettingsPane: NSView {
         debugDirectoryValue.toolTip = debugDirectoryValue.stringValue
     }
 
-    /// **A wrapping label asks for its whole text on one line, and the window gives it.** `maximumNumberOfLines = 0`
-    /// decides how a label *draws*; its intrinsic width is still the unwrapped string, and a footnote is the longest
-    /// run of text on the tab. Measured: the Debug note asked for 763pt inside a 640pt window, and selecting the App
-    /// tab widened the window to suit it.
+    /// Lets a footnote be squeezed to the panel's width (`LabelWidth`), the measured 763pt demand behind that
+    /// being the Debug note's.
     ///
-    /// **Lowering the priority is the whole fix, and the height needs nothing.** The width is already pinned to the
-    /// panel, so nothing is lost by letting the label be squeezed, and `NSTextFieldCell` sizes a wrapped label's
-    /// height against the width it is actually given -- measured at 26pt for this two-line footnote inside a 588pt
-    /// row, while `intrinsicContentSize` was still reporting the one-line 13. A `preferredMaxLayoutWidth` dance was
-    /// written here first and taken out again: it reads frames that `super.layout()` has not yet resized, so it is
-    /// always one pass behind on a window that is being dragged.
+    /// **The height needs nothing alongside it.** `NSTextFieldCell` sizes a wrapped label against the width it is
+    /// actually given -- measured at 26pt for this two-line footnote inside a 588pt row, while
+    /// `intrinsicContentSize` was still reporting the one-line 13. A `preferredMaxLayoutWidth` dance was written
+    /// here first and taken out again: it reads frames that `super.layout()` has not yet resized, so it is always
+    /// one pass behind on a window that is being dragged.
     private func wrap(_ note: NSTextField) {
-        note.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        LabelWidth.mayGiveWay(note)
     }
 
-    /// Tells each footnote the width it is actually being given, so its intrinsic size is the wrapped one.
-    ///
-    /// **Set here rather than once, because the window resizes.** The width a note is given changes with the window,
-    /// and a `preferredMaxLayoutWidth` fixed at build time would be wrong at every other size -- too short and the
-    /// text is cut off, too long and the row reserves height it does not use.
-    ///
     /// Takes on whether there is a trace file, which is not a setting and not something this pane can see: the file
     /// comes into being the moment logging starts writing, and goes when somebody moves it out from under the app.
     func showTrace(exists: Bool) {

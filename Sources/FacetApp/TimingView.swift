@@ -457,6 +457,9 @@ final class TimingView: NSView {
         categoryNameLabel.alignment = .center
         categoryNameLabel.lineBreakMode = .byTruncatingTail
         categoryNameLabel.maximumNumberOfLines = 1
+        // Without this the column is never short of room, so neither the truncation above nor
+        // `apply(nameFontFitting:)` below ever happens: the window widens instead.
+        LabelWidth.mayGiveWay(categoryNameLabel)
         categoryNameLabel.translatesAutoresizingMaskIntoConstraints = false
         categoryNameLabel.setAccessibilityIdentifier(Identifier.categoryName)
 

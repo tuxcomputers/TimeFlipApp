@@ -87,6 +87,25 @@ final class ReportCategoryGroupTests: XCTestCase {
         XCTAssertEqual(group.frame.height, ReportCategoryGroup.Layout.rowHeight)
     }
 
+    func testALongNameGivesWayBeforeTheFigureDoes() throws {
+        // The row is built to truncate the name rather than cut the figure the row exists to show, and equal
+        // priorities made that a comment rather than a behaviour: both held out for their own width, so the window
+        // widened to hold whatever somebody had typed. **Measured on the Faces tab, the same fault**: a 56-character
+        // name drew the Settings window 1295pt wide.
+        let group = made(total("When there is a long category it makes the windows wider"))
+
+        let fields = descendants(of: group).compactMap { $0 as? NSTextField }
+        let name = try XCTUnwrap(fields.first { $0.stringValue.hasPrefix("When there is") })
+        let figure = try XCTUnwrap(fields.first { $0.stringValue.contains(":") })
+
+        XCTAssertEqual(name.contentCompressionResistancePriority(for: .horizontal), .defaultLow)
+        XCTAssertGreaterThan(
+            figure.contentCompressionResistancePriority(for: .horizontal),
+            name.contentCompressionResistancePriority(for: .horizontal),
+            "which is the whole of what makes the name give way first"
+        )
+    }
+
     // MARK: - opening
 
     func testTheWholeHeadingLineOpensTheGroupRatherThanJustTheTriangle() throws {

@@ -161,6 +161,9 @@ final class ReportCategoryGroup: NSView {
         let swatch = ReportSwatch.make(total)
         let name = NSTextField(labelWithString: total.name)
         name.lineBreakMode = .byTruncatingTail
+        // What makes the constraint below true rather than merely written: the figure keeps `.defaultHigh`,
+        // so a row short of room takes it out of the name.
+        LabelWidth.mayGiveWay(name)
         name.translatesAutoresizingMaskIntoConstraints = false
 
         let duration = figure(ReportEntryText.duration(total.seconds, showingSeconds: showingSeconds))
