@@ -305,7 +305,11 @@ check "nor is the question put again" "0" \
 # reach, and `99-quit` wipes it -- which it cannot do through a PIN this app does not have.
 
 restore_pin
-check "config.json holds the working PIN again" "123456" \
+# **Compared against the PIN this script read off the cube's own trace, not a value written here.** It is six random
+# digits chosen at pairing (the fixed `123456` went with the developer flag on 2026-09-04), so a literal in this
+# check would fail on every cube that has ever been re-paired. Run 157 failed here reading `688247`, which was the
+# right answer arriving at a check that had been left behind.
+check "config.json holds the working PIN again" "$PIN_REAL" \
     "$(python3 -c "import json;print(json.load(open('$CONFIG'))['PIN'])" 2>/dev/null)"
 
 quit_app
