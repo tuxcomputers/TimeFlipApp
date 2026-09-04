@@ -274,7 +274,13 @@ fi
 # **Written while it was still recording**, which is the order `SettingsWindowController.store` takes: the
 # row goes down, and only then is the logger told to stop. A trace that stopped before saying why would be
 # missing the one line explaining its own end.
-expect_log "and the write is recorded" "$since" "App setting debug.enabled"
+# **The trailing `%` is the whole of it, and it is not decoration.** `wait_for` matches with
+# `message LIKE '$pattern'` and adds no wildcards of its own, so a pattern that stops where the message
+# carries on cannot match: the row reads `App setting debug.enabled -> flag(false)`. Run 156 failed here
+# with that row sitting in the table 170ms after the mark, exactly the shape `wait_for`'s own comment
+# describes for an unescaped apostrophe -- a confident verdict pointing at the app for a fault in the
+# check. Every other pattern in this suite carries its own `%`; this one did not.
+expect_log "and the write is recorded" "$since" "App setting debug.enabled ->%"
 expect_log "and the trace says it is stopping" "$since" "Logging turned off"
 
 # **The switch is live, and this is what says so.** With logging off, a gesture that always writes a row
