@@ -2,24 +2,20 @@
 
 A native macOS menu bar application for the [TimeFlip2](https://timeflip.io/) time tracking device.
 
+**Using Facet is documented at [facet.com.au](https://facet.com.au)**: installing it, pairing a cube,
+setting categories up, connecting a Google account and what everything on screen means. Everything in
+this repository is about *building* the app instead, and is written for whoever is working on it.
+
 ## Provenance
 
 This is AI-generated code all the way down, and it's worth being honest about that. The original author, [growler](https://github.com/growler), vibecoded the base project - including the core Bluetooth Low Energy layer that talks to the TimeFlip2 - mostly with OpenAI Codex. They've said themselves they'd never written for macOS before. Everything I've built on top of that fork is the same story. I don't know Swift either, and the actual code was written by Claude Sonnet 5 via the VS Code plugin. The design decisions are mine (Harry Phillips), for better or worse.
 
-## Features
+## What it does
 
-- **Menu Bar Timer**: Real-time activity tracking with icon, elapsed time, and pause/play indicators
-- **BLE Device Integration**: Direct connection to TimeFlip2 via Bluetooth Low Energy, with automatic reconnection (including on system wake from sleep) if the connection drops
-- **Status Indicators**: the menu bar line is coloured by which reading it is: **green** while the cube is doing the timing, **cyan** while the app is, **yellow** for a paired cube that has dropped and whose last reading can no longer be confirmed, and **red** on the figure alone once a category is over its daily limit. Low battery flashes the category's name red twice a second
-- **Device Lock Control**: Double-click to lock/unlock the device directly from the menu bar
-- **Categories**: Unlimited categories with their own icon, color and daily time limit. Typing a name that doesn't exist creates it. Retiring one takes it off the faces and out of the assignment list while keeping every hour ever recorded against it. Click a name to rename it, on the retired list as well as the active one: retired categories are allowed to share a name, so being able to give one its own is how you tell two of them apart for good
-- **Faces**: Assign any category to any face, and the same category to several faces at once. A face can be locked so it keeps what it has, and a locked face's category cannot be retired out from under it
-- **Timing by hand**: with no cube paired, time from the app instead -- pick a category on the Faces tab and the clock runs on it, into the same tables a cube writes. It is not a mode you enter or leave: it is simply what the app does when nothing is paired, read at the point of use, so pairing a cube makes the app follow it from that moment and forgetting one hands the clock back, neither needing a restart
-- **Report**: Per-category totals over a chosen span of days. Spans crossing either end are clipped to the range, so two adjacent reports add up to the report over both
-- **Auto-Pause Support**: Automatic pause after a configurable idle time, and optionally when the device is locked
-- **Daily Statistics**: Time per category for the app's own day, which starts at a configurable reset time rather than at midnight
-- **Device Control**: LED brightness, blink intervals, and double-tap sensitivity configuration
-- **Google Calendar sync**: Recorded time appears in a calendar Facet makes for itself, titled with the category and carrying the entry's ids in the notes. Recording an entry sweeps everything not yet synced, so time recorded while offline goes across on the next one, and each event is read back and checked before the entry is marked done
+Times what a TimeFlip2 cube is doing from the macOS menu bar, files it under a category, keeps the
+record in a local SQLite database and syncs it to a Google calendar of its own. With no cube paired it
+times from the app instead, into the same tables. [facet.com.au](https://facet.com.au) covers all of it
+from the using end.
 
 ### Not built yet
 
@@ -32,12 +28,12 @@ This is AI-generated code all the way down, and it's worth being honest about th
 
 - **Pomodoro timers**: totally doable, but I don't use this workflow myself and I am not sure about UX. PRs are welcome
 
-## Getting Started
+## Working on it
 
-- **[Installation](docs/installation.md)** - system requirements and building the app from source
-- **[Configuration](docs/configuration.md)** - Google account setup, pairing your TimeFlip device, configuring activities, everyday usage, and troubleshooting
+- **[Installation](docs/installation.md)** - system requirements, building from source, and what to run
 - **[Contributing](CONTRIBUTING.md)** - code style, security guidelines, and how to submit a PR
-- **[Workflow](docs/workflow.md)** - how the device owner organizes activities and faces
+- **[Google OAuth setup](docs/google-oauth-setup.md)** - the Google project a build signs in against
+- **[Workflow](docs/workflow.md)** - the usage the schema is shaped around, and why
 - **[Operation Spec](docs/operation-spec.md)** - how a device event becomes a calendar entry
 - **[Database Design](docs/database-design.md)** - the local SQLite schema
 - **[The rebuild](docs/rebuild.md)** - what is built, what is still owed, and the reasoning behind each piece
@@ -121,5 +117,5 @@ That permission was granted to me, for this project specifically, and **does not
 ## Support
 
 For bugs and feature requests, please [open an issue](https://github.com/tuxcomputers/TimeFlipApp/issues).
-
-For device-related questions, contact [TimeFlip Support](mailto:support@timeflip.io).
+Anything about using the app, or about the cube itself, is answered at
+[facet.com.au](https://facet.com.au).

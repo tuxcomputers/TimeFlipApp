@@ -1,8 +1,10 @@
-# Workflow: How This App Is Meant To Be Used
+# Workflow: the usage the schema is shaped around
 
 [← Back to README](../README.md) · [Operation Spec](operation-spec.md) · [Database Design](database-design.md)
 
-This document describes the intended *usage* of the app — how the device owner wants to organize activities and faces. It's the "what and why" behind the schema; see the [Operation Spec](operation-spec.md) for the "how" (the technical pipeline that turns a device event into a stored record).
+The *why* behind the schema: what the device owner is trying to do with activities and faces, and which of the app's shapes follow from it. See the [Operation Spec](operation-spec.md) for the "how" (the technical pipeline that turns a device event into a stored record), and [Database Design](database-design.md) for what the rows look like.
+
+**This is not the guide to using the app.** That is at <https://facet.com.au>. What is here is the reasoning a change to the schema or to the tabs has to survive.
 
 ## Two kinds of activity
 
