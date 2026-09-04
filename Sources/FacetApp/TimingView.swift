@@ -64,6 +64,10 @@ final class TimingView: NSView {
         /// has to the glyph it sits under, so the pair reads the same way in both pictures.
         static let faceElapsedScale: CGFloat = 0.4
 
+        /// What that comes to, in points. **Derived, so editing `nameFontSize` moves the figure and the cube glyph
+        /// beside it with the name**, and so the two places that need the number cannot round it differently.
+        static let faceElapsedFontSize: CGFloat = (nameFontSize * faceElapsedScale).rounded()
+
         /// Between the glyph and the figure it stands beside. A fixed gap rather than a scaled one: it is the space
         /// between two things on one short line, not a proportion of the picture.
         static let faceGlyphSpacing: CGFloat = 6
@@ -75,10 +79,14 @@ final class TimingView: NSView {
         /// a fixed point size crowds the glyph at one width and looks stranded at another.
         static let elapsedFontScale: CGFloat = 0.3
         static let elapsedGapScale: CGFloat = 0.12
-        /// The category name under the square. Sized to fill the space the square leaves rather than to any
-        /// system text style, and shrinking rather than wrapping, since a name has no length limit.
+        /// The category name under the square, drawn at exactly this size whatever the name is and however wide
+        /// the column is. **This is the one number to edit to try another**: the figure below the name follows it
+        /// through `faceElapsedScale`, so the pair moves together.
+        ///
+        /// **A name too long for the column is truncated, not shrunk.** It was fitted by stepping down from here to
+        /// a floor and truncating past that, which meant the size on screen depended on how long a name somebody
+        /// had typed -- so the same column drew at 56 for one category and 22 for the next.
         static let nameFontSize: CGFloat = 56
-        static let nameMinimumScale: CGFloat = 0.4
         /// Between the square and the name.
         static let nameSpacing: CGFloat = 12
     }
@@ -215,9 +223,6 @@ final class TimingView: NSView {
         )
         playPauseButton.setAccessibilityLabel(timingState == .running ? "Running, click to pause" : "Paused, click to resume")
         categoryNameLabel.stringValue = category?.name ?? ""
-        // Applied here as well as in `layout()`: the fitted size depends on the text, which only changes
-        // here, and a view with no window may not be asked to lay out again just because it wants to.
-        apply(nameFontFitting: bounds.width)
         needsLayout = true
     }
 
@@ -285,9 +290,6 @@ final class TimingView: NSView {
         applyFigureHeight()
         categoryNameLabel.isHidden = false
         categoryNameLabel.stringValue = category?.name ?? ""
-        // Applied here as well as in `layout()`, for the reason the other `show` gives: the fitted size depends on the
-        // text, and a view with no window may never be asked to lay out again.
-        apply(nameFontFitting: bounds.width)
         needsLayout = true
     }
 
@@ -351,18 +353,11 @@ final class TimingView: NSView {
         centred.spacing = (glyphSize * Layout.elapsedGapScale).rounded()
         apply(glyphSize: glyphSize)
         apply(elapsedFontSize: (glyphSize * Layout.elapsedFontScale).rounded())
-        apply(nameFontFitting: side)
-        // Sized off the name it sits under rather than off the square, so the two move together as the name shrinks
-        // to fit a long category.
-        let figureSize = ((categoryNameLabel.font?.pointSize ?? Layout.nameFontSize) * Layout.faceElapsedScale).rounded()
-        if faceElapsedLabel.font?.pointSize != figureSize {
-            faceElapsedLabel.font = .monospacedDigitSystemFont(ofSize: figureSize, weight: .medium)
+        if faceGlyphWidth.constant != Layout.faceElapsedFontSize {
+            faceGlyphWidth.constant = Layout.faceElapsedFontSize
+            faceGlyphHeight.constant = Layout.faceElapsedFontSize
         }
-        if faceGlyphWidth.constant != figureSize {
-            faceGlyphWidth.constant = figureSize
-            faceGlyphHeight.constant = figureSize
-        }
-        apply(faceGlyphSize: figureSize)
+        apply(faceGlyphSize: Layout.faceElapsedFontSize)
         applyFigureHeight()
     }
 
@@ -412,23 +407,6 @@ final class TimingView: NSView {
         elapsedLabel.font = .monospacedDigitSystemFont(ofSize: elapsedFontSize, weight: .medium)
     }
 
-    /// Shrinks the name to fit the column rather than wrapping or clipping it, down to a floor -- past which
-    /// it truncates, because a name shrunk indefinitely stops being readable before it stops being long.
-    private func apply(nameFontFitting width: CGFloat) {
-        guard width > 0, !categoryNameLabel.stringValue.isEmpty else { return }
-        let floor = (Layout.nameFontSize * Layout.nameMinimumScale).rounded()
-        var size = Layout.nameFontSize
-        while size > floor {
-            let font = NSFont.systemFont(ofSize: size, weight: .semibold)
-            let measured = (categoryNameLabel.stringValue as NSString)
-                .size(withAttributes: [.font: font]).width
-            if measured <= width { break }
-            size -= 1
-        }
-        guard categoryNameLabel.font?.pointSize != size else { return }
-        categoryNameLabel.font = .systemFont(ofSize: size, weight: .semibold)
-    }
-
     private func addContent() {
         squareArea.translatesAutoresizingMaskIntoConstraints = false
 
@@ -457,8 +435,8 @@ final class TimingView: NSView {
         categoryNameLabel.alignment = .center
         categoryNameLabel.lineBreakMode = .byTruncatingTail
         categoryNameLabel.maximumNumberOfLines = 1
-        // Without this the column is never short of room, so neither the truncation above nor
-        // `apply(nameFontFitting:)` below ever happens: the window widens instead.
+        // Without this the column is never short of room, so the truncation above never happens: the label
+        // demands its whole string on one line and the window widens to hold it (`LabelWidth`).
         LabelWidth.mayGiveWay(categoryNameLabel)
         categoryNameLabel.translatesAutoresizingMaskIntoConstraints = false
         categoryNameLabel.setAccessibilityIdentifier(Identifier.categoryName)
@@ -486,7 +464,7 @@ final class TimingView: NSView {
                 view.setContentCompressionResistancePriority(.defaultLow, for: axis)
             }
         }
-        faceElapsedLabel.font = .monospacedDigitSystemFont(ofSize: Layout.nameFontSize * Layout.faceElapsedScale, weight: .medium)
+        faceElapsedLabel.font = .monospacedDigitSystemFont(ofSize: Layout.faceElapsedFontSize, weight: .medium)
         faceElapsedLabel.textColor = .secondaryLabelColor
         faceElapsedLabel.alignment = .center
         faceElapsedLabel.translatesAutoresizingMaskIntoConstraints = false

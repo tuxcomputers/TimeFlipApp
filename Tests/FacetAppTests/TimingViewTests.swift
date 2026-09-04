@@ -106,25 +106,45 @@ final class TimingViewTests: XCTestCase {
         )
     }
 
-    func testTheNameIsLargeAndShrinksRatherThanWrapping() {
+    func testTheNameIsTheSizeTheConstantSaysWhateverItSays() {
+        // **One size, decided by `nameFontSize` and by nothing else.** It used to be fitted -- stepped down from the
+        // constant until the name fit the column, floored at 0.4 of it -- so what a category was drawn at depended on
+        // how long a name somebody had typed, and the same column drew at 56 for one and 22 for the next. A name too
+        // long for the column is truncated now, which is what `lineBreakMode` is for.
         let view = view()
-        view.show(category: category(), timingState: .running, elapsed: 0)
-        view.layoutSubtreeIfNeeded()
-        XCTAssertEqual(view.categoryNameLabel.font?.pointSize, TimingView.Layout.nameFontSize)
-        XCTAssertEqual(view.categoryNameLabel.maximumNumberOfLines, 1)
-
         let long = CategoryRecord(
-            id: 8, name: "Quarterly planning and review workshop", iconName: nil,
+            id: 8, name: "Quarterly planning and review workshop that will not fit", iconName: nil,
             colourID: 0, colour: .red, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
         )
-        view.show(category: long, timingState: .running, elapsed: 0)
-        view.layoutSubtreeIfNeeded()
 
-        let size = try? XCTUnwrap(view.categoryNameLabel.font?.pointSize)
-        XCTAssertLessThan(size ?? 0, TimingView.Layout.nameFontSize, "shrunk to fit")
-        XCTAssertGreaterThanOrEqual(
-            size ?? 0, (TimingView.Layout.nameFontSize * TimingView.Layout.nameMinimumScale).rounded(),
-            "but not past the floor, below which it truncates instead"
+        for category in [category(), long] {
+            view.show(category: category, timingState: .running, elapsed: 0)
+            view.layoutSubtreeIfNeeded()
+            XCTAssertEqual(
+                view.categoryNameLabel.font?.pointSize, TimingView.Layout.nameFontSize,
+                "\(category.name) is drawn at some other size, so the constant is not what decides it"
+            )
+        }
+        XCTAssertEqual(view.categoryNameLabel.maximumNumberOfLines, 1)
+        XCTAssertEqual(view.categoryNameLabel.lineBreakMode, .byTruncatingTail, "which is what a name too long for the column gets")
+    }
+
+    func testTheNameIsTheSameSizeHoweverWideTheColumnIs() {
+        // A wider window draws the glyph and the clock bigger, both being fractions of the square. The name is not:
+        // it is a point size, so it stays where it is set while everything around it grows.
+        let narrow = view(width: 320)
+        let wide = view(width: 900)
+
+        for view in [narrow, wide] {
+            view.show(category: category(), timingState: .running, elapsed: 0)
+            view.layoutSubtreeIfNeeded()
+        }
+
+        XCTAssertEqual(narrow.categoryNameLabel.font?.pointSize, TimingView.Layout.nameFontSize)
+        XCTAssertEqual(wide.categoryNameLabel.font?.pointSize, TimingView.Layout.nameFontSize)
+        XCTAssertGreaterThan(
+            wide.playPauseButton.frame.width, narrow.playPauseButton.frame.width,
+            "precondition: the rest of the column does scale, which is what makes the name not scaling deliberate"
         )
     }
 
