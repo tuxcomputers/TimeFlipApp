@@ -6,9 +6,9 @@ import AppKit
 /// previous app's: what the item says can then be asserted without a status item, a menu bar, or a rendered line of
 /// text. It is `Equatable` for a second reason as well -- it is what tells a redraw that nothing has changed.
 ///
-/// **The order is the previous app's**, and the reason for it survives: the database badge is first because it
-/// qualifies everything to its right, and the category's icon rides *inside* the title rather than as the button's
-/// own image, which would draw it to the left of the badge (see `DatabaseBadge`).
+/// **The order is the previous app's**, and the reason for it survives: the category's icon rides *inside* the title
+/// rather than as the button's own image, which would draw it to the left of everything and outside the run of text
+/// the rest of the line is.
 struct StatusItemTitle: Equatable {
     /// The words: the category being timed, or the app's own name when nothing is.
     let text: String
@@ -115,14 +115,12 @@ struct StatusItemTitle: Equatable {
 
     /// - Parameters:
     ///   - appLabel: the app's own name, which is the whole title while nothing is being timed.
-    ///   - badgeDescription: the database badge spelled out, or `nil` in a build without one. The badge's *text*
     ///     is drawn separately, carrying its own colour and weight.
     ///   - reading: the session, read at the moment this is being composed.
     ///   - showingSeconds: whether the figure carries seconds, from `display_seconds`.
     /// - Parameter lowBattery: the warning and which half of its flash is up, asked for as the item is drawn.
     static func make(
         appLabel: String,
-        badgeDescription: String?,
         reading: TimingReadout.Reading,
         showingSeconds: Bool,
         isLimitReached: Bool = false,
@@ -215,7 +213,7 @@ struct StatusItemTitle: Equatable {
                 glyphColour: .labelColor,
                 // The figure is said as well as drawn, for the reason the limit and the lock are: what is on the line
                 // has to reach somebody reading it aloud, and a duration is the one part of it that is never a colour.
-                spoken: spoken(spokenParts, badgeDescription: badgeDescription)
+                spoken: spoken(spokenParts)
             )
         }
         // Idle keeps the app's name and nothing else, which is what the item has always shown before a session
@@ -242,7 +240,7 @@ struct StatusItemTitle: Equatable {
                 // Nothing is drawn in it, `glyphName` being `nil` here, and it is still answered rather than
                 // defaulted: a field with no answer is a field somebody later picks one for by accident.
                 glyphColour: .labelColor,
-                spoken: spoken(idleParts, badgeDescription: badgeDescription)
+                spoken: spoken(idleParts)
             )
         }
         let duration = DurationFormat.hoursMinutesSeconds(
@@ -287,7 +285,7 @@ struct StatusItemTitle: Equatable {
             colour: isLimitReached ? .systemRed : Self.byHand,
             nameColour: flash ?? Self.byHand,
             glyphColour: .labelColor,
-            spoken: spoken(sessionParts, badgeDescription: badgeDescription)
+            spoken: spoken(sessionParts)
         )
     }
 
@@ -327,7 +325,7 @@ struct StatusItemTitle: Equatable {
     /// anything resolved before the draw is a frozen answer.
     private static let byHand: NSColor = .systemCyan
 
-    private static func spoken(_ parts: [String], badgeDescription: String?) -> String {
-        (parts + [badgeDescription].compactMap { $0 }).joined(separator: ", ")
+    private static func spoken(_ parts: [String]) -> String {
+        parts.joined(separator: ", ")
     }
 }

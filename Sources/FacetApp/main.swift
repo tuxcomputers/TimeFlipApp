@@ -46,14 +46,6 @@ let categories = CategoryStore(connection: database)
 let faces = FaceStore(connection: database)
 let timezones = TimezoneStore(connection: database)
 
-// The badge names which database this launch opened, on every run.
-//
-// **It was gated on the developer flag, and the flag was always on**, so taking the gate away changes nothing about
-// what is drawn -- which is the point: the moment this is worth knowing is the moment somebody has forgotten which
-// database they started under, and that is not a moment a build flag can predict. A test database has to be
-// unmistakable or a real day's timings end up in something disposable, and a database that will not say which it is
-// deserves more attention still, not less.
-let databaseBadge = DatabaseBadge.forEnvironment(DatabaseEnvironment.read(from: settings))
 // **The trace goes in its own file**, and both of the `debug` row's fields are read here, at launch.
 //
 // **`enabled` is where it starts, not where it stays.** The logger is built either way and records only while the
@@ -498,7 +490,6 @@ historyIngestor.onChanged = {
 }
 
 let menuBar = MenuBarController(
-    databaseBadge: databaseBadge,
     debugLog: debugLog,
     openSettings: { settingsWindow.show() },
     // Asked as the item is drawn and as the menu opens, rather than pushed when it changes, so neither can be

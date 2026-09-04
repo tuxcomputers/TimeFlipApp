@@ -19,14 +19,12 @@ final class StatusItemTitleTests: XCTestCase {
     private func title(
         _ reading: TimingReadout.Reading,
         showingSeconds: Bool = true,
-        badge: String? = nil,
         isLimitReached: Bool = false,
         lowBattery: LowBatteryAlert = .none,
         cubeLockState: CubeLockState = .unknown
     ) -> StatusItemTitle {
         StatusItemTitle.make(
             appLabel: appLabel,
-            badgeDescription: badge,
             reading: reading,
             showingSeconds: showingSeconds,
             isLimitReached: isLimitReached,
@@ -229,15 +227,12 @@ final class StatusItemTitleTests: XCTestCase {
 
     // MARK: - what VoiceOver reads
 
-    func testTheSpokenLabelSaysWhatTheGlyphAndTheBadgeCannot() {
-        let title = title(
-            TimingReadout.Reading(category: category(), timingState: .running, seconds: 3_725),
-            badge: "test database"
-        )
+    func testTheSpokenLabelSaysWhatTheGlyphCannot() {
+        let title = title(TimingReadout.Reading(category: category(), timingState: .running, seconds: 3_725))
 
-        // The glyph is an image and the badge's warning is a colour: neither reaches a screen reader, so both are
-        // spelled out. The name leads, because that is the answer to what the item is showing.
-        XCTAssertEqual(title.spoken, "Meeting, running, 1:02:05, Facet, test database")
+        // The glyph is an image and reaches no screen reader, so it is spelled out. The name leads, because that is
+        // the answer to what the item is showing.
+        XCTAssertEqual(title.spoken, "Meeting, running, 1:02:05, Facet")
     }
 
     func testTheSpokenLabelSaysWhenTheClockIsStopped() {
@@ -246,10 +241,10 @@ final class StatusItemTitleTests: XCTestCase {
         XCTAssertEqual(title.spoken, "Meeting, paused, 0:01:00, Facet")
     }
 
-    func testIdleStillNamesTheDatabase() {
-        // The timingState the app sits in before anything is timed, which is exactly when somebody is most likely to be
-        // wondering which database this launch opened.
-        XCTAssertEqual(title(.idle, badge: "test database").spoken, "Facet, test database")
+    func testIdleIsTheAppsNameAlone() {
+        // **Nothing names the database any more** (2026-09-04): the `TEST`/`PROD` tag went with the developer flag,
+        // and its spoken half went with it.
+        XCTAssertEqual(title(.idle).spoken, "Facet")
     }
 
     // MARK: - a cube running out of charge

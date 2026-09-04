@@ -56,7 +56,6 @@ Creating a category stays here as well as arriving on the Categories tab: this i
 
 - [x] **The status item and Quit** ([MenuBarController.swift](../Sources/FacetApp/MenuBarController.swift)). From here on Quit is the only way out of the app.
 - [x] **The left/right split** ([StatusItemClickRouter.swift](../Sources/FacetApp/StatusItemClickRouter.swift)), decided outside the AppKit it is decided inside, because the previous app's rules were nested `guard`s in a click handler no test could reach.
-- [x] **The database badge** at the far left: `TEST`, `PROD` or `DB?`, on every run, first because it  qualifies everything to its right.
 - [x] **Every click recorded** in `debug_log`, including the clicks that deliberately do nothing.
 - [x] **Settings**, opening the window.
 - [x] **Pause and Resume in the dropdown**, named and enabled from the state at the moment the menu opens.
