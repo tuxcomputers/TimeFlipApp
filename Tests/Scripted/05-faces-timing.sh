@@ -165,7 +165,12 @@ check "on the same face it was using" "$face" "$(sql "SELECT device_face FROM de
 # `swift test` cannot see any of this: a pane is measured there inside a container of a fixed width, which
 # obliges a control asking for more room than it has. On screen the window obliges instead, and grows.
 
-LONG=$(next_name "Timing with a name long enough to widen the window if nothing stops it")
+# **Exactly the longest name the app now takes**, since that is the worst case there is: `category_name` is
+# `CHECK`ed at 35 and both fields hold to it, so a name past it cannot reach a window to widen one. Built to
+# that length rather than typed out, so the run counter stays in it and the length does not move with it.
+number=$(next_name Widest); number=${number##* }
+LONG="Widest allowed category name $number"
+LONG="$LONG$(printf 'x%.0s' $(seq 1 $((35 - ${#LONG}))))"
 
 before=$(window_width settings-window)
 if [ -n "$before" ]; then
@@ -180,7 +185,7 @@ sleep 0.5
 set_field category-name-field "$LONG"
 press save-category
 sleep 1.5
-expect_log "a long name is saved like any other" "$since" "%Save new category $LONG%"
+expect_log "a name at the limit is saved whole" "$since" "%Save new category $LONG%"
 
 # The whole name, not the drawn one: truncation is what the label does with the room it is given, and the
 # value it carries is still the name somebody typed.

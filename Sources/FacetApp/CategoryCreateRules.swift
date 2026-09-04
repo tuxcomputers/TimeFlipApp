@@ -82,10 +82,27 @@ enum CategoryCreateRules {
         return choices[index]
     }
 
-    /// Collapses whitespace, so a trailing space cannot slip a duplicate past the check that follows and
-    /// two categories cannot differ only by how they were typed.
+    /// The most characters a category name may hold.
+    ///
+    /// **The same number is a `CHECK` on `category_name` (`database/007_category.sql`)**, which is the one that
+    /// actually holds: this is what stops a name reaching it, not what decides the limit. Both fields that take a
+    /// name are held to it as they are typed, so the constraint is never the thing a person meets.
+    static let maximumLength = 35
+
+    /// Collapses whitespace and cuts the result to `maximumLength`, which is what the table will hold whatever was
+    /// typed. Collapsing is so that a trailing space cannot slip a duplicate past the check that follows, and two
+    /// categories cannot differ only by how they were typed.
+    ///
+    /// **Cut after collapsing, not before**, or the limit would count spaces that are about to disappear, and a
+    /// trailing space left by the cut goes too: it is invisible on screen and would make the name unmatchable
+    /// against the same one typed again.
+    ///
+    /// Every name reaching the table comes through here, from both fields and both decisions, which is what makes
+    /// this a guarantee rather than a second opinion.
     static func normalise(_ raw: String) -> String {
-        raw.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let collapsed = raw.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        guard collapsed.count > maximumLength else { return collapsed }
+        return String(collapsed.prefix(maximumLength)).trimmingCharacters(in: .whitespaces)
     }
 
     /// `matching` is asked for **every** category holding the normalised name, active one first (see

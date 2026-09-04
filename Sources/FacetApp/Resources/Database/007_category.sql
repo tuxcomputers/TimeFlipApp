@@ -3,7 +3,7 @@
 
 CREATE TABLE IF NOT EXISTS category (
   category_id     INTEGER CONSTRAINT PK_category PRIMARY KEY AUTOINCREMENT
-  , category_name TEXT NOT NULL
+  , category_name TEXT NOT NULL CHECK (LENGTH(category_name) <= 35)
   , icon_id       INTEGER NOT NULL DEFAULT 0 REFERENCES icon(icon_id)
   , colour_id     INTEGER NOT NULL DEFAULT 0 REFERENCES colour(colour_id)
   , project_id    INTEGER NOT NULL DEFAULT 0 REFERENCES project(project_id)

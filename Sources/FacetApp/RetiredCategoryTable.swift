@@ -239,6 +239,7 @@ final class RetiredCategoryRow: NSStackView {
             width: CategoryTable.Layout.nameColumnWidth,
             identifier: "retired-category-name-\(category.id)"
         )
+        cell.maximumLength = CategoryCreateRules.maximumLength
         cell.onCommit = { [weak self] typed in self?.onRename?(typed) }
         cell.onEditingChanged = { [weak self] isEditing in self?.onRenameEditingChanged?(isEditing) }
         nameCell = cell

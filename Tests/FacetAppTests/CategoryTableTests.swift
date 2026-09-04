@@ -558,4 +558,15 @@ final class CategoryTableTests: XCTestCase {
             "the panel closes around the heading rather than staying open over nothing"
         )
     }
+
+    func testTheNameCellIsHeldToTheLimit() throws {
+        // The other way a name reaches the table. A rename with no ceiling would put a name past
+        // `category_name`'s `CHECK` straight into the write, where the create field could not.
+        let table = CategoryTable()
+        table.show([category(1, "Break")])
+
+        let cell = try XCTUnwrap(nameCell(of: try XCTUnwrap(rows(of: table).first)))
+
+        XCTAssertEqual(cell.maximumLength, CategoryCreateRules.maximumLength)
+    }
 }
