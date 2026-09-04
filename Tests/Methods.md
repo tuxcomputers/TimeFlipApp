@@ -437,6 +437,33 @@ arrangement is gone.
 The developer flag is gone and both stores are candidates again, which is what this method was before it and is
 again.
 
+<a id="method-17"></a>
+## Method 17: Measure a window, and see a layout fault `swift test` cannot
+
+**`ax-dump.py --frames` reports every element's position and size**, which is the only way this suite reads
+geometry. `window_width` in `lib.sh` is that, narrowed to the one number a check usually wants:
+
+```sh
+python3 scripts/ax-dump.py --frames | grep -m1 "id=settings-window "
+# AXWindow  id=settings-window  title=Facet Settings  pos=x:1184 y:253  size=w:640 h:712
+```
+
+**Why it is worth a method: a pane that demands too much width is invisible hermetically.** `swift test` hosts a
+pane in a container of a fixed size, and a container simply obliges a control asking for more room than it has. On
+screen the *window* obliges instead, and grows. So the fault looks like nothing at all in 1,696 green tests and
+like a window jumping wider to the person using it.
+
+Measured on 2026-09-04: selecting the App tab widened the Settings window, because a wrapping footnote reports its
+intrinsic width as its whole text on one line -- 763pt inside a 640pt window. `AppSettingsPane.fittingSize`
+answered 411 both before and after the fix, so no hermetic assertion about the pane could have told the two apart.
+`03-settings-window` now reads the width once and checks it again after every tab is selected.
+
+**`maximumNumberOfLines = 0` is about drawing, not asking.** The fix is
+`setContentCompressionResistancePriority(.defaultLow, for: .horizontal)` wherever a wrapping label's width is
+already pinned by its container. `preferredMaxLayoutWidth` is the usual advice and was tried here first: it reads
+frames `super.layout()` has not yet resized, so it is a pass behind on a window being dragged, and
+`NSTextFieldCell` sizes the wrapped height correctly without it.
+
 ## An ad-hoc build silently switches Google sync off
 
 A build made without the signing identity is a *different application* to the Keychain, so the refresh token
