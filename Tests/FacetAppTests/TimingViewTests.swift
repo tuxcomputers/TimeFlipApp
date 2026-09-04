@@ -125,8 +125,36 @@ final class TimingViewTests: XCTestCase {
                 "\(category.name) is drawn at some other size, so the constant is not what decides it"
             )
         }
-        XCTAssertEqual(view.categoryNameLabel.maximumNumberOfLines, 1)
-        XCTAssertEqual(view.categoryNameLabel.lineBreakMode, .byTruncatingTail, "which is what a name too long for the column gets")
+        XCTAssertEqual(view.categoryNameLabel.maximumNumberOfLines, TimingView.Layout.nameMaximumLines)
+    }
+
+    func testALongNameWrapsRatherThanBeingCutAtOneLine() throws {
+        // **`.byTruncatingTail` does not wrap on macOS**, whatever `maximumNumberOfLines` says, which is the trap
+        // this pins. Measured on an `NSTextFieldCell` holding this name at 40pt in a 380pt column: 47pt for
+        // truncating tail, 94pt for word wrapping. So a line-break mode that looks like the one asking for an
+        // ellipsis quietly buys a single line, and the name loses two thirds of itself with room to spare below.
+        let view = view()
+
+        view.show(category: category(), timingState: .running, elapsed: 0)
+        view.layoutSubtreeIfNeeded()
+        let oneLine = view.categoryNameLabel.frame.height
+
+        let long = CategoryRecord(
+            id: 9, name: "When there is a long category it makes the windows wider", iconName: nil,
+            colourID: 0, colour: .red, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
+        )
+        view.show(category: long, timingState: .running, elapsed: 0)
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            view.categoryNameLabel.frame.height, oneLine * 2, accuracy: 2,
+            "a long name is drawn on two lines, and Break on one"
+        )
+        XCTAssertEqual(view.categoryNameLabel.lineBreakMode, .byWordWrapping, "the only mode that wraps")
+        XCTAssertTrue(
+            view.categoryNameLabel.cell?.truncatesLastVisibleLine ?? false,
+            "so a name too long even for the lines it is allowed ends in an ellipsis rather than mid-sentence"
+        )
     }
 
     func testTheNameIsTheSameSizeHoweverWideTheColumnIs() {

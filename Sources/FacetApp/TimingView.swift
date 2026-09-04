@@ -83,10 +83,14 @@ final class TimingView: NSView {
         /// the column is. **This is the one number to edit to try another**: the figure below the name follows it
         /// through `faceElapsedScale`, so the pair moves together.
         ///
-        /// **A name too long for the column is truncated, not shrunk.** It was fitted by stepping down from here to
-        /// a floor and truncating past that, which meant the size on screen depended on how long a name somebody
-        /// had typed -- so the same column drew at 56 for one category and 22 for the next.
-        static let nameFontSize: CGFloat = 56
+        /// **A name too long for the column wraps, and is truncated only past `nameMaximumLines`.** It was fitted by
+        /// stepping down from here to a floor and truncating past that, which meant the size on screen depended on how
+        /// long a name somebody had typed -- so the same column drew at 56 for one category and 22 for the next.
+        static let nameFontSize: CGFloat = 40
+
+        /// How many lines the name may take before it is truncated. A short name still draws on one: the second line
+        /// is used when it is needed rather than reserved, so nothing below the name moves for a one-word category.
+        static let nameMaximumLines: Int = 2
         /// Between the square and the name.
         static let nameSpacing: CGFloat = 12
     }
@@ -433,10 +437,15 @@ final class TimingView: NSView {
 
         categoryNameLabel.font = .systemFont(ofSize: Layout.nameFontSize, weight: .semibold)
         categoryNameLabel.alignment = .center
-        categoryNameLabel.lineBreakMode = .byTruncatingTail
-        categoryNameLabel.maximumNumberOfLines = 1
-        // Without this the column is never short of room, so the truncation above never happens: the label
-        // demands its whole string on one line and the window widens to hold it (`LabelWidth`).
+        // **`.byWordWrapping`, and not `.byTruncatingTail`, which does not wrap.** Measured: an `NSTextFieldCell`
+        // holding a 56-character name at 40pt in a 380pt column answers 47pt -- one line -- for truncating tail
+        // whatever `maximumNumberOfLines` says, and 94pt for word wrapping. `truncatesLastVisibleLine` is what then
+        // puts the ellipsis on the last line the limit allows, rather than stopping mid-sentence.
+        categoryNameLabel.lineBreakMode = .byWordWrapping
+        categoryNameLabel.maximumNumberOfLines = Layout.nameMaximumLines
+        categoryNameLabel.cell?.truncatesLastVisibleLine = true
+        // Without this the column is never short of room, so the label never wraps at all: it demands its whole
+        // string on one line and the window widens to hold it (`LabelWidth`).
         LabelWidth.mayGiveWay(categoryNameLabel)
         categoryNameLabel.translatesAutoresizingMaskIntoConstraints = false
         categoryNameLabel.setAccessibilityIdentifier(Identifier.categoryName)
