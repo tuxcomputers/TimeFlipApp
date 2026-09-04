@@ -747,6 +747,37 @@ final class AppSettingsPaneTests: XCTestCase {
         XCTAssertEqual(google.frame.minY - debug.frame.maxY, SettingsMetrics.sectionSpacing, accuracy: 0.5)
     }
 
+    func testAFootnoteCannotWidenTheTab() throws {
+        // **The fault this pins, measured on the running app**: selecting the App tab widened the window. A wrapping
+        // label's `maximumNumberOfLines = 0` decides how it *draws*, not what it asks for -- its intrinsic width is
+        // still the whole string on one line, and the Debug footnote is the longest run of text on the tab. It asked
+        // for 763pt inside a 640pt window and the window obliged.
+        //
+        // Asserted of both notes, because a note that happens to be short enough today is the same fault waiting for
+        // a longer sentence: the Google one is 367pt only because of what it currently says.
+        let pane = AppSettingsPane()
+
+        for identifier in [AppSettingsPane.Identifier.debugNote, AppSettingsPane.Identifier.googleNote] {
+            let note = try XCTUnwrap(view(identifier, in: pane) as? NSTextField)
+            XCTAssertEqual(
+                note.contentCompressionResistancePriority(for: .horizontal), .defaultLow,
+                "\(identifier) may still insist on its own width, which is what widened the window"
+            )
+        }
+    }
+
+    func testAFootnoteIsDrawnAtTheHeightItsWrappedTextNeeds() throws {
+        // The other half of the same thing: a label nobody may widen has to be given the height to wrap into, or the
+        // fix for the window trades one fault for text with its tail cut off.
+        let pane = AppSettingsPane()
+        let content = hosted(pane, width: 640)
+        content.layoutSubtreeIfNeeded()
+
+        let note = try XCTUnwrap(view(AppSettingsPane.Identifier.debugNote, in: pane) as? NSTextField)
+        XCTAssertGreaterThan(note.frame.height, 20, "this sentence does not fit on one line at 640pt")
+        XCTAssertLessThan(note.frame.width, 640, "and it is inside the tab rather than reaching past it")
+    }
+
     func testTheDebugPanelSpansTheWindowToo() throws {
         // `CLAUDE.md`: every panel on every tab runs the full width of the window, inset by the tab's own padding.
         let pane = AppSettingsPane()
