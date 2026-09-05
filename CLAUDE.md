@@ -123,8 +123,9 @@ coins a synonym is the next row in that table.
 
 The app was rebuilt from the ground up, and the previous implementation used to sit in `Archive/`. It was
 deleted once the rebuild was finished. **It is not gone**: it is in the history at `3ee3b47`, the commit
-before "Archive the app sources ahead of the rebuild", and `scripts/old.sh --rebuild` makes a worktree at
-that commit and builds it. That is also the only way to run it.
+before "Archive the app sources ahead of the rebuild", and `git worktree add --detach ../TimeFlipApp-old
+3ee3b47` is how to read it. Building it needs that worktree too, the manifest that compiled it (AppAuth,
+CoreBluetooth) existing only there. `scripts/old.sh` used to wrap both and was deleted with the rest.
 
 **Everything it knew that is still load-bearing has been brought forward.** That was the condition of
 deleting it, and it is why the old tree is no longer the first place to look:
