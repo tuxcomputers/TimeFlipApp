@@ -308,14 +308,18 @@ final class MenuBarController: NSObject {
             // the two identically. What tells them apart is the words, and this is a state worth being able to
             // confirm from the table: it is on screen only until a cube answers, which is no time at all to be
             // watching a menu bar.
+            //
+            // **Under `reaching` and never under `status`.** `expect_colours` reads the newest `status` row as what
+            // the line is drawn in right now, so putting this there makes that read answer the wrong question -- which
+            // it did, failing `55-device-face` on run 167 against a menu bar that was correct.
             let wasConnecting = lastDrawn?.text == StatusItemTitle.connecting
             let isNowConnecting = title.text == StatusItemTitle.connecting
             if isNowConnecting != wasConnecting {
                 debugLog?.record(
-                    .status,
+                    .reaching,
                     isNowConnecting
-                        ? "Menu bar: reaching for the cube"
-                        : "Menu bar: the cube has been read, so it is no longer reaching"
+                        ? "The status item is reaching for the cube"
+                        : "The status item has read the cube and stops reaching"
                 )
             }
             lastDrawn = title

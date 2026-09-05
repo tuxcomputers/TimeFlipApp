@@ -43,7 +43,20 @@ final class DebugLog {
         /// the figure moves every second, so a row per drawn title would be a row per second for the life of the
         /// launch. Its own tag because it is the only evidence there is -- the accessibility tree carries no colour
         /// at all, so a scripted check has no other way to see what the line said.
+        ///
+        /// **Nothing but the colours may use this tag.** `expect_colours` reads the newest `status` row and treats it
+        /// as what is on screen now, so a second kind of message here does not merely add noise: it makes that read
+        /// answer a different question. Measured on run 167, where a `Connecting` row under this tag failed
+        /// `55-device-face` on a menu bar that was drawn perfectly correctly. Anything else about the item gets its
+        /// own case, as `reaching` did.
         case status
+        /// Whether the status item is still saying `Connecting`, which is a paired launch that has not yet had its
+        /// cube answer with a face, a pause and a lock (`CubeFirstReading`). One row when it starts and one when it
+        /// stops, not per draw.
+        ///
+        /// **Not `status`, and the reason is that tag's own note.** This is what the item *says*; that one is what it
+        /// is *drawn in*, and it is read as a state rather than searched for.
+        case reaching
         /// Selections from the dropdown.
         case menu
         /// Moving between the Settings window's tabs.

@@ -80,7 +80,7 @@ expect_log "a paired app decides for itself to look for its cube" "$since" "Pair
 # **Read from the row rather than from the item**, for the reason `12-daily-limit` reads the spoken label instead of
 # the red: this title is up only until a cube answers, which is a second or two, and a check that had to catch the
 # accessibility tree inside that window would fail for being late rather than for being wrong.
-expect_log "the menu bar says it is reaching for the cube" "$since" "Menu bar: reaching for the cube" 20
+expect_log "the menu bar says it is reaching for the cube" "$since" "The status item is reaching for the cube" 20
 # **A scan, not a connect**, which is the fact this feature turns on: CoreBluetooth will not hand back a peripheral by
 # identifier, so "reach the cube we are paired to" has to scan for it. See `BluetoothRadio.reach`.
 expect_log "and goes looking by scanning, since that is the only way to a peripheral" "$since" "Reaching for %scanning%" 20
@@ -110,7 +110,7 @@ expect_log "it is recorded as getting back to the device, not as a new pairing" 
 # **After the login, not at it.** `PIN accepted` is several round trips before the cube has said what face is up,
 # whether it is paused and whether it is locked, and the title waits for all three: a connection is not a reading.
 # So this row lands later than the one above it, and that gap is the thing being checked.
-expect_log "and stops once the cube has actually been read" "$since" "Menu bar: the cube has been read%" 60
+expect_log "and stops once the cube has actually been read" "$since" "The status item has read the cube%" 60
 
 already=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Paired with %';")
 check "nothing is recorded as a fresh pairing" "$already" "0"
