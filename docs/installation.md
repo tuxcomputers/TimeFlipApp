@@ -1,6 +1,6 @@
 # Installation
 
-[← Back to README](../README.md) · [Configuration →](configuration.md)
+[← Back to README](../README.md) · [Google OAuth setup →](google-oauth-setup.md)
 
 ## System Requirements
 
@@ -31,8 +31,11 @@ scripts/run.sh
 ```
 
 It also runs `scripts/generate-credentials.sh` first, which is what puts the Google OAuth client into
-the build -- see [Configuration](configuration.md#google-calendar). With no client to put in, it says so
-and carries on: **you do not need a Google project to build or run Facet.**
+the build: drop the Google console's downloaded JSON at `~/.config/facet/google-client.json`, unedited,
+and `FACET_GOOGLE_CLIENT_JSON` overrides that for pointing at a second project. With no client to put in,
+it says so and carries on: **you do not need a Google project to build or run Facet.** Setting up the
+project itself is documented once, for whoever publishes a binary, in
+[google-oauth-setup.md](google-oauth-setup.md).
 
 Two flags, and one of them destroys data:
 
@@ -82,7 +85,7 @@ scripts/run.sh
 # Build in debug mode without running
 swift build
 
-# The hermetic suite: 1502 tests, no window and no radio
+# The hermetic suite: 1707 tests, no window and no radio
 swift test
 
 # Lint (requires SwiftLint)
@@ -104,7 +107,3 @@ Tests/Scripted/run.sh
 ```
 
 See [Contributing](../CONTRIBUTING.md) for what to do if you have no device.
-
-## Next Steps
-
-Once the app is running, head over to the [Configuration guide](configuration.md) to set up Google Calendar integration and pair your TimeFlip device.
