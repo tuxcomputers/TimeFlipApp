@@ -4,7 +4,7 @@
 
 The *why* behind the schema: what the device owner is trying to do with activities and faces, and which of the app's shapes follow from it. See the [Operation Spec](operation-spec.md) for the "how" (the technical pipeline that turns a device event into a stored record), and [Database Design](database-design.md) for what the rows look like.
 
-**This is not the guide to using the app.** That is at <https://facet.com.au>. What is here is the reasoning a change to the schema or to the tabs has to survive.
+**This is not the guide to using the app.** That is at <https://facet.tux.com.au>. What is here is the reasoning a change to the schema or to the tabs has to survive.
 
 ## Two kinds of activity
 

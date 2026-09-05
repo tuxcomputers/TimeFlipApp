@@ -2,7 +2,7 @@
 
 A native macOS menu bar application for the [TimeFlip2](https://timeflip.io/) time tracking device.
 
-**Using Facet is documented at [facet.com.au](https://facet.com.au)**: installing it, pairing a cube,
+**Using Facet is documented at [facet.tux.com.au](https://facet.tux.com.au)**: installing it, pairing a cube,
 setting categories up, connecting a Google account and what everything on screen means. Everything in
 this repository is about *building* the app instead, and is written for whoever is working on it.
 
@@ -14,7 +14,7 @@ This is AI-generated code all the way down, and it's worth being honest about th
 
 Times what a TimeFlip2 cube is doing from the macOS menu bar, files it under a category, keeps the
 record in a local SQLite database and syncs it to a Google calendar of its own. With no cube paired it
-times from the app instead, into the same tables. [facet.com.au](https://facet.com.au) covers all of it
+times from the app instead, into the same tables. [facet.tux.com.au](https://facet.tux.com.au) covers all of it
 from the using end.
 
 ### Not built yet
@@ -112,4 +112,4 @@ That permission was granted to me, for this project specifically, and **does not
 
 For bugs and feature requests, please [open an issue](https://github.com/tuxcomputers/TimeFlipApp/issues).
 Anything about using the app, or about the cube itself, is answered at
-[facet.com.au](https://facet.com.au).
+[facet.tux.com.au](https://facet.tux.com.au).

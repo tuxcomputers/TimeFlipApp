@@ -8,7 +8,7 @@ whose client ID ships inside the app.
 **Both halves are built.** Sign-in is `GoogleOAuthClient` (the loopback flow) over `GoogleOAuthRules` (the decisions),
 and the sync itself is `CalendarSync`, which sweeps every unsynced `time_entry` and reads each event back before
 ticking the row. The archive had neither: its OAuth went through AppAuth, and nothing there ever wrote
-`synced_to_google_calendar`. The user-facing half, which is now one button, is documented at <https://facet.com.au>.
+`synced_to_google_calendar`. The user-facing half, which is now one button, is documented at <https://facet.tux.com.au>.
 
 **Google's console moves, and it moved in our favour.** The tabs have been reorganised at least twice (this repo's own
 guide has been rewritten to match), and scope classifications change: `calendar.app.created` was sensitive when this

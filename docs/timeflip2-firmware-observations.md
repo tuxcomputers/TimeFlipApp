@@ -75,7 +75,7 @@ There is no way to make the device advertise the new name, but the reported name
 
 Step 4 is the step that looks wrong and is not: the peripheral identifier is the same cube whatever name is against it, so the connection proceeds and `peripheralDidUpdateName` then delivers the real name a second or two in.
 
-This is written up for users at <https://facet.com.au>. It is a workaround for the device's behaviour, not a fix, and it should stay in the documentation until a firmware release makes it unnecessary.
+This is written up for users at <https://facet.tux.com.au>. It is a workaround for the device's behaviour, not a fix, and it should stay in the documentation until a firmware release makes it unnecessary.
 
 ---
 
