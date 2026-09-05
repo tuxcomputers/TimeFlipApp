@@ -115,33 +115,55 @@ fi
 stored_name() { sql "SELECT json_extract(setting_value, '\$.calendar_name') FROM setting WHERE setting_name = 'google_account';"; }
 stored_id() { sql "SELECT json_extract(setting_value, '\$.calendar_id') FROM setting WHERE setting_name = 'google_account';"; }
 
+# ---- something to delete
+#
+# **Signing in does not make a calendar, so a run can arrive here with none.** That is the app behaving
+# correctly rather than a fault: the Calendar row of a fresh sign-in is a Create button, and it is pressed
+# if and when somebody wants one. The delete below needs a subject for its checks to say anything, so one
+# is made here when the last run left none.
+#
+# **Not a check**, for the same reason `require_a_paired_cube` is not one: it is arranging the bench, not
+# judging the app, and counting it would make `EXPECTED_CHECKS` depend on what the machine happened to be
+# left holding. The create it makes is judged below, where every run runs it.
+
+if [ -z "$(stored_id)" ]; then
+    step "no calendar is stored, so one is made for the delete to take"
+    since=$(mark)
+    press app-google-calendar-create
+    # **The row is waited for and then thrown away, and the status with it, because the table is what
+    # decides here.** Not a swallowed failure: a create that never happened leaves `stored_id` empty, and
+    # the guard below says so and stops. `expect_log` is what would be used if this were a check.
+    wait_for "$since" "Google calendar created,%" 45 >/dev/null
+    if [ -z "$(stored_id)" ]; then
+        fail "the Create button made no calendar, so there is nothing to delete and nowhere to sync"
+        finish
+        exit 1
+    fi
+fi
+
 # ---- last run's, deleted
 
-if [ -n "$(stored_id)" ]; then
-    doomed=$(stored_name)
-    since=$(mark)
-    press app-google-calendar-delete
-    sleep 1
+doomed=$(stored_name)
+since=$(mark)
+press app-google-calendar-delete
+sleep 1
 
-    # **The order is what is on screen, left to right, not the order the buttons were added.** AppKit puts
-    # a button titled "Cancel" on the left whichever way round it went in, so the destructive one reads
-    # first. That is also why the app sets the alert's key equivalents explicitly instead of trusting
-    # position to keep Return harmless: the rightmost button is the one Return activates, and left to
-    # itself that would have been Delete Calendar.
-    check "deleting asks first, and offers a way out" "Delete Calendar|Cancel" "$(alert_buttons)"
-    check_contains "and the question names the calendar" \
-        "$(python3 scripts/ax-alert.py --message 2>/dev/null)" "$doomed"
+# **The order is what is on screen, left to right, not the order the buttons were added.** AppKit puts
+# a button titled "Cancel" on the left whichever way round it went in, so the destructive one reads
+# first. That is also why the app sets the alert's key equivalents explicitly instead of trusting
+# position to keep Return harmless: the rightmost button is the one Return activates, and left to
+# itself that would have been Delete Calendar.
+check "deleting asks first, and offers a way out" "Delete Calendar|Cancel" "$(alert_buttons)"
+check_contains "and the question names the calendar" \
+    "$(python3 scripts/ax-alert.py --message 2>/dev/null)" "$doomed"
 
-    press_title "Delete Calendar"
-    expect_log "confirming deletes it at Google" "$since" "Google calendar deleted,%" 45
+press_title "Delete Calendar"
+expect_log "confirming deletes it at Google" "$since" "Google calendar deleted,%" 45
 
-    # **Forgotten only once Google has taken it.** A row cleared before the request would leave the app
-    # unable to name what it failed to delete.
-    check "and the app no longer holds a calendar" "|" "$(stored_id)|$(stored_name)"
-    check_contains "the Calendar row offers to make another" "$(tree)" "id=app-google-calendar-create"
-else
-    fail "no calendar is stored, so there is none to delete (the first run on this machine)"
-fi
+# **Forgotten only once Google has taken it.** A row cleared before the request would leave the app
+# unable to name what it failed to delete.
+check "and the app no longer holds a calendar" "|" "$(stored_id)|$(stored_name)"
+check_contains "the Calendar row offers to make another" "$(tree)" "id=app-google-calendar-create"
 
 # ---- this run's, made and named
 
