@@ -34,7 +34,7 @@ start "quitting closes the open segment"
 # `test.sqlite` from the DDL does not reach it. So a run leaves the device holding events that were made against the
 # test database, and the next launch against **production** fetches history from that same cube and files them as real
 # recorded time. A factory reset is what clears the counter, which is the archive's reason for its own end-of-run wipe
-# (`Archive/Tests/00-test-setup.md` Step 3 records prod history first, "the end-of-run factory reset later wipes the
+# (the previous suite's `00-test-setup` Step 3 records prod history first, "the end-of-run factory reset later wipes the
 # device's own counter").
 #
 # **Here rather than in `00`**, because what matters is the state the cube is left in, not the state it starts in: a

@@ -4,7 +4,7 @@ import Foundation
 /// what the table stores and what the row shows.
 ///
 /// **The bounds are the previous app's, and every one of them was a measurement or a decision with a reason**
-/// (`Archive/TimeFlipApp/TimeFlipConstants.swift`), so they are carried over with the reasons attached rather than
+/// (`TimeFlipConstants.swift`), so they are carried over with the reasons attached rather than
 /// re-picked. Where a value has a seeded default, the default here is that seed -- `database/011_setting.sql` -- and
 /// the two must not drift: the fallback exists because `SettingStore` answers `nil` for a missing or malformed row
 /// and refuses to guess what absence means, which is right, and this is where the guess belongs.

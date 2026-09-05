@@ -7,7 +7,7 @@ import Foundation
 /// in `GoogleOAuthClient` is opening a URL, listening on a port and making two HTTPS requests -- the parts that can
 /// only be checked against the real thing.
 ///
-/// **Not AppAuth**, which is what the archive used (`Archive/TimeFlipApp/GoogleAuthService.swift`). That library is
+/// **Not AppAuth**, which is what the archive used (`GoogleAuthService.swift`). That library is
 /// built around iOS view controllers, and its macOS loopback path is the least-exercised part of it. The flow for an
 /// installed app is small enough that owning it is cheaper than depending on it, and this way the parts that matter
 /// are ordinary Swift with tests on them rather than calls into a framework.

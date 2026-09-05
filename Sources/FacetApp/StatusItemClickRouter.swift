@@ -24,7 +24,7 @@ enum StatusItemClick: Equatable {
 /// `guard`s inside an `@objc` handler, and its own comment records the cost -- reaching them "needed a real status
 /// item, a real click and a real window server, so in practice they were only ever verified by hand".
 ///
-/// **The rule is the archive's, massaged** (`Archive/TimeFlipApp/MenuBarClickRouter`). Left is the menu, right acts
+/// **The rule is the archive's, massaged** (`MenuBarClickRouter`). Left is the menu, right acts
 /// on whatever is being timed: with a cube that is the cube, single to pause and double to lock; with the app's own
 /// clock running it is that clock, at once. What is dropped is what the archive needed extra timingState for -- there is no
 /// low-battery blink redirecting the left half to Settings here, and no separate `isCubePaired` to disagree with the

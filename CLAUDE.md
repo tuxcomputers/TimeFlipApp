@@ -119,38 +119,33 @@ Already paid for, and the audit names each one:
 So check the collisions section before reusing a name, and the alias table before inventing one. A branch that
 coins a synonym is the next row in that table.
 
-## Read how the archived app did it, before building anything
+## The previous implementation is in the git history, not in the tree
 
-The app is being rebuilt from the ground up, and the previous implementation is in `Archive/`
-(`TimeFlipApp/`, `TimeFlipAppTests/`, `Tests/`, `testrunner/`), with its supporting material in
-`Archive/Tests/Methods.md` and in `docs/`. **For every feature request, read how the old code did it
-first.** Not to copy it, and not as a courtesy to it: to find out what it knows.
+The app was rebuilt from the ground up, and the previous implementation used to sit in `Archive/`. It was
+deleted once the rebuild was finished. **It is not gone**: it is in the history at `3ee3b47`, the commit
+before "Archive the app sources ahead of the rebuild", and `git worktree add --detach ../TimeFlipApp-old
+3ee3b47` is how to read it. Building it needs that worktree too, the manifest that compiled it (AppAuth,
+CoreBluetooth) existing only there. `scripts/old.sh` used to wrap both and was deleted with the rest.
 
-Then decide, explicitly, which of three applies -- and **say which in the reply**, so the choice is
-visible rather than buried in a diff:
+**Everything it knew that is still load-bearing has been brought forward.** That was the condition of
+deleting it, and it is why the old tree is no longer the first place to look:
 
-- **Ignore it.** It solved a problem this design does not have, or it was working around something
-  that no longer exists. Say what it did and why the new shape does not need it.
-- **Massage it.** The intent is right, the shape is not. Take the intent and build it the new way.
-  This is the common answer.
-- **Copy it as is.** It is right, and rewriting it would land in the same place. Copy it, and say
-  what makes it worth keeping verbatim.
+- Its **measurements of the hardware** are in `docs/timeflip2-firmware-observations.md`, with
+  `docs/timeflip2-firmware-evidence.sqlite` holding the debug rows behind each one.
+- Its **test techniques** are in `Tests/Methods.md`, renumbered and rewritten against this app's own
+  accessibility tree.
+- Its **reasoning** is quoted where it is acted on: a comment that says the previous app did something and
+  why is the record of it, and those comments name its types rather than its file paths.
 
-Treat the old code as prior art written by somebody else, and this as a better version of it: reading
-it is not permission to import it, and "the old code did X" is not a reason for anything on its own.
-Judge it on merit. When it wins, it wins because the reason survives inspection today.
+So do not go looking for it by default. Read it when a specific question is worth a worktree -- how the old
+driver actually handled a frame, what its numbers were -- and when you do, treat it as prior art written by
+somebody else: reading it is not permission to import it, and "the old code did X" is not a reason for
+anything on its own. When it wins, it wins because the reason survives inspection today.
 
-**What is actually valuable in there is the measurements**, not the habits. The archive holds facts
-that cost a real experiment to obtain, and re-deriving them costs the same again:
-
-- `SingleInstanceLock` records that an instance launched directly reports a `nil` `launchDate`, which
-  is why "whoever started first wins" could not work and a kernel lock was used instead.
-- `Archive/Tests/Methods.md` Method 10 records that a Settings tab button has no `AXTitle` and must be matched
-  on `description`. Without reading it, the same discovery in the rebuild looked like a regression to
-  be worked around, when it was the contract the suite already expected.
-
-So the archive's comments and its test methods are the first place to look, and a fact it recorded from
-a real device or a real accessibility tree outranks reasoning about what should happen.
+**A fact it recorded from a real device or a real accessibility tree still outranks reasoning about what
+should happen.** That is why those facts were moved rather than dropped, and why anything else found in
+there that turns out to matter gets written into `docs/` or `Tests/Methods.md` in the same change -- not
+left in a commit nobody will think to check.
 
 ## A tab's content spans the width of the window
 
@@ -301,18 +296,17 @@ written from, and `Tests/Scripted/last-run.md` is the committed stamp of the las
 owner's screen and needs a person to turn the cube. Ask, and watch the logs.
 
 The previous suite -- the Bench and Interactive checklists, the setup, and the Python harness that
-drove them -- is in `Archive/Tests/` and `Archive/testrunner/`, and it did not come back as it was.
-Every locator in it addressed the previous app's accessibility tree (`Archive/Tests/Methods.md`
-Method 10 reaches the Settings tabs through `toolbar 1`, which this app does not have). What *did*
-carry over is worth knowing:
+drove them -- is in the git history and did not come back as it was. Every locator in it addressed the
+previous app's accessibility tree, reaching the Settings tabs through a `toolbar 1` this app does not
+have. What *did* carry over is here, and is why that history is not the first place to look:
 
-- The **procedure**, which cost real runs to learn and is written down in `Archive/Tests/CLAUDE.md`:
-  Bench (script-drivable) before Interactive (needs a person); refresh `current_log_id` before every
-  step; a cross-step wait needs its own named baseline; a scenario is the atomic resume unit; an
-  indefinite wait gets no silent grace period; poll the database for a physical side effect rather
-  than asking the user to confirm one.
-- The **device measurements**, which are facts about the hardware and so still true. See
-  `Archive/Tests/Methods.md` and `docs/timeflip2-firmware-observations.md`.
+- The **procedure**, which cost real runs to learn and is now the rules in this file and in
+  `Tests/Scripted/README.md`: refresh the log baseline before every step; a cross-step wait needs its own
+  named baseline; a scenario is the atomic resume unit; an indefinite wait gets no silent grace period;
+  poll the database for a physical side effect rather than asking the user to confirm one.
+- The **device measurements**, which are facts about the hardware and so still true. They are in
+  `docs/timeflip2-firmware-observations.md`, with `docs/timeflip2-firmware-evidence.sqlite` behind them.
+- The **test techniques**, renumbered against this app's own tree, in `Tests/Methods.md`.
 
 It came back much smaller, and needs no AI and nothing installed beyond what building the app needs.
 The old `locators.py` existed largely because elements were not addressable and steps had to hunt by
@@ -389,29 +383,33 @@ against `Sources/`, `Tests/Scripted/` and `database/` as they now stand.
 
 **How to operate the device is answered in this order, and the first one that answers wins:**
 
-1. **The archive's code** (`Archive/TimeFlipApp/`). It drove this hardware for a year, so where it
-   disagrees with any document it is because the document was wrong and the code had to work anyway.
-   Its comments say which measurement forced each departure.
-2. **`docs/TimeFlip2 BLE Protocol v4.3.md`**, the official vendor spec.
-3. **`docs/timeflip.md`**, a developer-written summary of the previous codebase's BLE driver.
+1. **`docs/timeflip2-firmware-observations.md`**, which records behaviour **measured on the real device**
+   where the spec is silent or wrong, with `docs/timeflip2-firmware-evidence.sqlite` holding the debug rows
+   behind each claim. Check it before trusting the spec on anything to do with the device name, with whether
+   a command is acknowledged, or with double tap. Add to it only from an actual device run, citing the
+   evidence rows, and never from reasoning about the protocol.
+2. **This app's own driver** (`Sources/FacetApp/DeviceLogin.swift`, `BluetoothRadio.swift`). It talks to this
+   hardware and is checked against a real cube by `Tests/Scripted/50`-`66` on every full run, so where it
+   departs from a document it is because the document was wrong and the code had to work anyway. Its comments
+   say which measurement forced each departure.
+3. **`docs/TimeFlip2 BLE Protocol v4.3.md`**, the official vendor spec.
+4. **`docs/timeflip.md`**, a developer-written summary of the previous codebase's BLE driver. **Known wrong in
+   at least one place**, see below.
+5. **The previous implementation**, at `3ee3b47` in the history. It drove this hardware for a year, so it is
+   worth a worktree for a question the four above cannot answer -- and anything found there that matters gets
+   written into 1 or into `Tests/Methods.md` in the same change.
 
 Only reach for a lower one when the one above it is silent. This ordering is not a preference, it is
 what two long debugging sessions cost: `docs/timeflip.md` says a history frame's duration is five
-bytes little-endian at 13-17, the vendor table says four bytes at 13-16, and the archive's parser
-reads four bytes and tries both byte orders because firmware disagrees with its own spec. Following
+bytes little-endian at 13-17, the vendor table says four bytes at 13-16, and the previous app's parser
+read four bytes and tried both byte orders because firmware disagrees with its own spec. Following
 `timeflip.md` produced a rebuild that rejected every single-event answer the cube gave, reported it
 as "a frame this app cannot read", and sent somebody hunting a parser bug while the cube answered
-correctly (2026-08-21). The same day, the archive's `readLastEventLocked` turned out to have already
+correctly (2026-08-21). The same day, the old `readLastEventLocked` turned out to have already
 recorded that a `0x01` reply arrives as a **read** and never as a notification -- "waiting on a
 notification here reliably timed out against real hardware" -- which the rebuild had to rediscover
-from a live trace.
-
-`docs/timeflip2-firmware-observations.md` sits with the archive at the top and outranks both
-documents: it records behaviour **measured on the real device** where the spec is silent or wrong,
-with `docs/timeflip2-firmware-evidence.sqlite` holding the debug log rows behind each claim. Check it
-before trusting the spec on anything to do with the device name, or with whether a command is
-acknowledged. Add to it only from an actual device run, citing the evidence rows, and never from
-reasoning about the protocol.
+from a live trace. **That finding now lives in `DeviceLogin.readLastEvent`**, which is the point of the
+ordering above: a fact that only exists in a deleted tree is a fact somebody pays for twice.
 
 **Query that database rather than only reading the prose around it.** It holds 753 real rows from the
 previous app against this same cube, including actual history frames, and those frames are what

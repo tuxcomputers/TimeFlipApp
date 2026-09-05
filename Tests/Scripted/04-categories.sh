@@ -247,7 +247,7 @@ check "its name survived the round trip" "$RENAMED" "$(sql "SELECT category_name
 # off the sheet rather than looking for them in the window.
 #
 # Every fixture here is built by driving the app. The previous suite had to seed the retired row with an
-# `INSERT` (`Archive/Tests/Bench/08b-categories-tab-checklist.md` Scenario C, Step 3) because its window
+# `INSERT` (the previous suite's `08b-categories-tab` checklist, Scenario C Step 3) because its window
 # did not re-read the list when a row was retired, so a category retired through the checkbox left the
 # screen and the database disagreeing. This app reloads the pane on the write, so create-then-retire is
 # both the path a user takes and the one that leaves the window honest.

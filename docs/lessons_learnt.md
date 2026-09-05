@@ -7,7 +7,7 @@ holds the conventions that apply everywhere, and a second one sits beside the th
 `database/CLAUDE.md`, next to the DDL, holding the naming and storage rules and the schema-change procedure. The root
 file references it, so a task that touches the schema is pointed at it rather than having to already know.
 
-The pattern generalises. `Archive/Tests/CLAUDE.md` did the same job for the previous test suite: the root file said
+The pattern generalises. The previous test suite's own `CLAUDE.md` did the same job: the root file said
 when to read it, which was any task to do with testing.
 
 ## Rule number 1
@@ -36,7 +36,8 @@ correct documentation".
 The thing I underestimated is that documentation rots the moment the code moves under it, and it rots invisibly: a
 doc naming a class that no longer exists still reads perfectly well. Worse, it gets read and believed. `docs/rebuild.md`
 carrying a "still to do" list of features that had shipped is the version of this that cost the most, because it is
-the file somebody would go to precisely to find out what was left.
+the file somebody would go to precisely to find out what was left. It was deleted once the rebuild was finished, which
+is the other half of the lesson: a document with a job that has ended does not become harmless, it becomes wrong.
 
 ## Checklists
 

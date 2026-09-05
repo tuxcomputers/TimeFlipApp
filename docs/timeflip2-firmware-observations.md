@@ -75,7 +75,7 @@ There is no way to make the device advertise the new name, but the reported name
 
 Step 4 is the step that looks wrong and is not: the peripheral identifier is the same cube whatever name is against it, so the connection proceeds and `peripheralDidUpdateName` then delivers the real name a second or two in.
 
-This is written up for users at <https://facet.com.au>. It is a workaround for the device's behaviour, not a fix, and it should stay in the documentation until a firmware release makes it unnecessary.
+This is written up for users at <https://facet.tux.com.au>. It is a workaround for the device's behaviour, not a fix, and it should stay in the documentation until a firmware release makes it unnecessary.
 
 ---
 
@@ -293,7 +293,7 @@ loop moves on. Only running out of candidates is a failure.
 
 The archive drew exactly this conclusion and wrote down what the alternative cost: connecting to whichever device
 answered first "so a colleague's cube advertising a moment sooner was enough to lock this user out of their own
-device with a `wrong password` that named nothing" (`Archive/TimeFlipApp/ApplicationDelegate.swift`).
+device with a `wrong password` that named nothing" (`ApplicationDelegate.swift`).
 
 ### A second attempt on the same peripheral must let the first one go
 
@@ -345,7 +345,7 @@ not, and a client that waits to be told is waiting for something that never come
 ### This confirms the archive rather than correcting it
 
 The previous app already worked around it, in a comment on the line that does so
-(`Archive/TimeFlipApp/ApplicationDelegate.swift`): *"Device doesn't send notification after setPause command, so
+(`ApplicationDelegate.swift`): *"Device doesn't send notification after setPause command, so
 explicitly fetch history to confirm state change."* This is that claim measured rather than inherited, which is worth
 having written down: it was reasonable to wonder whether newer firmware had started volunteering the record, and it
 has not.
@@ -358,7 +358,7 @@ whatever `fetch_history_interval_seconds` is set to, and the seeded description 
 timer runs "in addition to the fetches already triggered by live face/pause events".
 
 **On any pause the app did not make.** A double tap stops the cube's tracking in firmware with no command involved
-(`Archive/Tests/Methods.md` Method 22), and the vendor's own app can pause it too. Neither produces a face change,
+(`docs/timeflip2-firmware-observations.md` finding 11), and the vendor's own app can pause it too. Neither produces a face change,
 neither writes the command result, and `systemState` carries sync and hardware health rather than pause. So there is
 no subscription that could carry it: the app finds out on its next fetch and not before. The history timer's interval
 is therefore the worst-case latency for **the cube being stopped by someone else**, and for nothing else.
@@ -399,6 +399,24 @@ a delay is indistinguishable from one that is not.
 **Worth raising with the vendor**, as a question rather than a correction: the spec says `0xFF` resets the tracker to
 factory settings, and a delay written by `0x05` surviving one is either a deliberate exclusion or an omission. Either
 way a client cannot assume a reset cube is a cube in its default state.
+
+## 11. No command disables double tap, and the only lever is sensitivity
+
+**The cube pauses itself on any physical double tap, and nothing in the protocol turns that off.** It is
+unconditional firmware behaviour: the vendor spec defines no disable command, and none was found on the device. The
+only thing a client can change is how hard a knock has to be before the accelerometer calls it one, through the four
+`0x16` registers -- `clickThreshold`, `limit`, `latency` and `window`, each a `UInt8` 0-255.
+
+Measured on the real cube by the previous app, whose Device tab exposed those four registers and watched the gesture
+against each setting. The registers this app seeds `double_tap_settings` from are that device's actual values, read
+off the hardware rather than chosen.
+
+**Consequence for this app.** Turning the gesture off is *faked*, and has to be: `DoubleTapRules` sends `0x16` with
+`window` forced to 0, which gives the second knock no time to arrive in and so makes the gesture unrecognisable. The
+stored window keeps its real value throughout, that being what turning the gesture back on sends. It is suppression
+and not an off switch -- a knock hard enough is still a knock -- which is why `double_tap_settings` is seeded off
+rather than on: the gesture stops the clock on any knock hard enough, including one through the desk the cube is
+sitting on.
 
 ## Raised with the vendor
 

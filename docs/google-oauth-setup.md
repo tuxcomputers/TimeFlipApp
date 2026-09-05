@@ -8,7 +8,7 @@ whose client ID ships inside the app.
 **Both halves are built.** Sign-in is `GoogleOAuthClient` (the loopback flow) over `GoogleOAuthRules` (the decisions),
 and the sync itself is `CalendarSync`, which sweeps every unsynced `time_entry` and reads each event back before
 ticking the row. The archive had neither: its OAuth went through AppAuth, and nothing there ever wrote
-`synced_to_google_calendar`. The user-facing half, which is now one button, is documented at <https://facet.com.au>.
+`synced_to_google_calendar`. The user-facing half, which is now one button, is documented at <https://facet.tux.com.au>.
 
 **Google's console moves, and it moved in our favour.** The tabs have been reorganised at least twice (this repo's own
 guide has been rewritten to match), and scope classifications change: `calendar.app.created` was sensitive when this
@@ -30,7 +30,7 @@ scope** over anything written here about which tier it is in. That instruction h
 | `userinfo.profile` | The account's name and picture, same purpose | Non-sensitive |
 | `calendar.app.created` | Make secondary calendars, and manage events on the ones **this app made** | Non-sensitive |
 
-The archive asked for two more (`Archive/TimeFlipApp/GoogleAuthConfiguration.swift`), and **both are sensitive**:
+The archive asked for two more (`GoogleAuthConfiguration.swift`), and **both are sensitive**:
 
 | Scope | What it buys | Tier |
 | --- | --- | --- |
@@ -113,7 +113,7 @@ open. Four things outweigh it here:
   `au.com.tux.facet` to `au.com.tux.facet` would mean recreating the client. Under Desktop the rename and the
   Google setup do not block each other at all.
 - **The loopback flow is what this app implements**, as `GoogleLoopbackListener` (the archive used AppAuth's
-  `OIDRedirectHTTPHandler` in `Archive/TimeFlipApp/GoogleAuthService.swift`). The iOS path would instead mean a
+  `OIDRedirectHTTPHandler` in `GoogleAuthService.swift`). The iOS path would instead mean a
   `CFBundleURLTypes` entry and an `application(_:open:)` handler, neither of which exists.
 - **This app is not sandboxed** (there is no entitlements file, and it ships outside the App Store via Swift Bundler),
   so listening on a loopback port costs nothing. A sandboxed build would need `com.apple.security.network.server`,

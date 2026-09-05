@@ -3,7 +3,7 @@ import AppKit
 /// A month calendar for the Report tab, drawn here rather than taken from the system.
 ///
 /// **Why not `NSDatePicker`.** Two things this screen needs are not expressible on the native control, and the
-/// archive established both by measurement rather than by reasoning (`Archive/TimeFlipApp/ReportCalendarView.swift`,
+/// archive established both by measurement rather than by reasoning (`ReportCalendarView.swift`,
 /// `docs/TODO-features-under-development.md`):
 ///
 /// - The days between the start and the end are drawn **bold and tinted**, so the selected span reads as a span in

@@ -2,7 +2,7 @@
 # The hard daily limit: reaching it stops the clock, and the app then refuses to start it again.
 #
 # **The archive staged this with a cube on the desk and this stages it without one**, which is the whole reason it
-# can run at all today. `Archive/Tests/Bench/15b-hard-daily-limit-checklist.md` needed a paired TimeFlip, seeded a
+# can run at all today. the previous suite's `15b-hard-daily-limit` checklist needed a paired TimeFlip, seeded a
 # total 20 seconds short of the limit, resumed the cube and watched the pause go out over BLE. In manual mode the app
 # *is* the clock, so the same crossing is reached by seeding the same 20 seconds and pressing the category on the
 # Faces tab -- and the pause the archive watched on the wire is the app closing its own segment.

@@ -7,7 +7,7 @@ import Security
 /// the source of truth -- but that rule is about facts the app reasons over, and a refresh token is not one. It is a
 /// credential that can act on somebody's Google account until it is revoked, the database file is readable by anything
 /// running as that user, and the app's own privacy policy says the tokens are Keychain-held. So this is the deliberate
-/// exception, and it is the same one the archive made (`Archive/TimeFlipApp/GoogleOAuthKeychainStore.swift`).
+/// exception, and it is the same one the archive made (`GoogleOAuthKeychainStore.swift`).
 ///
 /// **Per user and per machine**, which falls out of the Keychain rather than being arranged: a login Keychain belongs
 /// to one account on one Mac, so a database copied to a second machine arrives with no token and asks for a sign-in,

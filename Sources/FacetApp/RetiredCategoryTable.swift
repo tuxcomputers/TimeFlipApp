@@ -218,7 +218,7 @@ final class RetiredCategoryRow: NSStackView {
     /// The name, which becomes a field when it is clicked, exactly as the Active list's does.
     ///
     /// **A retired name is editable, and that is the archive's answer as well as this one.** `retiredRow` in
-    /// `Archive/TimeFlipApp/CategoriesSettingsView.swift` drew the same `nameField` the active row drew, so the
+    /// `CategoriesSettingsView.swift` drew the same `nameField` the active row drew, so the
     /// previous app allowed this too -- behind a right-click *Edit* nobody would find, which is the part not worth
     /// keeping.
     ///

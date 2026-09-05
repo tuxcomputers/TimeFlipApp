@@ -6,7 +6,7 @@ import Security
 /// **This is the store the previous app had and this one did not**, and its absence is the whole reason a release
 /// build used to leave every cube on the public vendor default: setting a PIN is only safe once there is somewhere
 /// durable to keep it, and a PIN the app cannot write down locks the cube out of every app including this one.
-/// `Archive/TimeFlipApp/TimeFlipDevicePasswordStore.swift` is the same decision, kept for the same reason.
+/// `TimeFlipDevicePasswordStore.swift` is the same decision, kept for the same reason.
 ///
 /// **Not the database, for the reason `GoogleTokenStore` is not.** The first design rule says the database is the
 /// source of truth, and that rule is about facts the app reasons over; a credential is not one. The database file is

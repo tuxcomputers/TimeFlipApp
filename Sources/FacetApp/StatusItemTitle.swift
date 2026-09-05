@@ -2,7 +2,7 @@ import AppKit
 
 /// What the status item spells out: the pieces, in the order they are drawn, decided apart from the drawing.
 ///
-/// Separate from `MenuBarController` for the reason `Archive/TimeFlipApp/MenuBarStatusStyle` was separate from the
+/// Separate from `MenuBarController` for the reason `MenuBarStatusStyle` was separate from the
 /// previous app's: what the item says can then be asserted without a status item, a menu bar, or a rendered line of
 /// text. It is `Equatable` for a second reason as well -- it is what tells a redraw that nothing has changed.
 ///
@@ -45,7 +45,7 @@ struct StatusItemTitle: Equatable {
     /// name and its icon take `nameColour`, and the play/pause glyph takes `glyphColour`.
     ///
     /// **Green while a cube is doing the timing, cyan while this app is.** Green is the previous app's
-    /// (`Archive/TimeFlipApp/MenuBarStatusStyle`, `overLimit ? .systemRed : .systemGreen`) and it said one thing
+    /// (`MenuBarStatusStyle`, `overLimit ? .systemRed : .systemGreen`) and it said one thing
     /// there: this reading is live. It is still what green says here. What is new is a second kind of live reading
     /// the archive never had, one this app takes itself with no cube on the other end, and cyan is that -- so the
     /// pair of them answer between them which of the app's two pictures is on show.
@@ -69,7 +69,7 @@ struct StatusItemTitle: Equatable {
     /// except while a limit is spent.
     ///
     /// **Only this much of the line flashes, which is the archive's choice and worth keeping**
-    /// (`Archive/TimeFlipApp/MenuBarStatusStyle`): the figure beside it is a clock somebody reads, and a duration
+    /// (`MenuBarStatusStyle`): the figure beside it is a clock somebody reads, and a duration
     /// changing colour twice a second is harder to read at the exact moment the app is asking for attention.
     ///
     /// **The off phase is `.labelColor`, where the archive used `.white`.** That is the one thing not copied, and it
@@ -94,7 +94,7 @@ struct StatusItemTitle: Equatable {
     /// figure -- and which says something about neither: it reports whether a clock is going.
     ///
     /// **The menu bar's own text colour, which is what the archive drew it in.** Its indicator was a template image
-    /// handed to AppKit untinted (`Archive/TimeFlipApp/MenuBarController.statusIndicatorImage`), so it came out in
+    /// handed to AppKit untinted (`MenuBarController.statusIndicatorImage`), so it came out in
     /// whatever the strip draws text in -- white on a dark menu bar, black on a light one -- rather than in the
     /// line's green. Naming `.labelColor` here is that behaviour spelled out rather than inherited, since this app
     /// tints its own attachments and would otherwise have to pick something.
@@ -125,8 +125,34 @@ struct StatusItemTitle: Equatable {
         showingSeconds: Bool,
         isLimitReached: Bool = false,
         lowBattery: LowBatteryAlert = .none,
-        cubeLockState: CubeLockState = .unknown
+        cubeLockState: CubeLockState = .unknown,
+        isConnecting: Bool = false
     ) -> StatusItemTitle {
+        // **Before everything, because it is the absence of everything.** A paired launch that has not yet read its
+        // cube has no face, no category and no figure to draw, and the alternative to saying so is the app's own name
+        // -- which is what a launch with no cube at all shows, and so reads as "nothing is paired" at exactly the
+        // moment something is. The archive said the same word in the same place
+        // (`MenuBarController.applyConnectingStatus`).
+        //
+        // **It outlasts a failed attempt on purpose.** The offer's `Rescan` leaves the launch still looking, so the
+        // line goes on saying what is still true; `Time by Hand` is what ends it, by way of `isManualMode`.
+        if isConnecting {
+            return StatusItemTitle(
+                text: Self.connecting,
+                iconName: nil,
+                glyphName: nil,
+                // **No lock badge either**, whatever was passed: the lock is one of the three things not known yet,
+                // and a badge drawn from `.unknown` would be the guess this title exists to avoid.
+                lockGlyphName: nil,
+                duration: nil,
+                // The ordinary text colour, as the idle line is drawn in and for the same reason: green, cyan and
+                // yellow are each a claim about a reading, and there is no reading here to make one about.
+                colour: .labelColor,
+                nameColour: .labelColor,
+                glyphColour: .labelColor,
+                spoken: spoken([Self.connecting, appLabel])
+            )
+        }
         // The flash, and what it flashes against. Red on one phase and the ordinary text colour on the other, so the
         // name alternates rather than vanishing -- and `nil` when there is nothing to warn about, which leaves the
         // name drawn in whatever the line's own colour turns out to be.
@@ -323,6 +349,12 @@ struct StatusItemTitle: Equatable {
     /// face, both of which are fixed hexes because a cube has no idea what appearance a Mac is in. This is a colour
     /// for text on a strip that tints from the wallpaper, so it has to be a dynamic one -- see `colour` for why
     /// anything resolved before the draw is a frozen answer.
+    /// What the item says while a paired launch is still reaching for its cube.
+    ///
+    /// **The archive's word and the archive's ellipsis** (`applyConnectingStatus`), which is also the platform's: one
+    /// character rather than three periods, so it reads as the system's own "working on it" rather than as typing.
+    static let connecting = "Connecting\u{2026}"
+
     private static let byHand: NSColor = .systemCyan
 
     private static func spoken(_ parts: [String]) -> String {

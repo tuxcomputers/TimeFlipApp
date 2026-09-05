@@ -6,7 +6,7 @@
 # asserts that a real cube answered, which is the whole point of it: `swift test` covers every decision the filter
 # makes and cannot tell you that a single real advertisement ever reaches it.
 #
-# **Massaged from the archive's technique, not its steps.** `Archive/Tests/Bench/09b-device-rename-checklist.md`
+# **Massaged from the archive's technique, not its steps.** the previous suite's `09b-device-rename` checklist.md`
 # Step 2 and `16b-manual-mode-pairing-checklist.md` Scenario C both scan and then poll `debug_log` for a `scan` row,
 # and that is exactly right: the app writes the row when the advertisement actually arrived, so the wait is as fast
 # as the hardware and still correct on a slow one. What did not survive is how they got there -- both hunted the

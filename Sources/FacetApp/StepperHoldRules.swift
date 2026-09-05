@@ -7,7 +7,7 @@ import Foundation
 /// at, in the direction of travel, then switches to ticking by 5 at a slower interval. Starting from 4 and holding
 /// up: 5, 6, 7, 8, 9, 10, then 15, 20, 25, 30.
 ///
-/// **Copied from the previous app (`Archive/TimeFlipApp/AutoPauseStepper`) as it stands**, because it is right and
+/// **Copied from the previous app (`AutoPauseStepper`) as it stands**, because it is right and
 /// rewriting it would land in the same place. Only the name changed: it began on the auto-pause field and ended up
 /// shared by every stepper in that window, so a name pointing at one field was already wrong there.
 ///

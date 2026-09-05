@@ -545,7 +545,11 @@ let menuBar = MenuBarController(
         cubeLock.togglePause { _ in
             historyIngestor.refresh(because: "the cube was paused from the menu bar")
         }
-    }
+    },
+    // The same closure every other surface asks, so the item cannot come to a different answer about who the clock is
+    // than the Faces tab has. It is what ends `Connecting…` when somebody answers the cube-not-found offer with
+    // Time by Hand, the offer setting `hasGivenUpOnCube` behind it.
+    isManualMode: isManualMode
 )
 menuBar.start()
 

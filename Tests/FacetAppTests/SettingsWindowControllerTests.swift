@@ -7,7 +7,7 @@ import XCTest
 /// Worth testing because there are now two controls that have to agree, and nothing enforces it: the
 /// bar's segments and the tab view's items are separate lists in the same order, and if they ever
 /// diverge -- a tab added to one, a reorder applied to the other -- every click still selects *a* tab
-/// and nothing fails. That exact mistake is on record in `Archive/Tests/Methods.md`: steps addressing tabs by
+/// and nothing fails. That exact mistake is on record in the previous suite's methods: steps addressing tabs by
 /// index went on passing while testing the wrong tab after `Categories` was inserted second.
 ///
 /// No window is shown. Building the controller builds the bar and the panes, which is all this needs.

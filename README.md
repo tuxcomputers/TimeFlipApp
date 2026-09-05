@@ -2,7 +2,7 @@
 
 A native macOS menu bar application for the [TimeFlip2](https://timeflip.io/) time tracking device.
 
-**Using Facet is documented at [facet.com.au](https://facet.com.au)**: installing it, pairing a cube,
+**Using Facet is documented at [facet.tux.com.au](https://facet.tux.com.au)**: installing it, pairing a cube,
 setting categories up, connecting a Google account and what everything on screen means. Everything in
 this repository is about *building* the app instead, and is written for whoever is working on it.
 
@@ -14,19 +14,14 @@ This is AI-generated code all the way down, and it's worth being honest about th
 
 Times what a TimeFlip2 cube is doing from the macOS menu bar, files it under a category, keeps the
 record in a local SQLite database and syncs it to a Google calendar of its own. With no cube paired it
-times from the app instead, into the same tables. [facet.com.au](https://facet.com.au) covers all of it
+times from the app instead, into the same tables. [facet.tux.com.au](https://facet.tux.com.au) covers all of it
 from the using end.
 
 ### Not built yet
 
-- **Device rename**: the storage half is there -- the scan matches the vendor default and both names the cube has carried, so a renamed cube is still findable -- but nothing in the app sends the rename command, so the name can only be changed from the vendor's own app.
-- **Firmware-update reminder**: the app reads the cube's firmware version on every connect, but does not yet remind anyone to go and update it.
+- **Firmware-update reminder**: the app reads the cube's firmware version on every connect and shows it on the Device tab, but does not yet remind anyone to go and update it. It could not do the update either way -- only the vendor's own app can flash firmware -- so this is a nudge to go there, not a feature that is half finished.
 - **Projects and costs**: the `project` table and the `cost` columns exist and nothing reads or writes them.
-- **Editing a recorded entry**: the Report tab lists what was recorded and cannot yet correct it.
-
-### Not supported
-
-- **Pomodoro timers**: totally doable, but I don't use this workflow myself and I am not sure about UX. PRs are welcome
+- **Editing a recorded entry**: the Report tab lists what was recorded and cannot yet correct it, so a stretch recorded against the wrong category stays that way.
 
 ## Working on it
 
@@ -36,7 +31,6 @@ from the using end.
 - **[Workflow](docs/workflow.md)** - the usage the schema is shaped around, and why
 - **[Operation Spec](docs/operation-spec.md)** - how a device event becomes a calendar entry
 - **[Database Design](docs/database-design.md)** - the local SQLite schema
-- **[The rebuild](docs/rebuild.md)** - what is built, what is still owed, and the reasoning behind each piece
 - **[Features Under Development](docs/TODO-features-under-development.md)** - the longer-form notes behind individual features
 - **[State Reference](docs/state-reference.md)** - the one name every state in the app goes by
 - **[Scripted checks](Tests/Scripted/README.md)** - the suite that drives the real app against a real device
@@ -118,4 +112,4 @@ That permission was granted to me, for this project specifically, and **does not
 
 For bugs and feature requests, please [open an issue](https://github.com/tuxcomputers/TimeFlipApp/issues).
 Anything about using the app, or about the cube itself, is answered at
-[facet.com.au](https://facet.com.au).
+[facet.tux.com.au](https://facet.tux.com.au).

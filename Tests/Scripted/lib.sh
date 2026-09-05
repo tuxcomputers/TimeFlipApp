@@ -183,7 +183,7 @@ wait_for_dev() {
 # some other one simply does not satisfy it and the banner is still on screen saying which one.
 #
 # **No timeout, deliberately.** A physical action takes as long as the person takes, and a run that failed
-# because they answered the door would be failing about the wrong thing. `Archive/testrunner/actions.py`
+# because they answered the door would be failing about the wrong thing. `actions.py`
 # reached the same place from the other direction: `act_ask_user_or_detect` treats `timeout_seconds = 0` as
 # "wait indefinitely" and says why in the same words. It reports that it is still waiting every half minute,
 # so an unattended run reads as waiting rather than as hung.
@@ -278,7 +278,7 @@ ask_and_detect() {
 # prompt drawn this big is meant to stop somebody, and the third identical one in two minutes is the one
 # they answer without reading. Nothing between them changed the answer.
 #
-# **This is the archive's shape, massaged.** `Archive/Tests/00-test-setup.md` established the device once
+# **This is the archive's shape, massaged.** The previous suite's `00-test-setup` established the device once
 # for a whole run and every feature checklist after it simply assumed the result -- neither
 # `02b-reset-device` nor `09b-device-rename` asks whether the cube is there. What does not carry over is
 # how: that was a setup checklist of its own, driven by a Python supervisor holding state between steps.
@@ -1520,7 +1520,7 @@ close_settings() {
 }
 
 # The tabs carry no AXIdentifier -- a Settings tab button is matched on its description instead, which
-# is Archive/Tests/Methods.md Method 10's finding and still true of this app's window.
+# is Tests/Methods.md Method 2's finding and still true of this app's window.
 select_tab() {
     press_desc "$1"
     sleep 0.7

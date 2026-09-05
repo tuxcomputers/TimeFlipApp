@@ -13,7 +13,7 @@ import Foundation
 /// Settings window does against the table.
 ///
 /// **The archive's file, the archive's key.** `PIN`, in
-/// `~/Library/Application Support/Facet/config.json` (`Archive/TimeFlipApp/DeveloperConfigStore.swift`, which used
+/// `~/Library/Application Support/Facet/config.json` (`DeveloperConfigStore.swift`, which used
 /// `TimeFlip` for the folder as the app was called then). Copied as it stands rather than renamed, because a dev
 /// machine's file already holds the PIN of the cube this rebuild is tested against and a new name would strand it.
 ///

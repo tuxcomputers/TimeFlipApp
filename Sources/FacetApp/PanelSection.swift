@@ -10,7 +10,7 @@ import AppKit
 ///
 /// **The heading is on the panel, not above it**, which is what the archive drew: each section was a `Section` of a
 /// `.formStyle(.grouped)` form, and a grouped form's box holds the disclosure label as its first row
-/// (`Archive/TimeFlipApp/CategoriesSettingsView.swift`). SwiftUI drew that box; here the box is this section's, which
+/// (`CategoriesSettingsView.swift`). SwiftUI drew that box; here the box is this section's, which
 /// is also why the tint moved off `CategoryTable` -- content inside a panel cannot draw the panel, or the two tints
 /// stack and the content reads darker than the heading over it.
 ///

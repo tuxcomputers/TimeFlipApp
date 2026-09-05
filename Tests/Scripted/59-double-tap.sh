@@ -10,7 +10,7 @@
 # would be recording its own wish as the cube's state.
 #
 # **Turning the gesture off is faked and that is the other half.** No BLE command disables double tap (measured,
-# `Archive/Tests/Methods.md` Method 22), so the Disable box sends `window` 0 while the table keeps the real number --
+# `docs/timeflip2-firmware-observations.md` finding 11), so the Disable box sends `window` 0 while the table keeps the real number --
 # that number being what turning it back on has to put back. The two therefore disagree on purpose, which is exactly
 # the shape a bug would take, so both are read: what went on the wire, and what the row holds afterwards.
 #

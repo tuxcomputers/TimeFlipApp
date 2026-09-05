@@ -6,7 +6,7 @@ import Foundation
 /// **Values in, values out**, the split every device rules type here keeps. `DeviceLogin` asks the question,
 /// `BluetoothRadio` files the answer, `main.swift` decides what to do about it, and this reads the four bytes.
 ///
-/// **The archive's decoder, copied as it stands** (`Archive/TimeFlipApp/TimeFlipEvent.TimeFlipSystemState`), and the
+/// **The archive's decoder, copied as it stands** (`TimeFlipEvent.TimeFlipSystemState`), and the
 /// codes are worth keeping verbatim because they are the vendor's and nothing about them is derivable: `0x0100` for a
 /// factory reset and `0x0202` for a flash fault are numbers somebody read out of a table, and re-deriving them means
 /// reading the same table again. What is dropped is the four sync states this app has nothing to push for yet -- they

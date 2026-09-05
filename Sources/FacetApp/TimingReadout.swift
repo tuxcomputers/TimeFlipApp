@@ -5,7 +5,7 @@ import Foundation
 /// **One answer, for everything that draws it.** The Faces tab and the status item show the same session, and the
 /// previous app let each work it out for itself: the menu bar resolved the activity from the face and totalled the
 /// day, then handed the tab the duration *text* it had already formatted
-/// (`Archive/TimeFlipApp/AppState.setCurrentDurationText`), so the tab's figure was whatever the menu bar last
+/// (`AppState.setCurrentDurationText`), so the tab's figure was whatever the menu bar last
 /// happened to say. Reading it in one place is what stops the two disagreeing about what is running, and neither
 /// of them keeps a copy.
 ///
@@ -73,7 +73,7 @@ final class TimingReadout {
         ///
         /// The archive held the same two facts in one enum -- `reconnecting` "so the menu bar keeps showing the last
         /// known activity/icon instead of tearing down", while `isCubeConnected` "gates every command that goes out over
-        /// BLE" (`Archive/TimeFlipApp/AppState.swift`). Two fields here, set together in one place, so they cannot be
+        /// BLE" (`AppState.swift`). Two fields here, set together in one place, so they cannot be
         /// answered differently by whoever is asking.
         ///
         /// `false` whenever there is no `cubeFace` at all, which costs nothing: there is nothing to reach.
@@ -154,7 +154,7 @@ final class TimingReadout {
     ///
     /// The archive kept these apart with a `reconnecting` case, "distinct from `.failed`/`.disconnected` so the menu
     /// bar keeps showing the last known activity/icon instead of tearing down to an unpaired look"
-    /// (`Archive/TimeFlipApp/AppState.swift`). This is that case, asked rather than stored.
+    /// (`AppState.swift`). This is that case, asked rather than stored.
     var isCubePaired: () -> Bool = { false }
 
     /// What the cube itself last said about being paused, from its answer to `0x10`. `nil` when it has not been asked

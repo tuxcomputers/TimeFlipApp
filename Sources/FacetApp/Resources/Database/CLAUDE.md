@@ -118,8 +118,9 @@ and don't count it when reasoning about the schema.
 - To insert a new table at a given position: rename every file numbered `>=` the target position up
   by one (highest number first, so no rename overwrites another), add the new file at that number,
   then grep for and fix **every** reference to the old filenames — DDL files, `docs/`, code comments
-  (`Sources/`), and the test checklists (`Tests/`) all cite them by name. This mirrors the checklist
-  renumber rule in [`Archive/Tests/CLAUDE.md`](../../../../Archive/Tests/CLAUDE.md).
+  (`Sources/`), and the test checklists (`Tests/`) all cite them by name. The previous test suite carried the same rule for
+  renumbering its checklists, and for the same reason: a number that appears in prose as well as in a
+  filename is renamed in both places or in neither.
 - Renumbering also **moves that table's section in [`docs/database-design.md`](../../../../docs/database-design.md)**,
   whose sections are ordered by DDL number so every foreign key points at a table described above it.
 

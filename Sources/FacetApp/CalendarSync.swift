@@ -14,10 +14,9 @@ import Foundation
 /// database at the start of each pass, per the first rule in `CLAUDE.md`. A calendar disconnected while a sweep was
 /// running is therefore noticed on the next pass rather than written to anyway.
 ///
-/// There is **no prior art for this** in the archive. `Archive/TimeFlipApp/GoogleCalendarClient.swift` has an
-/// `insertEvent`, and `docs/rebuild.md` records that nothing ever called it and that no code there ever wrote
-/// `synced_to_google_calendar`. What that file does contribute is the event's shape, which is massaged into
-/// `GoogleEventRules` rather than copied.
+/// There is **no prior art for this** in the archive. `GoogleCalendarClient.swift` has an
+/// `insertEvent`, nothing there ever called it, and no code there ever wrote `synced_to_google_calendar`. What that
+/// file does contribute is the event's shape, which is massaged into `GoogleEventRules` rather than copied.
 @MainActor
 final class CalendarSync {
     private let connection: DatabaseConnection
