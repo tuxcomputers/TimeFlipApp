@@ -156,7 +156,8 @@ final class AppSettingsPane: NSView {
         case googleConnected(GoogleAccountRules.Account)
         /// A new name for the calendar, typed and committed. **A request**: it is a rename at Google, not a label.
         case googleCalendarNamed(String)
-        /// Make the calendar. Only reachable when there is none, which is a recovery rather than the usual path.
+        /// Make the calendar. **The only thing that makes one**: connecting an account does not, so this is the
+        /// usual path rather than a recovery, and it stays available for as long as there is no calendar.
         case googleCalendarCreateRequested
         /// Delete the calendar, at Google. **The one request here that destroys something**, so the window confirms it
         /// before carrying it out. Carries no value: there is one calendar and only one thing to do to it.
@@ -454,8 +455,11 @@ final class AppSettingsPane: NSView {
     /// The Calendar row: the name, editable, or a button to make one when there is none.
     ///
     /// **Editable only once the calendar exists.** Naming something that has not been created yet would be a field
-    /// whose value has nowhere to go, and the create path uses the default name rather than asking for one at the
-    /// moment somebody is trying to connect an account.
+    /// whose value has nowhere to go, and the create path uses the default name rather than asking for one: renaming
+    /// it afterwards is the same act and is already here.
+    ///
+    /// **The button is the ordinary state of this row, not a fault.** An account connects without a calendar, so this
+    /// is what a fresh sign-in shows, and it stays until somebody presses it.
     private func calendarRow() -> NSView {
         guard values.googleCalendar.exists else {
             let button = NSButton(

@@ -97,6 +97,29 @@ enum GoogleCalendarRules {
         return Calendar(id: id, name: trimmedOrNil(object["summary"] as? String))
     }
 
+    /// What a sign-in should do about the calendar, given what the table is holding.
+    ///
+    /// **Neither case makes a calendar.** Connecting an account is not somebody asking for a calendar in it, so a
+    /// sign-in can only ever confirm one that is already recorded. Making one is the Create button's job and nothing
+    /// else's, which is what keeps Facet from putting a calendar into an account that never asked for it.
+    enum Settlement: Equatable {
+        /// A calendar is recorded. Fetch it, which proves it is there and brings its current name back in the same
+        /// request.
+        case check(id: String)
+        /// None is recorded. The Calendar row becomes the Create button and stays that way until it is pressed.
+        ///
+        /// **Nothing is lost by leaving it.** Entries recorded meanwhile stay at `synced_to_google_calendar = 0`, and
+        /// creating the calendar later sweeps every one of them into it, oldest first (`CalendarSync`).
+        case leaveToTheUser
+    }
+
+    /// Reads the stored id the same way everything else here does, so a blank one is no calendar rather than a
+    /// calendar whose id is the empty string.
+    static func settlement(forStoredID storedID: String?) -> Settlement {
+        guard let id = calendar(id: storedID, name: nil).id else { return .leaveToTheUser }
+        return .check(id: id)
+    }
+
     /// Whether a failure means the calendar is gone rather than that the request went wrong.
     ///
     /// **This is the only thing allowed to trigger a re-create.** Creating whenever the id merely looks missing is how

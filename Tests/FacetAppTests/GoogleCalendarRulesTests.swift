@@ -77,4 +77,32 @@ final class GoogleCalendarRulesTests: XCTestCase {
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
         XCTAssertEqual(object, ["summary": "Work time"])
     }
+
+    // MARK: - what a sign-in does about it
+
+    func testASignInWithNoStoredCalendarMakesNothing() {
+        // **The point of the whole rule.** Connecting an account used to make a "Facet" calendar at the end of the
+        // sign-in, so somebody who only wanted to see which account was connected got a calendar in it they had not
+        // asked for and had to go and delete. Nothing is made now: the row offers a Create button instead.
+        for stored in [nil, "", "   "] {
+            XCTAssertEqual(
+                GoogleCalendarRules.settlement(forStoredID: stored), .leaveToTheUser,
+                "a stored id of \(stored.map { "\"\($0)\"" } ?? "nil") is no calendar"
+            )
+        }
+    }
+
+    func testASignInWithAStoredCalendarChecksItRatherThanMakingAnother() {
+        // The id survives a sign-out on purpose, so the common case -- the same person signing back in -- keeps the
+        // calendar and its history. Checking is a `calendars.get`, which also brings back a name changed at Google.
+        XCTAssertEqual(
+            GoogleCalendarRules.settlement(forStoredID: "abc@group.calendar.google.com"),
+            .check(id: "abc@group.calendar.google.com")
+        )
+        XCTAssertEqual(
+            GoogleCalendarRules.settlement(forStoredID: "  abc@group.calendar.google.com  "),
+            .check(id: "abc@group.calendar.google.com"),
+            "trimmed, as every other read of this field is"
+        )
+    }
 }

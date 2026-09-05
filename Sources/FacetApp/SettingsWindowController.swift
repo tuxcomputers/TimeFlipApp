@@ -1790,8 +1790,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                 )
                 self?.debugLog?.record(.field, "Google sign-in finished, account \(account.email ?? "unnamed")")
                 pane?.adopt(.googleConnected(account))
-                // The calendar is made here rather than behind a button, so the only way to reach "connected with
-                // nowhere to sync" is a failure. The access token is already in hand, so this costs no refresh.
+                // Settling a calendar is checking the stored one, never making a new one: signing in is an account
+                // being connected, not a calendar being asked for. The access token is already in hand, so this
+                // costs no refresh.
                 if let pane {
                     await self?.settleGoogleCalendar(
                         accessToken: tokens.accessToken, from: pane, using: settings
@@ -1902,17 +1903,26 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// person meets, and what somebody who deleted the calendar at Google meets, and in both of those it addresses
     /// nothing. Those two are indistinguishable from here, which is why the question asked is the same one and the
     /// wording names both possibilities rather than guessing.
+    ///
+    /// **No stored id means no calendar, and nothing is made.** Signing in connects an account; it is not somebody
+    /// asking for a calendar in it. So this settles on `.none`, the Calendar row becomes the Create button, and the
+    /// calendar is made if and when that is pressed. Nothing is lost by waiting: entries recorded meanwhile stay at
+    /// `synced_to_google_calendar = 0`, and creating the calendar sweeps every one of them into it, oldest first
+    /// (`CalendarSync`).
     private func settleGoogleCalendar(
         accessToken: String,
         from pane: AppSettingsPane,
         using settings: SettingStore
     ) async {
         let storedID = settings.string(GoogleAccountRules.setting, field: GoogleCalendarRules.idField)
-        guard let id = GoogleCalendarRules.calendar(id: storedID, name: nil).id else {
-            await makeGoogleCalendar(
-                named: GoogleCalendarRules.defaultName, accessToken: accessToken, from: pane, using: settings
-            )
+        let id: String
+        switch GoogleCalendarRules.settlement(forStoredID: storedID) {
+        case .leaveToTheUser:
+            debugLog?.record(.field, "Google account connected with no calendar, none made")
+            pane.adopt(.googleCalendarChanged(.none))
             return
+        case let .check(storedCalendarID):
+            id = storedCalendarID
         }
         do {
             // Proves it exists and brings back its current name in the same request, so a rename made at Google is
@@ -1980,7 +1990,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         }
     }
 
-    /// The recovery path: the button that only appears when there is no calendar.
+    /// **The only way a calendar gets made**: the button the Calendar row shows whenever there is none.
+    ///
+    /// Reachable at any point after an account is connected, and pressing it late costs nothing -- `makeGoogleCalendar`
+    /// ends in `onGoogleCalendarSettled`, which sweeps every entry recorded since into the new calendar.
     private func createGoogleCalendar(from pane: AppSettingsPane, using settings: SettingStore) {
         pane.setSigningIn(true)
         Task { @MainActor [weak self, weak pane] in

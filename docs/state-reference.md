@@ -179,6 +179,7 @@ frame.
 | `googleAccountState` | `notConnected`, `signedOut`, `unverified`, `connected`, `expired`, `unreachable`, `unreadable` | `GoogleAccountRules.State` |
 | `hasGoogleCredentials` | true / false | client credentials present |
 | `hasGoogleIdentity` | true / false | `GoogleAccountRules.Account` |
+| `calendarSettlementState` | `check(id)` / `leaveToTheUser` | `GoogleCalendarRules.Settlement` |
 | `isCalendarGone` | true / false | `CalendarGone` |
 | `hasReportedMissingCalendar` | true / false | `CalendarSync` |
 | `hasReportedWriteFailure` | true / false | `DebugLog` |
