@@ -9,7 +9,7 @@ import XCTest
 /// and the sending is somebody else's, so the awkward sequences are all reachable here -- the crossing, the stale total
 /// in the seconds after a pause, a double tap starting the cube again, and a relaunch onto an already paused cube.
 ///
-/// Carried over from `Archive/TimeFlipAppTests/DailyLimitEnforcementTests.swift`. The cases are the archive's and are
+/// Carried over from `DailyLimitEnforcementTests.swift`. The cases are the archive's and are
 /// kept as they stand: each one names a sequence that happened on a real desk, and re-deriving that list would cost
 /// the same again.
 final class DailyLimitEnforcementTests: XCTestCase {

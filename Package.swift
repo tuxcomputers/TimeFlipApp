@@ -5,9 +5,6 @@ import PackageDescription
 // dependency for Google sign-in; this app owns that flow instead (`GoogleOAuthRules` says why), so
 // nothing is fetched to build it. AppKit is linked explicitly below; CoreBluetooth and CryptoKit
 // come in through `import` alone, being system frameworks the toolchain resolves without help.
-//
-// `Archive/` holds the previous implementation and is deliberately outside every target path, so
-// nothing in it is compiled while remaining readable and `git log --follow`-able.
 let package = Package(
     name: "FacetApp",
     platforms: [

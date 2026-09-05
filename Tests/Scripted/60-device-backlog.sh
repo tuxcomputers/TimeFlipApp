@@ -14,7 +14,7 @@
 # segment, with its own event number. Both arrive as rows for the first time. **Every record of that period comes from
 # the device**, which is the claim this script exists to make.
 #
-# **Migrated from `Archive/Tests/Interactive/01i-history-refresh-checklist.md`, Scenario B**, which is the only place
+# **Migrated from the previous suite's `01i-history-refresh` checklist, Scenario B**, which is the only place
 # the previous suite tested this. Massaged rather than copied: the shape is its shape, and three things it recorded
 # are kept because they cost a real run to learn.
 #

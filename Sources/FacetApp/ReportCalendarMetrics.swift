@@ -25,7 +25,7 @@ enum ReportLayout {
 /// number is what stops a resize leaving 17pt digits in a 28pt cell: there is only one thing to change, and
 /// everything else follows.
 ///
-/// **The ratios are the archive's** (`Archive/TimeFlipApp/ReportCalendarMetrics.swift`), and they in turn came from
+/// **The ratios are the archive's** (`ReportCalendarMetrics.swift`), and they in turn came from
 /// the fixed-size design it replaced: a 28pt cell carrying 12pt digits, a 13pt month title, 20pt arrows. So a window
 /// at its narrowest still looks like that layout rather than a differently-proportioned one.
 struct ReportCalendarMetrics: Equatable {

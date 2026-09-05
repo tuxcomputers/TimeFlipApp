@@ -6,7 +6,7 @@ import Foundation
 /// is a rule about the data, not a property of a label, and the pane is where it would otherwise be decided by the
 /// order two `if`s happen to run in.
 ///
-/// **The archive asked for more than this and is deliberately not copied** (`Archive/TimeFlipApp/ReportSettingsView.swift`):
+/// **The archive asked for more than this and is deliberately not copied** (`ReportSettingsView.swift`):
 ///
 /// - Its **Client ID and Client Secret fields are gone**. Those existed because every user had to make their own
 ///   Google Cloud project and paste the results in. The project is now ours and the credentials ship with the build,

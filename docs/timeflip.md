@@ -175,7 +175,7 @@ Swift `fetchHistory` writes 0x02, increments the event number per frame, caps at
 
 ## 6. Connection and session lifecycle (the archived driver)
 
-**This section, § 7 and § 10 describe `Archive/TimeFlipApp/TimeFlipBLEDevice.swift`, not the app as it stands.** They
+**This section, § 7 and § 10 describe `TimeFlipBLEDevice.swift`, not the app as it stands.** They
 are kept because the sequence is prior art worth reading before changing the current one, and because several of the
 steps encode measurements. The rebuild's driver is `BluetoothRadio` over `DeviceLogin`, and it differs in ways worth
 knowing before reading on:
@@ -239,4 +239,4 @@ These structures mirror the BLE payloads and were shared by the archive's real a
 6) Stream notifications; on face change, emit `faceChanged`; on double tap emit pause toggle; react to system/battery updates.
 7) On demand, read history starting at cursor, stop on sentinel.
 
-This flow matches the archived driver (`Archive/TimeFlipApp/TimeFlipBLEDevice.swift`) and the vendor v4.3 protocol notes. See § 6's preamble for where the current driver departs from it.
+This flow matches the archived driver (`TimeFlipBLEDevice.swift`) and the vendor v4.3 protocol notes. See § 6's preamble for where the current driver departs from it.

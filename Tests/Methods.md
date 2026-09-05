@@ -13,7 +13,7 @@ command, not the story of finding it. Keep entries short: a rule buried in prose
 follows.
 
 The suite these serve is being rebuilt from scratch, per the device-test section of the root
-`CLAUDE.md`. The previous suite's methods are in `Archive/Tests/Methods.md`; its locators address the
+`CLAUDE.md`. The previous suite's methods are in the git history; its locators addressed the
 old app's accessibility tree and do not apply, but its **device measurements** still do, because they
 are facts about the hardware.
 
@@ -575,7 +575,7 @@ line and the pipeline's exit code is never read.
 - **A single-event history read (`0x01`) is answered by a read, not a notification.** `0x02`'s reply is documented
   as "data flow with notification"; `0x01`'s is not described as a notification at all, and waiting for one times out
   every time. Write the command, then read the characteristic's value. Measured by the archive
-  (`Archive/TimeFlipApp/TimeFlipBLEDevice.readLastEventLocked`) and reproduced here on 2026-08-20: the write was
+  (`TimeFlipBLEDevice.readLastEventLocked`) and reproduced here on 2026-08-20: the write was
   acknowledged, the cube echoed "read history" on `eventsData`, and nothing arrived on the history characteristic for
   the whole six-second deadline.
 
@@ -764,7 +764,7 @@ Nothing in this codebase exceeds 200ms as of 2026-08-22, so any output at all is
 - **`NSApp` is nil in a test bundle** until an application object has been made, and it is implicitly
   unwrapped -- so reading it crashes the whole run rather than failing one case. Use
   `NSApplication.shared`, which makes one.
-- **`swift test` walks up for `Package.swift`.** Run from `Archive/`, which has none, it still builds and
+- **`swift test` walks up for `Package.swift`.** Run from a directory with none, it walks up and still builds and
   tests the rebuilt app -- so a stray `cd` looks like the archive passing 179 tests. Check `pwd` before
   reading anything into a result.
 - **A `@MainActor` class cannot touch its own non-Sendable properties in `deinit`.** It is a compile

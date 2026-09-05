@@ -15,7 +15,7 @@
 # writes `quit_request`; the launch after it starts from a table that says paired, disconnected. That is the state a
 # morning starts in, and it is not reachable any other way.
 #
-# **Massaged from `Archive/Tests/00-test-setup.md` Step 6**, which confirmed the app had reconnected by waiting for a
+# **Massaged from the previous suite's `00-test-setup` Step 6**, which confirmed the app had reconnected by waiting for a
 # fresh `Login accepted` after a restart and prompting if it never came. The technique is right and is kept: poll the log
 # for the app's own row rather than asking anybody whether it worked. What is not kept is its place -- it was a
 # precondition inside a setup checklist, establishing a connection so that other features could be tested, and the

@@ -3,10 +3,10 @@
 # before "Archive the app sources ahead of the rebuild"), so it can be used for real time tracking
 # while the rebuild is incomplete.
 #
-# The bundle is prebuilt and installed at ~/Applications/TimeFlip-old.app. It is not built from
-# Archive/ on the fly, and could not be: Archive/ is outside every target path in the current
-# Package.swift, and the manifest that compiled it (AppAuth, CoreBluetooth) is only in the old
-# commit. Rebuilding it means a worktree at that commit -- see "Rebuilding" below.
+# The bundle is prebuilt and installed at ~/Applications/TimeFlip-old.app. It is not built from this
+# checkout and could not be: the manifest that compiled it (AppAuth, CoreBluetooth) exists only in
+# the old commit. Rebuilding it means a worktree at that commit -- see "Rebuilding" below, which is
+# also the only place the previous app's sources still live now that Archive/ has been deleted.
 #
 # usage: scripts/old.sh [--console] [--rebuild]
 #   (no flag)   launch detached, the way a menu bar app is normally started

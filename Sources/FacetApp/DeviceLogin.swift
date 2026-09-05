@@ -38,7 +38,7 @@ final class DeviceLogin: NSObject {
     /// One deadline rather than one per step, because a cube that stops answering stops answering: which step it was
     /// on is a thing for the log to say, not a thing to give its own budget to. Generous against the archive's
     /// measurements, where the whole of connect-and-link never exceeded 5.4 seconds and setting a PIN and confirming
-    /// it added 236-266ms on top (n=6, `Archive/TimeFlipApp/MockTimeFlipDevice.swift`).
+    /// it added 236-266ms on top (n=6, `MockTimeFlipDevice.swift`).
     static let timeoutSeconds: TimeInterval = 15
 
     /// How long the Device Information reads get, once the login is over.
@@ -946,7 +946,7 @@ final class DeviceLogin: NSObject {
     ///
     /// **Worth asking on every connection** because it is the only explanation of a physical behaviour: the cube
     /// pauses its own tracking on a double tap, unconditionally, with no command to disable it
-    /// (`Archive/Tests/Methods.md` Method 22), so how hard a knock has to be is the whole of what decides whether a
+    /// (`docs/timeflip2-firmware-observations.md` finding 11), so how hard a knock has to be is the whole of what decides whether a
     /// desk being bumped stops somebody's timer.
     private func askWhatMakesADoubleTap() {
         guard command != nil else { return }

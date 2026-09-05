@@ -42,7 +42,7 @@ final class AppSettingsPaneTests: XCTestCase {
     func testEveryRowTheArchiveHadIsThere() {
         let pane = AppSettingsPane()
 
-        // Four of the archive's six, in its order and its wording (`Archive/TimeFlipApp/ReportSettingsView.swift`).
+        // Four of the archive's six, in its order and its wording (`ReportSettingsView.swift`).
         for title in [
             "App settings",
             "Show seconds",

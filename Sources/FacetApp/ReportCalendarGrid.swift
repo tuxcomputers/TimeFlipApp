@@ -4,7 +4,7 @@ import Foundation
 /// wrong -- where a month's first day sits in the week, which months can still be reached -- are plain functions with
 /// tests rather than something only observable by looking at a rendered calendar.
 ///
-/// **Taken from the archive as it stands** (`Archive/TimeFlipApp/ReportCalendarGrid.swift`): it is pure Foundation
+/// **Taken from the archive as it stands** (`ReportCalendarGrid.swift`): it is pure Foundation
 /// with no view in it, every decision in it is stated and still true, and rewriting it would land in the same place.
 /// What it knows that a fresh attempt would have to rediscover is in the comments below -- particularly the two
 /// weekday-symbol dead ends, which were measured rather than reasoned about.

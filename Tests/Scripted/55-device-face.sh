@@ -12,7 +12,7 @@
 # item asked `TimingReadout` -- and every hermetic test passed throughout. One reading now decides, and the check that
 # would have caught it is the one below that reads both surfaces and compares them against each other.
 #
-# **Meeting (face 2) and Break (face 8), which is the archive's pair**: `Archive/Tests/Interactive/01i-history-refresh-checklist.md`
+# **Meeting (face 2) and Break (face 8), which is the archive's pair**: the previous suite's `01i-history-refresh-checklist.md`
 # says "faces used throughout this checklist's run: face 2 ('Meeting') and face 8 ('Break') only". Kept, and for a
 # reason that is this database's rather than inherited: they are the only two faces `008_face.sql` seeds with a real
 # category, so on a database built from the DDL every other face reads *Unassigned* -- which draws an unlit cube with

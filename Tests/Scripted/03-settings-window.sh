@@ -9,7 +9,7 @@
 # window open and the last before anything is recorded, which makes it the only place that works.
 #
 # **The tabs carry no `AXIdentifier`.** A Settings tab button has to be matched on its description
-# instead, which is Archive/Tests/Methods.md Method 10's finding from the previous app and is still true
+# instead, which is Tests/Methods.md Method 2's finding from the previous app and is still true
 # of this one. `select_tab` is that, in one place, so no script rediscovers it as a regression.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 

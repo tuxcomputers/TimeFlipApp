@@ -102,7 +102,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// whatever was already queued -- so a single debounce shared across both would mean that nudging Blink Interval
     /// within half a second of Brightness silently threw the brightness write away. That is the archive's measured
     /// finding rather than a worry: it kept one debouncer per setting for exactly this
-    /// (`Archive/TimeFlipAppTests/Workflows/W07-debounced-device-writes.swift`).
+    /// (`W07-debounced-device-writes.swift`).
     private let ledBrightnessWrite = WriteDebounce()
     private let ledBlinkWrite = WriteDebounce()
 
@@ -375,7 +375,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     ///
     /// **Each writing control owns a debounce and they are not shared.** `WriteDebounce.schedule` displaces whatever
     /// was queued, so one queue across two settings would drop a write, which is the archive's measured finding
-    /// rather than a worry (`Archive/TimeFlipAppTests/Workflows/W07-debounced-device-writes.swift`).
+    /// rather than a worry (`W07-debounced-device-writes.swift`).
     private func makeDevicePane() -> DevicePane {
         let pane = DevicePane()
         pane.onToggle = { [weak self] identifier, isExpanded in
@@ -528,7 +528,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// Turns the cube's double tap off or back on, from the **Disable** box.
     ///
     /// **Off is `window` zero, because the hardware has no switch.** The vendor spec defines no command that disables
-    /// double tap, and the archive measured the same on a real cube (`Archive/Tests/Methods.md` Method 22): the only
+    /// double tap, and the archive measured the same on a real cube (`docs/timeflip2-firmware-observations.md` finding 11): the only
     /// lever is sensitivity. So this is suppression rather than an off switch, and `DoubleTapRules.asSent` is where
     /// that one decision lives. Turning it back on sends the four values the window holds, which is why the stored
     /// `window` keeps its real value throughout -- zeroing what is stored would lose the number to come back to.
@@ -3037,7 +3037,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     ///
     /// So a script matches on `description`: `radio button "Report"` finds nothing, while `first radio
     /// button whose description is "Report"` finds it (measured, both ways round). That is the same
-    /// contract the previous app exposed and the one `Archive/Tests/Methods.md` Method 10 is already written
+    /// contract the previous app exposed and the one `Tests/Methods.md` Method 2 is already written
     /// against -- `NSTabView`'s own bar, with its `AXTitle`s, was the odd one out. The path is one level
     /// shorter here: the segments are `radio group 1 of window`, where they used to be inside
     /// `group 1 of toolbar 1`, so that method needs its path updated when the checklists come back.

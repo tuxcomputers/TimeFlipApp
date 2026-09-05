@@ -197,7 +197,7 @@ check "precondition: Settings is folded" "0" "$(on_tab device-auto-pause)"
 
 # **Its own baseline, taken here.** The `since` left over from the fold loop above would sweep in every row those
 # presses wrote, so the silence check below would be reading its own doing rather than the reset's
-# (`Archive/Tests/CLAUDE.md`: a cross-step wait needs its own named baseline).
+# (the previous suite's rule: a cross-step wait needs its own named baseline).
 before_reset=$(mark)
 
 close_settings

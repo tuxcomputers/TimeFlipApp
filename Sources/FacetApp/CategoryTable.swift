@@ -15,7 +15,7 @@ import AppKit
 /// property can be read across every category at a glance. The previous app drew them as two different things for
 /// the same reason, and this keeps its measurements: a 160pt name column so the colour after it starts at the same
 /// x on every row whatever the name's length, and a 46pt colour column, wide enough for the caption above it
-/// (`Archive/TimeFlipApp/SettingsLayoutConstants.CategoryList`).
+/// (`SettingsLayoutConstants.CategoryList`).
 ///
 /// **The columns are the archive's five**: Active, icon, name, colour, daily limit. All but the name are live -- the
 /// box retires a category, the icon and the swatch each open a picker, and the limit writes `category.daily_limit`.

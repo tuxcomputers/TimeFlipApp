@@ -13,7 +13,7 @@ import Foundation
 /// - **The read-back knows where to look.** Step 2 of the design is fetching the event again to check it, and with a
 ///   derived id that is a `GET` at a known address rather than a search.
 ///
-/// The archive had none of this. `Archive/TimeFlipApp/GoogleCalendarClient.swift` has `insertEvent`, which posts a
+/// The archive had none of this. `GoogleCalendarClient.swift` has `insertEvent`, which posts a
 /// summary, a description and two dates and never reads anything back, and nothing ever called it -- the sync itself
 /// was never built there. So its event shape is **massaged**: the four fields it sent are the right four, and
 /// everything about identity, verification and which zone the times are in is new.

@@ -15,7 +15,7 @@ struct DoubleTapParameters: Equatable {
     /// `TIME_LATENCY`. The dead time after the first knock, before the second is looked for.
     let latency: UInt8
     /// `TIME_WINDOW`. How long the second knock has to arrive in. Zero is the archive's kill switch for the whole
-    /// gesture (`Archive/Tests/Methods.md` Method 22), which is worth knowing because no command disables it.
+    /// gesture (`docs/timeflip2-firmware-observations.md` finding 11), which is worth knowing because no command disables it.
     let window: UInt8
 
     /// The same registers with the second knock given no time to arrive in, which is the whole of how this app turns
@@ -98,7 +98,7 @@ enum DoubleTapRules {
     ///
     /// **Turning the gesture off is faked, because the hardware has no switch for it.** The vendor spec defines no
     /// command that disables double tap, and the archive measured the same on a real cube: "no BLE command disables
-    /// it. The only lever is accelerometer sensitivity" (`Archive/Tests/Methods.md` Method 22). So off is `window`
+    /// it. The only lever is accelerometer sensitivity" (`docs/timeflip2-firmware-observations.md` finding 11). So off is `window`
     /// zero, and it is suppression rather than an off switch -- a knock hard enough is still a knock.
     ///
     /// The archive's `effectiveDoubleTapParameters`, massaged: same trick and same reason, and a free function of two

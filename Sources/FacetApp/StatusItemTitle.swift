@@ -2,7 +2,7 @@ import AppKit
 
 /// What the status item spells out: the pieces, in the order they are drawn, decided apart from the drawing.
 ///
-/// Separate from `MenuBarController` for the reason `Archive/TimeFlipApp/MenuBarStatusStyle` was separate from the
+/// Separate from `MenuBarController` for the reason `MenuBarStatusStyle` was separate from the
 /// previous app's: what the item says can then be asserted without a status item, a menu bar, or a rendered line of
 /// text. It is `Equatable` for a second reason as well -- it is what tells a redraw that nothing has changed.
 ///
@@ -45,7 +45,7 @@ struct StatusItemTitle: Equatable {
     /// name and its icon take `nameColour`, and the play/pause glyph takes `glyphColour`.
     ///
     /// **Green while a cube is doing the timing, cyan while this app is.** Green is the previous app's
-    /// (`Archive/TimeFlipApp/MenuBarStatusStyle`, `overLimit ? .systemRed : .systemGreen`) and it said one thing
+    /// (`MenuBarStatusStyle`, `overLimit ? .systemRed : .systemGreen`) and it said one thing
     /// there: this reading is live. It is still what green says here. What is new is a second kind of live reading
     /// the archive never had, one this app takes itself with no cube on the other end, and cyan is that -- so the
     /// pair of them answer between them which of the app's two pictures is on show.
@@ -69,7 +69,7 @@ struct StatusItemTitle: Equatable {
     /// except while a limit is spent.
     ///
     /// **Only this much of the line flashes, which is the archive's choice and worth keeping**
-    /// (`Archive/TimeFlipApp/MenuBarStatusStyle`): the figure beside it is a clock somebody reads, and a duration
+    /// (`MenuBarStatusStyle`): the figure beside it is a clock somebody reads, and a duration
     /// changing colour twice a second is harder to read at the exact moment the app is asking for attention.
     ///
     /// **The off phase is `.labelColor`, where the archive used `.white`.** That is the one thing not copied, and it
@@ -94,7 +94,7 @@ struct StatusItemTitle: Equatable {
     /// figure -- and which says something about neither: it reports whether a clock is going.
     ///
     /// **The menu bar's own text colour, which is what the archive drew it in.** Its indicator was a template image
-    /// handed to AppKit untinted (`Archive/TimeFlipApp/MenuBarController.statusIndicatorImage`), so it came out in
+    /// handed to AppKit untinted (`MenuBarController.statusIndicatorImage`), so it came out in
     /// whatever the strip draws text in -- white on a dark menu bar, black on a light one -- rather than in the
     /// line's green. Naming `.labelColor` here is that behaviour spelled out rather than inherited, since this app
     /// tints its own attachments and would otherwise have to pick something.
@@ -132,7 +132,7 @@ struct StatusItemTitle: Equatable {
         // cube has no face, no category and no figure to draw, and the alternative to saying so is the app's own name
         // -- which is what a launch with no cube at all shows, and so reads as "nothing is paired" at exactly the
         // moment something is. The archive said the same word in the same place
-        // (`Archive/TimeFlipApp/MenuBarController.applyConnectingStatus`).
+        // (`MenuBarController.applyConnectingStatus`).
         //
         // **It outlasts a failed attempt on purpose.** The offer's `Rescan` leaves the launch still looking, so the
         // line goes on saying what is still true; `Time by Hand` is what ends it, by way of `isManualMode`.

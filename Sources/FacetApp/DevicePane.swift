@@ -276,7 +276,7 @@ final class DevicePane: NSView {
     /// `0x09` and the blink period as `0x0A`, and a cube told about the first has been told nothing about the second.
     /// The archive found the cost of running them together, and it was not tidiness -- one debounce shared across two
     /// settings drops whichever write is still waiting when the other one is scheduled
-    /// (`Archive/TimeFlipAppTests/Workflows/W07-debounced-device-writes.swift`).
+    /// (`W07-debounced-device-writes.swift`).
     ///
     /// **Every tick of a held arrow fires these**, as it does for the registers, which is why the window debounces
     /// rather than sending from here.

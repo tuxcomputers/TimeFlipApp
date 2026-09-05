@@ -3,7 +3,7 @@ import Foundation
 /// What the Report tab's pair of calendars is allowed to say: which days can be picked in each of them, which days
 /// read as the selected span, and what one calendar does to the other.
 ///
-/// **The archive's rules, taken whole** (`Archive/TimeFlipApp/ReportView.swift`, `ReportDateRange.swift`), because
+/// **The archive's rules, taken whole** (`ReportView.swift`, `ReportDateRange.swift`), because
 /// what they decide is a shape rather than an implementation: an end that starts unset, an end calendar that cannot
 /// reach a day before the start, and therefore no inverted range and no error state to report for one. The reasons
 /// are on each of them below.

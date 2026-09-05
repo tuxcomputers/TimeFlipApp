@@ -184,7 +184,7 @@ final class BluetoothRadio: NSObject {
     ///
     /// **`CBCentralManager.connect` has no timeout of its own** and will sit there indefinitely waiting for a cube
     /// that is asleep or gone, so this is the only thing that ends it. Fifteen seconds against a measured worst case
-    /// of 5.4 across 36 logged connects (`Archive/TimeFlipApp/TimeFlipConstants.swift`), which leaves room for a slow
+    /// of 5.4 across 36 logged connects (`TimeFlipConstants.swift`), which leaves room for a slow
     /// one without leaving somebody watching a button that will never come back.
     static let connectTimeoutSeconds: TimeInterval = 15
 
@@ -800,7 +800,7 @@ final class BluetoothRadio: NSObject {
     /// Asks the cube what state it is in, so what the app holds is not older than it needs to be.
     ///
     /// **Because a cube pauses itself and does not say so.** A double tap stops its tracking, unconditionally and with
-    /// no command to turn that off (`Archive/Tests/Methods.md` Method 22), and the vendor's own app can pause it too.
+    /// no command to turn that off (`docs/timeflip2-firmware-observations.md` finding 11), and the vendor's own app can pause it too.
     /// Nothing arrives to announce either: `systemState` carries sync and hardware health, not pause. So the only way
     /// the app's answer stays true is by asking again, and the only honest moment to ask is one where the cube may
     /// have been handled.

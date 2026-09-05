@@ -3,7 +3,7 @@ import AppKit
 /// The App tab: how the app itself behaves, as opposed to what it is timing.
 ///
 /// **Three sections: "App settings" first, in the archive's order and its wording
-/// (`Archive/TimeFlipApp/ReportSettingsView.swift`), then Google, then Debug.** Each folds away behind its own
+/// (`ReportSettingsView.swift`), then Google, then Debug.** Each folds away behind its own
 /// triangle, on the same `PanelSection` the Categories tab's two lists sit on.
 ///
 /// **Debug is this tab's own, with nothing behind it in the archive**, whose only debug switch was a compile-time
