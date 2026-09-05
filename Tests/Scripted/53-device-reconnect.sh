@@ -25,7 +25,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=24
+EXPECTED_CHECKS=26
 start "reconnecting to a paired TimeFlip at launch"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so
@@ -73,6 +73,14 @@ ensure_app_running
 step "launched; nothing will be pressed from here until the reconnect is checked"
 
 expect_log "a paired app decides for itself to look for its cube" "$since" "Paired, so going to look for the cube" 20
+# **What the menu bar says while all that is going on.** A paired launch has nothing to draw until the cube answers,
+# and the line it used to show was the app's own name -- which is what a launch with *nothing* paired shows, so the
+# one state meaning "there is a cube and we are reaching for it" read as its opposite.
+#
+# **Read from the row rather than from the item**, for the reason `12-daily-limit` reads the spoken label instead of
+# the red: this title is up only until a cube answers, which is a second or two, and a check that had to catch the
+# accessibility tree inside that window would fail for being late rather than for being wrong.
+expect_log "the menu bar says it is reaching for the cube" "$since" "Menu bar: reaching for the cube" 20
 # **A scan, not a connect**, which is the fact this feature turns on: CoreBluetooth will not hand back a peripheral by
 # identifier, so "reach the cube we are paired to" has to scan for it. See `BluetoothRadio.reach`.
 expect_log "and goes looking by scanning, since that is the only way to a peripheral" "$since" "Reaching for %scanning%" 20
@@ -98,6 +106,11 @@ expect_log "and the cube lets it in" "$since" "%PIN accepted%" 60
 # this, so a reconnect writes the connection row and nothing else. A "Paired with" line here would be a record of a
 # pairing that did not happen, on every launch, for ever.
 expect_log "it is recorded as getting back to the device, not as a new pairing" "$since" "Reconnected to %" 20
+
+# **After the login, not at it.** `PIN accepted` is several round trips before the cube has said what face is up,
+# whether it is paused and whether it is locked, and the title waits for all three: a connection is not a reading.
+# So this row lands later than the one above it, and that gap is the thing being checked.
+expect_log "and stops once the cube has actually been read" "$since" "Menu bar: the cube has been read%" 60
 
 already=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Paired with %';")
 check "nothing is recorded as a fresh pairing" "$already" "0"

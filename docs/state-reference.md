@@ -70,12 +70,24 @@ wanted to work without the cube.
 | `isReachingForCube` | true / false | `BluetoothRadio.isReaching` |
 | `isAwaitingAnswer` | true / false | `DeviceReconnector.isAwaitingAnswer` |
 | `hasGivenUpOnCube` | true / false | `DeviceReconnector.hasGivenUpOnCube`, per launch and one-way |
+| `hasReadTheCube` | true / false | `CubeFirstReading`, per launch and one-way |
+| `isConnecting` | true / false | `CubeFirstReading.isConnecting(isManualMode:)` |
 | `isDisconnectingDeliberately` | true / false | `BluetoothRadio.isDisconnectingDeliberately` |
 | `isFactoryResetRunning` | true / false | today two separate flags |
 
 `isCubeConnected` is the connection, not the pairing: a paired cube in another room can be neither paused nor
 locked. `isDeviceReachable` folds into it. The reading keeps `cubeFace` after a link drops because the face is
 worth drawing, and this is the separate question of what may be sent.
+
+`hasReadTheCube` is a fourth, and it is the only one of them that outlives a drop. It is true once this launch has
+had a cube connected with its face, its pause and its lock all known at the same moment -- not when the login
+succeeded, which is several round trips earlier: `DeviceLogin` reports `.loggedIn` when the PIN is accepted, and the
+`0x10` read the lock and the pause come from happens after. `isConnecting` is `!isManualMode && !hasReadTheCube`, and
+it is the whole of what puts `Connecting...` on the status item. The latch is what keeps that title to startup: a drop
+clears the face, the lock and the pause at the radio, so the three facts alone cannot tell "never found it" from
+"found it and lost it", and the second of those is meant to keep the category and turn yellow. `CubeNotFoundOffer`
+holds `hasReachedCube` for the same reason and is deliberately not the same fact -- that one settles whether the
+not-found dialog may still be raised, and it moves at the earlier moment.
 
 `isLinkSettled` is a third question again, and it is not `isCubeConnected` said later. The connection turns true
 several round trips before the login has finished asking the cube its own questions, and until it has, the command

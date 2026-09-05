@@ -21,7 +21,8 @@ final class StatusItemTitleTests: XCTestCase {
         showingSeconds: Bool = true,
         isLimitReached: Bool = false,
         lowBattery: LowBatteryAlert = .none,
-        cubeLockState: CubeLockState = .unknown
+        cubeLockState: CubeLockState = .unknown,
+        isConnecting: Bool = false
     ) -> StatusItemTitle {
         StatusItemTitle.make(
             appLabel: appLabel,
@@ -29,7 +30,8 @@ final class StatusItemTitleTests: XCTestCase {
             showingSeconds: showingSeconds,
             isLimitReached: isLimitReached,
             lowBattery: lowBattery,
-            cubeLockState: cubeLockState
+            cubeLockState: cubeLockState,
+            isConnecting: isConnecting
         )
     }
 
@@ -486,5 +488,42 @@ final class StatusItemTitleTests: XCTestCase {
         XCTAssertEqual(title.lockGlyphName, "lock.fill")
         XCTAssertTrue(title.spoken.contains("device locked"), title.spoken)
         XCTAssertTrue(title.spoken.contains("low battery"), title.spoken)
+    }
+
+    // MARK: - reaching for the cube
+
+    func testAPairedLaunchSaysConnectingBeforeItHasReadTheCube() {
+        // The alternative is the app's own name, which is what a launch with no cube at all shows -- so without this
+        // the one state that means "something is paired and being reached for" reads as "nothing is paired".
+        let parts = title(.idle, isConnecting: true)
+        XCTAssertEqual(parts.text, "Connecting\u{2026}")
+        XCTAssertEqual(parts.text, StatusItemTitle.connecting, "the word is the type's own, not spelled again here")
+        XCTAssertNil(parts.duration, "there is no figure to draw before anything has been read")
+        XCTAssertNil(parts.glyphName, "and no pause glyph: whether the cube is running is one of the unknowns")
+        XCTAssertNil(parts.iconName)
+        XCTAssertEqual(parts.colour, .labelColor, "green, cyan and yellow are each a claim about a reading")
+        XCTAssertEqual(parts.spoken, "Connecting\u{2026}, Facet")
+    }
+
+    func testConnectingDrawsNoLockBadgeEvenIfOneIsPassed() {
+        // The lock is one of the three things not yet known. A badge from `.unknown` would be exactly the guess this
+        // title exists to avoid, and `.locked` can only be left over from something else.
+        let parts = title(.idle, cubeLockState: .locked, isConnecting: true)
+        XCTAssertNil(parts.lockGlyphName)
+    }
+
+    func testConnectingWinsOverASessionThatIsStillOnTheReading() {
+        // A relaunch reads its last open segment out of `device_event` before any cube has answered, so there is a
+        // category and a figure to draw and they are last session's. Saying so would be the item reporting a reading
+        // it has not taken.
+        let parts = title(running, isConnecting: true)
+        XCTAssertEqual(parts.text, StatusItemTitle.connecting)
+        XCTAssertNil(parts.duration)
+    }
+
+    func testNotConnectingLeavesEveryOtherLineExactlyAsItWas() {
+        // The parameter defaults to false, so every existing caller and every other case here is untouched.
+        XCTAssertEqual(title(running), title(running, isConnecting: false))
+        XCTAssertEqual(title(running).text, "Meeting")
     }
 }

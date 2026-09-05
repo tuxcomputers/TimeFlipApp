@@ -125,8 +125,34 @@ struct StatusItemTitle: Equatable {
         showingSeconds: Bool,
         isLimitReached: Bool = false,
         lowBattery: LowBatteryAlert = .none,
-        cubeLockState: CubeLockState = .unknown
+        cubeLockState: CubeLockState = .unknown,
+        isConnecting: Bool = false
     ) -> StatusItemTitle {
+        // **Before everything, because it is the absence of everything.** A paired launch that has not yet read its
+        // cube has no face, no category and no figure to draw, and the alternative to saying so is the app's own name
+        // -- which is what a launch with no cube at all shows, and so reads as "nothing is paired" at exactly the
+        // moment something is. The archive said the same word in the same place
+        // (`Archive/TimeFlipApp/MenuBarController.applyConnectingStatus`).
+        //
+        // **It outlasts a failed attempt on purpose.** The offer's `Rescan` leaves the launch still looking, so the
+        // line goes on saying what is still true; `Time by Hand` is what ends it, by way of `isManualMode`.
+        if isConnecting {
+            return StatusItemTitle(
+                text: Self.connecting,
+                iconName: nil,
+                glyphName: nil,
+                // **No lock badge either**, whatever was passed: the lock is one of the three things not known yet,
+                // and a badge drawn from `.unknown` would be the guess this title exists to avoid.
+                lockGlyphName: nil,
+                duration: nil,
+                // The ordinary text colour, as the idle line is drawn in and for the same reason: green, cyan and
+                // yellow are each a claim about a reading, and there is no reading here to make one about.
+                colour: .labelColor,
+                nameColour: .labelColor,
+                glyphColour: .labelColor,
+                spoken: spoken([Self.connecting, appLabel])
+            )
+        }
         // The flash, and what it flashes against. Red on one phase and the ordinary text colour on the other, so the
         // name alternates rather than vanishing -- and `nil` when there is nothing to warn about, which leaves the
         // name drawn in whatever the line's own colour turns out to be.
@@ -323,6 +349,12 @@ struct StatusItemTitle: Equatable {
     /// face, both of which are fixed hexes because a cube has no idea what appearance a Mac is in. This is a colour
     /// for text on a strip that tints from the wallpaper, so it has to be a dynamic one -- see `colour` for why
     /// anything resolved before the draw is a frozen answer.
+    /// What the item says while a paired launch is still reaching for its cube.
+    ///
+    /// **The archive's word and the archive's ellipsis** (`applyConnectingStatus`), which is also the platform's: one
+    /// character rather than three periods, so it reads as the system's own "working on it" rather than as typing.
+    static let connecting = "Connecting\u{2026}"
+
     private static let byHand: NSColor = .systemCyan
 
     private static func spoken(_ parts: [String]) -> String {

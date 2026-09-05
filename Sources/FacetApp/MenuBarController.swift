@@ -103,6 +103,16 @@ final class MenuBarController: NSObject {
 
     private let cube: () -> CubeReading
 
+    /// Whether this app is its own clock, asked per draw like everything else here. **Defaulted to `true`**, which is
+    /// the answer that draws no `Connecting…`: an item built without being told has no cube to be reaching for, and a
+    /// test that never mentions a cube should not have to say so to get the line it expects.
+    private let isManualMode: () -> Bool
+
+    /// Whether this launch has yet read its cube, which is the other half of that title. Held rather than derived,
+    /// and it is the one thing on this class that is: the facts behind it are cleared by every drop, so the question
+    /// "has this launch ever had them" cannot be asked of the cube afterwards. See `CubeFirstReading`.
+    private var firstReading = CubeFirstReading()
+
     /// Locks the cube, or starts it again -- whichever the item is offering. What that means in commands is
     /// `CubeLock`'s, not this class's.
     ///
@@ -178,8 +188,10 @@ final class MenuBarController: NSObject {
         lowBattery: @escaping () -> LowBatteryAlert = { .none },
         cube: @escaping () -> CubeReading = { CubeReading(isCubeConnected: false, cubeLockState: .unknown, cubePauseState: .unknown) },
         toggleCubeLock: @escaping () -> Void = {},
-        toggleCubePause: @escaping () -> Void = {}
+        toggleCubePause: @escaping () -> Void = {},
+        isManualMode: @escaping () -> Bool = { true }
     ) {
+        self.isManualMode = isManualMode
         self.cube = cube
         self.toggleCubeLock = toggleCubeLock
         self.toggleCubePause = toggleCubePause
@@ -220,6 +232,16 @@ final class MenuBarController: NSObject {
     /// pause. Waiting for the next tick instead would leave a click's own feedback up to a second behind it.
     func redraw() {
         let reading = timing()
+        // **Offered every draw, and it latches on the first complete one.** The lock comes from `cube()` and the
+        // face and the pause from the reading, which is where each of them is already read -- so this asks nothing
+        // extra of the radio and cannot come to a different answer from the line it is deciding.
+        let cubeNow = cube()
+        firstReading.record(
+            isCubeConnected: cubeNow.isCubeConnected,
+            cubeFace: reading.cubeFace,
+            cubePauseState: reading.cubePauseState,
+            cubeLockState: cubeNow.cubeLockState
+        )
         // **Decided from the reading, before there is anything to paint into.** The tick is about whether the figure
         // moves, which is a question about the session and not about the item -- and taking it first is what lets it
         // be asserted without putting a real status item in the menu bar of whoever is running the tests, the same
@@ -247,7 +269,11 @@ final class MenuBarController: NSObject {
             // The same answer the dropdown's Lock item reads. Asked per draw, though it can only change when the app
             // itself sends a command or reaches a cube: the badge has to come off the moment the link goes, and the
             // link going is not something this class is told about.
-            cubeLockState: cube().cubeLockState
+            cubeLockState: cubeNow.cubeLockState,
+            // **Read per draw, both halves.** `isManualMode` moves the moment somebody answers the cube-not-found
+            // offer, and the latch moves the moment the cube finishes answering, so a copy of either taken when the
+            // item was built would leave the line saying `Connecting…` at a cube that is plainly connected.
+            isConnecting: firstReading.isConnecting(isManualMode: isManualMode())
         )
         if title != lastDrawn {
             let drawn = makeTitle(title)
@@ -276,6 +302,21 @@ final class MenuBarController: NSObject {
             // at the menu bar and saying it seemed right.
             if title.colourDescription != lastDrawn?.colourDescription {
                 debugLog?.record(.status, "Menu bar: \(title.colourDescription)")
+            }
+            // **A row of its own, because the colours cannot say this one.** A line reaching for the cube is drawn
+            // entirely in the label colour, which is exactly what the idle line is drawn in, so the row above reports
+            // the two identically. What tells them apart is the words, and this is a state worth being able to
+            // confirm from the table: it is on screen only until a cube answers, which is no time at all to be
+            // watching a menu bar.
+            let wasConnecting = lastDrawn?.text == StatusItemTitle.connecting
+            let isNowConnecting = title.text == StatusItemTitle.connecting
+            if isNowConnecting != wasConnecting {
+                debugLog?.record(
+                    .status,
+                    isNowConnecting
+                        ? "Menu bar: reaching for the cube"
+                        : "Menu bar: the cube has been read, so it is no longer reaching"
+                )
             }
             lastDrawn = title
         }
