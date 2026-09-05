@@ -19,14 +19,9 @@ from the using end.
 
 ### Not built yet
 
-- **Device rename**: the storage half is there -- the scan matches the vendor default and both names the cube has carried, so a renamed cube is still findable -- but nothing in the app sends the rename command, so the name can only be changed from the vendor's own app.
-- **Firmware-update reminder**: the app reads the cube's firmware version on every connect, but does not yet remind anyone to go and update it.
+- **Firmware-update reminder**: the app reads the cube's firmware version on every connect and shows it on the Device tab, but does not yet remind anyone to go and update it. It could not do the update either way -- only the vendor's own app can flash firmware -- so this is a nudge to go there, not a feature that is half finished.
 - **Projects and costs**: the `project` table and the `cost` columns exist and nothing reads or writes them.
-- **Editing a recorded entry**: the Report tab lists what was recorded and cannot yet correct it.
-
-### Not supported
-
-- **Pomodoro timers**: totally doable, but I don't use this workflow myself and I am not sure about UX. PRs are welcome
+- **Editing a recorded entry**: the Report tab lists what was recorded and cannot yet correct it, so a stretch recorded against the wrong category stays that way.
 
 ## Working on it
 
