@@ -3,8 +3,9 @@
 **Read this first.** This file is a running record of decisions, kept in the order they were taken, and several
 sections predate the ground-up rebuild -- so a section can be an accurate account of a decision and still describe
 code that no longer exists. Sections written against the previous implementation say so at the top. For what is built
-in the app **as it stands**, [rebuild.md](rebuild.md) is the answer; this file is the reasoning behind individual
-features and is worth reading before changing one.
+in the app **as it stands**, read the code: `docs/rebuild.md` used to answer that and was deleted once the rebuild
+was done, the checklist above being what is left of it. This file is the reasoning behind individual features and is
+worth reading before changing one.
 
 - [x] Categories
 - [x] Faces

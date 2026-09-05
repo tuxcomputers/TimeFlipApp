@@ -227,7 +227,7 @@ Constraints:
 
 Point-in-time device notifications that aren't timing segments — `double_tap`, `battery_level`, `system_state`, `device_info`, `event_log` (see `event_type`). Unlike `device_event`, these don't have a duration or a face; each row is a single moment with a decoded value.
 
-**Nothing writes this table yet.** The events reach the app -- every characteristic that can notify is subscribed to, and every byte is traced into `debug_log` -- but the durable, decoded record described here is not built. See [rebuild.md](rebuild.md), Backend.
+**Nothing writes this table yet.** The events reach the app -- every characteristic that can notify is subscribed to, and every byte is traced into `debug_log` -- but the durable, decoded record described here is not built.
 
 | Column                  | Type    | Description                                                              |
 |--------------------------|---------|------------------------------------------------------------------------------|

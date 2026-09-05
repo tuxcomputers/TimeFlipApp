@@ -36,7 +36,6 @@ from the using end.
 - **[Workflow](docs/workflow.md)** - the usage the schema is shaped around, and why
 - **[Operation Spec](docs/operation-spec.md)** - how a device event becomes a calendar entry
 - **[Database Design](docs/database-design.md)** - the local SQLite schema
-- **[The rebuild](docs/rebuild.md)** - what is built, what is still owed, and the reasoning behind each piece
 - **[Features Under Development](docs/TODO-features-under-development.md)** - the longer-form notes behind individual features
 - **[State Reference](docs/state-reference.md)** - the one name every state in the app goes by
 - **[Scripted checks](Tests/Scripted/README.md)** - the suite that drives the real app against a real device

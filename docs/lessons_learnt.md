@@ -36,7 +36,8 @@ correct documentation".
 The thing I underestimated is that documentation rots the moment the code moves under it, and it rots invisibly: a
 doc naming a class that no longer exists still reads perfectly well. Worse, it gets read and believed. `docs/rebuild.md`
 carrying a "still to do" list of features that had shipped is the version of this that cost the most, because it is
-the file somebody would go to precisely to find out what was left.
+the file somebody would go to precisely to find out what was left. It was deleted once the rebuild was finished, which
+is the other half of the lesson: a document with a job that has ended does not become harmless, it becomes wrong.
 
 ## Checklists
 

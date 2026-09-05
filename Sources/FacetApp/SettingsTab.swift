@@ -13,8 +13,7 @@ import Foundation
 /// than one along from the first. Device is the tab somebody visits when something is wrong with the cube or when
 /// setting it up, which is rarely, so it sits at the end where a setup tab belongs.
 ///
-/// It matched the order the work was done in as well: timing by hand across every tab first, the device after
-/// (see `docs/rebuild.md`).
+/// It matched the order the work was done in as well: timing by hand across every tab first, the device after.
 enum SettingsTab: String, CaseIterable {
     /// Which category each face is timing, and the clock for the one in use.
     case faces
