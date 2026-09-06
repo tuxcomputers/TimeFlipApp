@@ -279,7 +279,7 @@ testlog_run_start() {
 
     local branch commit dirty target built signing os
     branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-    # The full hash, not the short one: `last-run.md` is checked against the branch's history, and an
+    # The full hash, not the short one: `last-run-mac.md` is checked against the branch's history, and an
     # abbreviation can stop being unique as a repository grows.
     commit=$(git rev-parse HEAD 2>/dev/null || echo "")
     dirty=$([ -n "$(git status --porcelain 2>/dev/null)" ] && echo 1 || echo 0)
@@ -532,7 +532,11 @@ PYTHON
 
 # ---------------------------------------------------------------------------- the committed record
 
-# Writes `Tests/Scripted/last-run.md`, the one part of this that goes into the repository.
+# Writes `Tests/Scripted/last-run-mac.md`, the one part of this that goes into the repository.
+#
+# **Named for the platform that produced it.** The scripted suite drives a real app on a real screen, so a
+# run says only what works on the machine it ran on. Linux will write `last-run-linux.md` beside this, and
+# CI will want both.
 #
 # **Because CI cannot run the suite and must still be able to tell whether anybody did.** There is no
 # screen, no Keychain and no Google account on a build machine, so the only thing that can gate a merge is
@@ -545,7 +549,7 @@ PYTHON
 # It is generated from the recorded run rather than from shell variables, so what it claims is what the
 # database saw. See `scripts/check_interactive_checklists.sh` for what is enforced.
 testlog_stamp() {
-    local run="${1:-}" path="${2:-Tests/Scripted/last-run.md}"
+    local run="${1:-}" path="${2:-Tests/Scripted/last-run-mac.md}"
     [ -z "$run" ] && return 0
 
     local row branch commit dirty rebuilt started finished outcome passed failed filter

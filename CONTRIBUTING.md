@@ -40,7 +40,7 @@ green there and broken the moment it runs. What says it works is `Tests/Scripted
 app against the real database, and some of it needs a TimeFlip in range and a person to turn it.
 
 **CI cannot run any of that** -- no screen, no Keychain, no Google account, no cube. What it does instead is
-refuse a pull request that has no record of a run: `Tests/Scripted/run.sh` writes `Tests/Scripted/last-run.md`
+refuse a pull request that has no record of a run: `Tests/Scripted/run.sh` writes `Tests/Scripted/last-run-mac.md`
 from the run it actually recorded, and that file is committed. It has to name this branch, name a commit in
 this branch's history, report a run that passed with nothing failed and **nothing skipped**, and have been
 run with a clean tree against the code as it now stands.

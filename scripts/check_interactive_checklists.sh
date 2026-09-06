@@ -15,7 +15,7 @@
 # somebody else's run -- the branch heading was what caught that.
 #
 # The scripted suite has no ticks to inherit, so for a while there was nothing to check and `--branch` was
-# accepted and thrown away. `Tests/Scripted/last-run.md` is what gives it something to attach to again:
+# accepted and thrown away. `Tests/Scripted/last-run-mac.md` is what gives it something to attach to again:
 # `run.sh` writes it from the recorded run, and it names the branch, the commit, and whether anything
 # failed.
 #
@@ -59,7 +59,9 @@ done
 
 # Overridable so this script can be exercised against a stamp that is not the real one. Nothing in CI
 # sets it: writing a stamp by hand is the thing this exists to catch.
-STAMP="${SCRIPTED_STAMP:-Tests/Scripted/last-run.md}"
+# One stamp per platform, because a run only says what works on the machine that made it. The Linux suite
+# will write `last-run-linux.md` beside this one and both will have to pass; today only the Mac runs it.
+STAMP="${SCRIPTED_STAMP:-Tests/Scripted/last-run-mac.md}"
 
 # Reads one `    key:   value` line out of the stamp.
 stamp_field() {

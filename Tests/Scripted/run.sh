@@ -171,7 +171,7 @@ testlog_run_finish "$TESTLOG_RUN_ID" "$outcome" "$ran"
 
 # The committed half of the record. Written either way, because a stamp that only appeared on success
 # would let a failing branch keep an older passing one -- which is the staleness it exists to catch.
-testlog_stamp "$TESTLOG_RUN_ID" "Tests/Scripted/last-run.md"
+testlog_stamp "$TESTLOG_RUN_ID" "Tests/Scripted/last-run-mac.md"
 
 echo ""
 echo "=============================================================================="

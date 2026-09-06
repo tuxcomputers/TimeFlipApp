@@ -290,7 +290,7 @@ accident:
 and broken the moment it runs. **`Tests/Scripted/` is what says it works** -- 32 shell scripts that
 drive the real app and read the real database, `00`-`13` needing no cube and `50`-`66` needing one.
 `Tests/Scripted/README.md` is how to run them, `Tests/Methods.md` is the shared methods they are
-written from, and `Tests/Scripted/last-run.md` is the committed stamp of the last full run.
+written from, and `Tests/Scripted/last-run-mac.md` is the committed stamp of the last full run.
 
 **Never launch `Tests/Scripted/run.sh` yourself.** It drives the real mouse and keyboard on the
 owner's screen and needs a person to turn the cube. Ask, and watch the logs.
@@ -328,7 +328,7 @@ needing no cube and `50`-`66` needing one, and `Tests/Scripted/README.md` is how
 CI cannot run any of it -- no screen, no Keychain, no Google account, no cube -- so
 `scripts/check_interactive_checklists.sh` does two things instead. It checks the suite is *runnable*:
 every script parses, is executable, declares `EXPECTED_CHECKS`, ends in `finish`, and guards the
-database. And it checks somebody actually ran it, from `Tests/Scripted/last-run.md`, which `run.sh`
+database. And it checks somebody actually ran it, from `Tests/Scripted/last-run-mac.md`, which `run.sh`
 writes and which has to name this branch, name a commit in its history, report a run that passed with
 nothing failed and no script short of the checks it declares, and have been run with a clean tree
 against `Sources/`, `Tests/Scripted/` and `database/` as they now stand.

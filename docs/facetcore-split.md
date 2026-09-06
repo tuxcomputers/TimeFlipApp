@@ -23,7 +23,7 @@ git switch -c <your-branch>         # off feature/linuxPort
 commit containing all of it is not reviewable and not bisectable.
 
 **Budget a scripted run at the end.** `Sources/` moves wholesale, so
-`Tests/Scripted/last-run.md` goes stale and CI will refuse the branch until `Tests/Scripted/run.sh`
+`Tests/Scripted/last-run-mac.md` goes stale and CI will refuse the branch until `Tests/Scripted/run.sh`
 has been run with a cube. That is one run for the whole exercise, not one per stage.
 
 ---
@@ -257,7 +257,7 @@ Then the scripted suite, which is the only thing that says it works:
 Tests/Scripted/run.sh       # needs a cube and a person to turn it
 ```
 
-Commit the stamp it writes. CI reads `Tests/Scripted/last-run.md` and will refuse the branch without it.
+Commit the stamp it writes. CI reads `Tests/Scripted/last-run-mac.md` and will refuse the branch without it.
 
 ### What good looks like
 

@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           # Full history: check_interactive_checklists.sh compares the commit in
-          # Tests/Scripted/last-run.md against this branch, which a shallow clone cannot see.
+          # Tests/Scripted/last-run-mac.md against this branch, which a shallow clone cannot see.
           fetch-depth: 0
 
       - uses: maxim-lobanov/setup-xcode@v1

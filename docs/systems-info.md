@@ -221,7 +221,7 @@ turn the cube. It is never run unattended, and never by an agent.
 | Last scripted run | branch `chore/connecting`, commit `7c9169d`, 2026-09-05 -- **stale**, see below |
 
 **Docs that say "1632 tests" are out of date**; the real count is 1718. The scripted stamp in
-`Tests/Scripted/last-run.md` is stale because `7ade2c7` and the FacetCore split both moved `Sources/`,
+`Tests/Scripted/last-run-mac.md` is stale because `7ade2c7` and the FacetCore split both moved `Sources/`,
 and CI will refuse the branch until a fresh run is committed.
 
 ### CI

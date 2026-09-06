@@ -254,7 +254,7 @@ finish
 CI cannot run this suite: there is no screen, no Keychain and no Google account on a build machine. What
 it can do is refuse a pull request that has no record of a run.
 
-`run.sh` writes **`Tests/Scripted/last-run.md`** at the end of every run, from the recorded run rather
+`run.sh` writes **`Tests/Scripted/last-run-mac.md`** at the end of every run, from the recorded run rather
 than from anything it was told, and that file is committed. On a pull request,
 `scripts/check_interactive_checklists.sh` requires all of:
 
