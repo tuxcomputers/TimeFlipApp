@@ -49,10 +49,18 @@ package enum DebugTraceRules {
         return URL(fileURLWithPath: (trimmed as NSString).expandingTildeInPath, isDirectory: true)
     }
 
-    /// A folder as it goes into the setting: inside the home directory it is written back with a `~`, and anywhere
-    /// else it is the path as it stands.
+    /// A folder as it goes into the setting: inside the home directory it is written back with a `~`, the home
+    /// directory itself is `~`, and anywhere else is the path as it stands.
+    ///
+    /// Written out rather than `NSString.abbreviatingWithTildeInPath`, which the corelibs Foundation on Linux does
+    /// not have. `expandingTildeInPath`, which `directoryURL` uses to undo this, does exist there.
     package static func stored(for url: URL) -> String {
-        (url.path as NSString).abbreviatingWithTildeInPath
+        let path = url.path
+        let home = NSHomeDirectory()
+        guard !home.isEmpty else { return path }
+        if path == home { return "~" }
+        guard path.hasPrefix(home + "/") else { return path }
+        return "~" + path.dropFirst(home.count)
     }
 
     /// What a copy of the trace is called when it is saved to be sent in: `facet-debug-2026-09-03-22.15.38.sqlite`.

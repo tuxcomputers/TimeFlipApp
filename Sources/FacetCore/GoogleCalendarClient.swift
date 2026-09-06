@@ -1,4 +1,11 @@
 import Foundation
+// `URLSession` and its request and response types live in `FoundationNetworking` on the corelibs
+// Foundation Linux uses, and in `Foundation` itself on Darwin. The module does not exist here, so
+// `canImport` is false and this compiles to nothing: the condition is what makes the file portable
+// without changing what it does on macOS.
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Makes and renames the one calendar Facet owns.
 ///

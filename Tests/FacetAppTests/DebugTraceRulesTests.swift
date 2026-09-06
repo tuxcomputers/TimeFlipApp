@@ -34,6 +34,21 @@ final class DebugTraceRulesTests: XCTestCase {
         XCTAssertEqual(DebugTraceRules.stored(for: inside), "~/Documents/Facet")
     }
 
+    func testTheHomeDirectoryItselfIsStoredAsATilde() {
+        // The edge of the prefix rule: `~` alone, not `~/` and not the expanded path.
+        let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+
+        XCTAssertEqual(DebugTraceRules.stored(for: home), "~")
+    }
+
+    func testAFolderMerelyStartingWithTheHomePathIsNotAbbreviated() {
+        // `/Users/harryphillipsExtra` is not inside `/Users/harryphillips`, and a plain `hasPrefix` on the
+        // home path with no separator after it would say it was.
+        let sibling = URL(fileURLWithPath: NSHomeDirectory() + "Extra/Facet", isDirectory: true)
+
+        XCTAssertEqual(DebugTraceRules.stored(for: sibling), sibling.path)
+    }
+
     func testAFolderOutsideHomeIsStoredAsItStands() {
         let outside = URL(fileURLWithPath: "/Volumes/Spare/Facet", isDirectory: true)
 

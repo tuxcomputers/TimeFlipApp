@@ -208,7 +208,14 @@ package final class DebugLog {
         // Line-buffered stdout. Otherwise a click's line sits in the buffer until the process exits
         // normally, so a killed run prints nothing at all -- and this app is quit from a menu, which
         // is exactly the case where somebody reaches for Ctrl-C instead and loses the lot.
+        //
+        // **Darwin only, and the console is the only thing that loses out.** glibc declares `stdout` as a
+        // mutable global, which Swift 6 refuses to reference at all, so there is no call to make here on
+        // Linux yet. The rows still reach `debug_log`, which is the half every scripted check reads; what a
+        // Linux terminal loses is only the immediacy of the printed copy.
+        #if canImport(Darwin)
         setvbuf(stdout, nil, _IOLBF, 0)
+        #endif
     }
 
     /// Starts or stops recording, now.
