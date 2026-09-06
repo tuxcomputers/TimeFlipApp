@@ -105,9 +105,10 @@ measured says so.
 | Other toolchains | **None.** `/Library/Developer/Toolchains` and `~/Library/Developer/Toolchains` are both empty |
 
 **`Package.swift` declares `swift-tools-version: 6.0` and that is not the compiler.** It is the manifest
-and language level the package is written to; the compiler here is 6.3.3. So "does the core build under
-Swift 6.0" is genuinely unanswered on this machine and cannot be answered without installing a 6.0
-toolchain. Nothing in the FacetCore split needed a post-6.0 feature.
+and language level the package is written to; the compiler here is 6.3.3, and `docs/installation.md`
+states 6.0 as a **minimum**, which 6.3.3 clears. Nothing claims to build *with* 6.0, so there is no
+discrepancy between the machines to chase: reading that line as the Mac's compiler version is what put
+a phantom question in `linux-port.md`, now withdrawn.
 
 ### Command-line tools
 
@@ -115,45 +116,22 @@ toolchain. Nothing in the FacetCore split needed a post-6.0 feature.
 |---|---|---|
 | `sqlite3` | 3.51.0 | `/usr/bin/sqlite3` |
 | `python3` | 3.14.7 | `/Library/Frameworks/Python.framework/Versions/3.14/bin/python3` (python.org, not the system one) |
-| `bash` | **two of them** -- 3.2.57 and 5.3.15 | `/bin/bash` and `/opt/homebrew/bin/bash`; see below, it matters |
+| `bash` | **5.3.15** | `/opt/homebrew/bin/bash` (Homebrew). Apple's `/bin/bash` is 3.2 and is not what anything here runs under |
 | `git` | 2.50.1 | `/usr/bin/git` |
 | `gh` | 2.100.0 | `/opt/homebrew/bin/gh` |
 | `jq` | jq-1.7.1-apple | `/usr/bin/jq` |
 | `swift-bundler` | **not installed** | -- |
 | pyobjc-core | 12.1 | with `objc`, `ApplicationServices`, `Quartz`, `AppKit`, `Foundation` all importable |
 
-### Which `bash` a script actually gets, which is not one answer
+### The scripted suite runs under bash 5
 
-**There are two bashes here and the one a script runs under depends on how it was launched, not on what
-it says at the top.** Measured 2026-09-07:
+`Tests/Scripted/run.sh:144` invokes each check as `bash "$script"`, so the interpreter comes from
+`PATH` rather than from the `#!/bin/bash` line in the scripts. In a login shell that is Homebrew's
+**5.3.15**, and the full suite is always run through `run.sh`, never a script at a time.
 
-| Launched as | Interpreter | Version |
-|---|---|---|
-| `Tests/Scripted/run.sh` (**how the suite is really run**) | `bash` from `PATH` | **5.3.15** |
-| a single check run directly, `./Tests/Scripted/04-....sh` | its `#!/bin/bash` shebang | **3.2.57** |
-| the six `#!/usr/bin/env bash` scripts | `bash` from `PATH` | **5.3.15** |
-| `scripts/run.sh`, `scripts/codesign-identity.sh` | `#!/bin/sh` | Apple's `sh` |
-
-**`Tests/Scripted/run.sh:144` is `bash "$script"`**, so it invokes each check through `PATH` and the
-`#!/bin/bash` line in all 36 of them is bypassed. In a terminal with Homebrew ahead of `/usr/bin`, which
-is this machine's login shell, that is **5.3.15**. Run one of those same checks on its own and the
-shebang applies and it gets **3.2.57**. The same file, two interpreters, decided by how it was started.
-
-The shebang census: 36 `#!/bin/bash`, 6 `#!/usr/bin/env bash`, 2 `#!/bin/sh`. The six that follow `PATH`
-are `check_interactive_checklists.sh`, `ci-local.sh`, `compare-database-to-ddl.sh`,
-`generate-credentials.sh`, `switch-database.sh` and `update_app_icon.sh`.
-
-**Today it does not bite, and that is measured rather than assumed**: no script uses a bash-4-only
-construct (`declare -A`, `mapfile`, `${var^^}`, `&>>`), and all **44** of them parse cleanly under
-`/bin/bash -n` at 3.2. So the suite is compatible with both, by luck or by care, and nothing enforces
-it. **A script written against bash 5 would pass every run made through `run.sh` here and still be
-broken**, surfacing only when somebody runs that check on its own, or on a machine without the Homebrew
-bash.
-
-**A trap for whoever measures this next, including an agent:** a non-login shell may not have Homebrew
-first on `PATH`. In this repo's agent shell `/bin` precedes `/opt/homebrew/bin`, so `bash --version`
-there reports 3.2 while the user's terminal reports 5.3.15. Both are true; neither is the whole answer.
-Ask *how the thing is launched* rather than what `bash --version` says.
+Apple's `/bin/bash` 3.2 is still on the machine, as it is on every Mac, but nothing here is written
+for it and nothing needs to be. Agent sessions are pinned to bash 5 as well, through `env.SHELL` in
+`~/.claude/settings.json`. **Write for bash 5 on both machines.**
 
 **`swift-bundler` is not installed**, although `Bundler.toml` exists and describes the `.app`
 (identifier `au.com.tux.facet`, product `FacetApp`, `LSUIElement = 1`). Day-to-day work is
@@ -262,17 +240,20 @@ moved on.
 
 ### 1. The toolchain, exactly
 
-**Why:** the open question in `linux-port.md` is whether the core builds under Swift 6.0. This Mac is on
-6.3.3 and cannot answer it. If neither machine has 6.0, the tools-version line in `Package.swift` claims
-something nothing verifies.
+**Why:** so each side knows what compiler the other's results came out of. A build that passes on one
+version and not another is a fact about the toolchains, and neither machine can see the other's.
+
+**Not asking about Swift 6.0.** That question was withdrawn: it existed only because
+`swift-tools-version: 6.0` in `Package.swift` was read as "the Mac builds with 6.0". It is the manifest
+and language level, not the compiler. The Mac is on **6.3.3**, Linux used **6.2**, `docs/installation.md`
+states 6.0 as a **minimum** which both clear, and no machine has 6.0 or needs it.
 
 ```sh
 swift --version && which swift
 ls ~/.local/swift/            # or wherever toolchains are unpacked
 ```
 
-Wanted: version, exact install path, whether it is on `PATH` by default, and whether **any other**
-toolchain is available -- 6.0 especially.
+Wanted: version, exact install path, and whether it is on `PATH` by default.
 
 ### 2. Distro, kernel, desktop
 
@@ -286,17 +267,17 @@ cat /etc/os-release | head -3 && uname -r && echo "$XDG_CURRENT_DESKTOP / $XDG_S
 Wanted: distro and version, kernel, desktop environment, and **X11 or Wayland** -- the last decides
 whether AT-SPI automation for the scripted suite is even possible in the form planned.
 
-### 3. `bash`, and any other shell the scripts get
+### 3. `bash`, and what `/bin/sh` is
 
-**Why:** the most likely cause of a shared script working on one machine and not the other. This Mac is
-on bash **3.2**.
+**Why:** shared scripts. The Mac side is bash **5.3.15**, so bash 5 is the target on both machines and
+there is nothing to write down to.
 
 ```sh
 bash --version | head -1 && ls -l /bin/sh
 ```
 
-Wanted: the version, and whether `/bin/sh` is `dash` -- because a `#!/bin/sh` script that works here may
-rely on bash-isms that this Mac's `/bin/sh` tolerates and `dash` does not.
+Wanted: confirmation it is bash 5.x, and whether `/bin/sh` is `dash` -- because a `#!/bin/sh` script
+that works here may rely on bash-isms that the Mac's `/bin/sh` tolerates and `dash` does not.
 
 ### 4. SQLite
 

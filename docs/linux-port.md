@@ -325,20 +325,33 @@ Roughly in dependency order. Nothing here is started.
      **The `#if canImport(AppKit)` fallback is still available and costs no access changes at all** --
      what is needed downstream is that the portable half compiles without AppKit, which two targets
      are one way of getting and not the only one.
-3. **Platform-aware data directory.** `~/Library/Application Support/Facet` is a literal in four source
-   files -- `DebugTraceRules.swift:24`, `DatabaseBootstrap`, `InstanceLock`, `DeveloperConfigFile` -- in
-   10 test files, and, awkwardly, **in the seeded `debug` row of `database/011_setting.sql`**. The DDL one
-   is the difficult case: it is a database value rather than code, and the database is the source of truth.
+3. **Platform-aware data directory.** **Much smaller than this item used to claim** (re-measured on the
+   Mac, 2026-09-07). The path is a real literal in **one** source file, `DebugTraceRules.swift:24`, one
+   test assertion, `DebugTraceRulesTests.swift:53`, and **the seeded `debug` row of
+   `database/011_setting.sql`**. The DDL one is the difficult case: it is a database value rather than
+   code, and the database is the source of truth.
+
+   `DatabaseBootstrap`, `InstanceLock` and `DeveloperConfigFile` were on the old list because the string
+   appears in them, but in **doc comments**: all three call
+   `FileManager.default.urls(for: .applicationSupportDirectory, ...)`, which corelibs already resolves to
+   `~/.local/share/Facet`. They need no change at all, only prose that stops naming the macOS path as
+   though it were the only one. The grep that produced the four could not tell a literal from a comment.
 4. **The three Foundation gaps** above.
 5. ~~**Make `DatabaseBootstrap` refuse an empty DDL listing**, and resolve symlinks before
    enumerating.~~ Done 2026-09-06, along with flipping `database/` to be the real directory.
 6. **Migrate the test suite to swift-testing**, checking every `tearDown` by hand for the `deinit`
    isolation trap. Mechanical for the assertions, not for the lifecycle.
-7. **`Security` to libsecret.** Two files, `DevicePINStore` and `GoogleTokenStore`, both already behind a
-   store interface, both excluded from the spike as a known answer.
+7. **`Security` to libsecret.** Two files, `DevicePINStore` and `GoogleTokenStore`, both excluded from the
+   spike as a known answer. **Only one of them is behind a seam** (checked on the Mac, 2026-09-07): both
+   are `enum` namespaces of static functions, and there is no protocol over a keychain anywhere in
+   `Sources/`. `DevicePINSource` holds `keychainLookUp` and `keychainSave` as closures defaulting to
+   `DevicePINStore`, which is an injection point; `GoogleTokenStore` is called statically from four
+   places (`GoogleCalendarClient:54`, `SettingsWindowController:321`, `:1774`, `:2169`). So this is
+   introduce a seam, then implement, not swap an implementation behind one that exists.
 8. **`CryptoKit` to swift-crypto.** One file, `GoogleOAuthRules`, one `SHA256.hash` call for PKCE.
-9. **`Network` to a plain socket listener.** One file, `GoogleOAuthClient`, an `NWListener` for the OAuth
-   loopback redirect.
+9. **`Network` to a plain socket listener.** One file, `GoogleOAuthClient`, using `NWListener`,
+   `NWConnection` and `NWParameters` for the OAuth loopback redirect. Three types rather than the one
+   this item used to name, though still one file and one job.
 10. **The BlueZ backend in Swift.** Roughly 600-1000 lines behind the interface `BluetoothRadio` already
    presents. `scripts/linux-ble-probe.py` is the working reference for every D-Bus call it needs.
 11. **The UI**, once the toolkit is decided.
@@ -357,9 +370,9 @@ Open questions, with what would answer each.
 
 | Question | How to answer it |
 |---|---|
-| **Does the core build on Swift 6.0?** Still open, and the premise was wrong: **the Mac builds with 6.3.3**, not 6.0. The tools-version line is the manifest level, not the compiler. Linux used 6.2 | Install a 6.0 toolchain on either box and repeat. Nothing in the split needed a post-6.0 feature, so this is a check rather than an expectation |
+| ~~**Does the core build on Swift 6.0?**~~ **Withdrawn: the premise was wrong.** It was asked because this file believed the Mac built with 6.0, read off `swift-tools-version: 6.0`. That line is the manifest and language level, not the compiler. The Mac builds with **6.3.3**, Linux used **6.2**, and no machine has 6.0 or wants it. `docs/installation.md` states 6.0 as a **minimum**, which both satisfy | Retired 2026-09-07, Mac. Nothing needs a 6.0 toolchain; if the stated minimum is ever worth proving, that is a release question about `installation.md`, not a port question |
 | **Do the other 61 test files pass?** They were excluded for referencing types outside the closed set, not for failing | Widen the closed set as `FacetCore` takes shape |
-| **How many `tearDown` methods hit the `deinit` isolation trap?** One per file at worst, and it crashes rather than fails | Grep for `MainActor.assumeIsolated` in tearDown across the 60 blocked files |
+| ~~**How many `tearDown` methods hit the `deinit` isolation trap?**~~ **27 of 30.** Measured on the Mac 2026-09-07 by brace-matching each `tearDown` body: 27 wrap their work in `MainActor.assumeIsolated` and would trap in a `deinit`; 3 do not. It never needed Linux to answer, being a property of the test sources | Answered 2026-09-07, Mac |
 | **Is `contentsOfDirectory(at:)` on a symlink a known corelibs bug or intended?** Worth reporting upstream if the former | Check the swift-corelibs-foundation tracker |
 | ~~**Does SwiftPM follow the symlinked resources directory on macOS?**~~ **Yes**, before and after the split: 13 `.sql` files in the built bundle, flattened to its root | Answered 2026-09-06, Mac |
 | ~~Does `Thread.isMainThread` matter?~~ **No.** It reads `false` inside a `@MainActor` test on Linux -- isolation holds, the OS thread simply is not thread 1 -- and nothing in `Sources/` calls it | Answered 2026-09-06 |
