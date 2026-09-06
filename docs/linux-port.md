@@ -21,7 +21,8 @@ moving is a finding that will be measured twice.
 | Does the logic behave? | **Yes**, 432 tests pass | 2026-09-06 |
 | Can the whole test suite run? | **Under XCTest no**, `@MainActor` blocks ~60%. **Under swift-testing yes** | 2026-09-06 |
 | Is there a UI? | Not started, and the toolkit is undecided | -- |
-| Is there a `FacetCore` target? | **Yes.** 86 files, no AppKit, and `FacetApp` builds on it. 589 access-level edits. 1718 tests green | 2026-09-07, Mac |
+| Is there a `FacetCore` target? | **Yes.** 86 files, no AppKit, and `FacetApp` builds on it. 589 access-level edits | 2026-09-07, Mac |
+| What is left before Linux can try the core? | `SQLite3` needs a modulemap or `libsqlite3-dev`; `Security` and `CryptoKit` are still Darwin. Everything else the spike hit is closed | 2026-09-07, Mac |
 
 **The strategy this settles: port the core, do not reimplement it.** The Swift is portable, so the
 11,000 lines of decision logic and the hermetic suite come across rather than being rewritten against the
@@ -352,44 +353,40 @@ Roughly in dependency order. Nothing here is started.
      `7ade2c7` had already made necessary. It needs a cube and a person.
 
    The `#if canImport(AppKit)` fallback was not needed and is now moot.
-3. **Platform-aware data directory.** **Much smaller than this item used to claim** (re-measured on the
-   Mac, 2026-09-07). The path is a real literal in **one** source file, `DebugTraceRules.swift:24`, one
-   test assertion, `DebugTraceRulesTests.swift:53`, and **the seeded `debug` row of
-   `database/011_setting.sql`**. The DDL one is the difficult case: it is a database value rather than
-   code, and the database is the source of truth.
+3. ~~**Platform-aware data directory.**~~ **Done 2026-09-07, Mac.** The seeded `debug` row named
+   `~/Library/Application Support/Facet`, which is the wrong folder on Linux and sat in DDL both
+   platforms share. It seeds `directory` as an **empty string** now, and empty means the folder the app
+   already keeps its databases in: `DatabaseBootstrap.debugDatabaseURL(in: nil)` was already asking
+   `FileManager` for it, and `DebugTraceRules.directoryURL` already answered `nil` for empty so the
+   caller could decide what empty meant. `DebugTraceRules.defaultDirectory` is computed from
+   `applicationSupportDirectory` rather than written down, so it is the right folder on either platform.
 
-   `DatabaseBootstrap`, `InstanceLock` and `DeveloperConfigFile` were on the old list because the string
-   appears in them, but in **doc comments**: all three call
-   `FileManager.default.urls(for: .applicationSupportDirectory, ...)`, which corelibs already resolves to
-   `~/.local/share/Facet`. They need no change at all, only prose that stops naming the macOS path as
-   though it were the only one. The grep that produced the four could not tell a literal from a comment.
+   The claim this item used to make, that the literal was in four source files and 10 test files, was
+   wrong: three of the four only mention it in doc comments and already call `applicationSupportDirectory`.
+   See the layer-boundaries section.
 
-   **Decided 2026-09-07: Linux keeps `~/.local/share/Facet`**, which is what corelibs returns on its own,
-   so the resolver needs no `#if os(Linux)` and there is no second location to keep in step. It is also
-   the XDG-correct home for a database, `~/.config` being for configuration.
-
-   **The seed cannot detect the platform and does not need to.** SQL has no way to ask, and
-   `011_setting.sql` is applied both by the app through the SQLite C API and by the `sqlite3` CLI
-   (`scripts/switch-database.sh:151`, `Tests/Scripted/run.sh:119`), so CLI-only dot-commands are out: the
-   one file has to parse under both. The platform answer already exists one layer down in
-   `applicationSupportDirectory`. So the row seeds a platform-neutral value that `DebugTraceRules`
-   expands where the file is opened, which is what it already does with the leading `~`, extended to
-   cover the part of the path that differs. Storing a resolved absolute path instead would work now that
-   the database is not shared between the machines, and `switch-database.sh:153` is the precedent for an
-   applicator correcting a row the DDL could not know, but it means teaching two applicators rather than
-   none and storing a derived value.
-4. **The three Foundation gaps** above.
+4. ~~**The three Foundation gaps** above.~~ **Done 2026-09-07, Mac**, all three no-ops on macOS.
+   `#if canImport(FoundationNetworking)` in the three files that use `URLSession`, 28 uses.
+   `abbreviatingWithTildeInPath` written out by hand in `DebugTraceRules.stored`, with tests for the two
+   edges the API gave for free: the home directory itself abbreviates to `~`, and a sibling whose path
+   merely starts with the home path is not inside it. **`setvbuf` is guarded to Darwin rather than
+   solved** -- glibc's mutable `stdout` is still refused by Swift 6, so a Linux terminal loses the
+   immediacy of the printed copy while `debug_log` still gets every row, which is the half the scripted
+   checks read.
 5. ~~**Make `DatabaseBootstrap` refuse an empty DDL listing**, and resolve symlinks before
    enumerating.~~ Done 2026-09-06, along with flipping `database/` to be the real directory.
 6. **Migrate the test suite to swift-testing**, checking every `tearDown` by hand for the `deinit`
    isolation trap. Mechanical for the assertions, not for the lifecycle.
-7. **`Security` to libsecret.** Two files, `DevicePINStore` and `GoogleTokenStore`, both excluded from the
-   spike as a known answer. **Only one of them is behind a seam** (checked on the Mac, 2026-09-07): both
-   are `enum` namespaces of static functions, and there is no protocol over a keychain anywhere in
-   `Sources/`. `DevicePINSource` holds `keychainLookUp` and `keychainSave` as closures defaulting to
-   `DevicePINStore`, which is an injection point; `GoogleTokenStore` is called statically from four
-   places (`GoogleCalendarClient:54`, `SettingsWindowController:321`, `:1774`, `:2169`). So this is
-   introduce a seam, then implement, not swap an implementation behind one that exists.
+7. **`Security` to libsecret.** Two files, `DevicePINStore` and `GoogleTokenStore`. **No seam is
+   needed and none was added** (looked at 2026-09-07): both are `enum` namespaces of static functions
+   called directly from four places, and swapping Security for libsecret is a platform choice, so a
+   compile-time branch inside the two files serves it with no call-site changes. A runtime seam would
+   only be worth adding for testability, which is a different argument.
+
+   **Groundwork done**: both `Lookup` enums answered `unavailable(OSStatus)`, a Darwin type in an
+   otherwise portable enum. They answer `unavailable(Int32)` now, which is the same type on Darwin and
+   exists everywhere; `GoogleCalendarRules.Failure.keychainUnavailable` had spelled it `Int32` all along.
+
 8. **`CryptoKit` to swift-crypto.** One file, `GoogleOAuthRules`, one `SHA256.hash` call for PKCE.
 9. **`Network` to a plain socket listener.** One file, `GoogleOAuthClient`, using `NWListener`,
    `NWConnection` and `NWParameters` for the OAuth loopback redirect. Three types rather than the one
