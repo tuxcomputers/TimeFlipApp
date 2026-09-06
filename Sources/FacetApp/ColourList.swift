@@ -131,7 +131,7 @@ final class ColourListRow: NSButton {
         setAccessibilityIdentifier(ColourList.Identifier.row(colour))
         setAccessibilityLabel(isSelected ? "\(colour.name), selected" : colour.name)
 
-        let swatch = ColourSwatch(colour: colour.colour)
+        let swatch = ColourSwatch(colour: colour.colour.nsColor)
         let name = NSTextField(labelWithString: colour.name)
         name.translatesAutoresizingMaskIntoConstraints = false
 

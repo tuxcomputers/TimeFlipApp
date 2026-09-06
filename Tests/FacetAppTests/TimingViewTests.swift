@@ -7,7 +7,7 @@ import XCTest
 @MainActor
 final class TimingViewTests: XCTestCase {
     private func category(
-        colour: NSColor? = .red,
+        colour: Colour? = SampleColour.red,
         whiteLines: Bool = false,
         iconName: String? = "ic_admin"
     ) -> CategoryRecord {
@@ -114,7 +114,7 @@ final class TimingViewTests: XCTestCase {
         let view = view()
         let long = CategoryRecord(
             id: 8, name: "Quarterly planning and review workshop that will not fit", iconName: nil,
-            colourID: 0, colour: .red, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
+            colourID: 0, colour: SampleColour.red, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
         )
 
         for category in [category(), long] {
@@ -141,7 +141,7 @@ final class TimingViewTests: XCTestCase {
 
         let long = CategoryRecord(
             id: 9, name: "When there is a long category it makes the windows wider", iconName: nil,
-            colourID: 0, colour: .red, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
+            colourID: 0, colour: SampleColour.red, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
         )
         view.show(category: long, timingState: .running, elapsed: 0)
         view.layoutSubtreeIfNeeded()
@@ -279,12 +279,12 @@ final class TimingViewTests: XCTestCase {
         // Black on a light face, white on a dark one, and both from the colour row's own `white_lines` rather than
         // from anything decided here -- so the icon can never be drawn in a colour the lines around it are not.
         let light = view()
-        light.show(face: 2, category: category(colour: .yellow, whiteLines: false))
-        XCTAssertEqual(light.centreIconView.contentTintColor, .black)
+        light.show(face: 2, category: category(colour: SampleColour.yellow, whiteLines: false))
+        XCTAssertEqual(light.centreIconView.contentTintColor, Colour.black.nsColor)
 
         let dark = view()
         dark.show(face: 2, category: category(colour: .black, whiteLines: true))
-        XCTAssertEqual(dark.centreIconView.contentTintColor, .white)
+        XCTAssertEqual(dark.centreIconView.contentTintColor, Colour.white.nsColor)
     }
 
     func testTheClockAndTheControlAreNotDrawnOnACube() {

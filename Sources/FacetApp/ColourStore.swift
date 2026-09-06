@@ -1,4 +1,4 @@
-import AppKit
+import Foundation
 
 /// One colour a category can be drawn in: the id stored against it, its name, the colour itself, and whether an icon
 /// on top of it has to be drawn white.
@@ -8,7 +8,7 @@ struct ColourRecord: Equatable {
     /// somebody can say out loud or search for.
     let name: String
     /// The row's `device_hex`, parsed. Not optional: a row without a usable hex is not offered at all (see `all()`).
-    let colour: NSColor
+    let colour: Colour
     /// `true` for colours dark enough to swallow a black glyph, straight from the row's `white_lines`.
     let usesWhiteLines: Bool
 }
@@ -46,7 +46,7 @@ final class ColourStore {
         connection.forEachRow(
             "SELECT colour_id, colour_name, device_hex, white_lines FROM colour WHERE colour_id >= 1 ORDER BY colour_id;"
         ) { row in
-            guard let colour = row.string(2).flatMap(NSColor.init(hex:)) else { return }
+            guard let colour = row.string(2).flatMap(Colour.init(hex:)) else { return }
             colours.append(
                 ColourRecord(
                     id: Int(row.int(0)),

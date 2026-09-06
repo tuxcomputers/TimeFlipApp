@@ -166,12 +166,12 @@ final class CategoryStoreTests: XCTestCase, @unchecked Sendable {
     // MARK: - the hex parse
 
     func testHexParsing() {
-        XCTAssertEqual(NSColor(hex: "#ff0000")?.redComponent, 1)
-        XCTAssertEqual(NSColor(hex: "ff0000")?.redComponent, 1, "the leading hash is optional")
-        XCTAssertEqual(NSColor(hex: "#00ff00")?.greenComponent, 1)
-        XCTAssertNil(NSColor(hex: ""), "which is what a NULL device_hex reads as")
-        XCTAssertNil(NSColor(hex: "#fff"), "three digits is not a form the colour table uses")
-        XCTAssertNil(NSColor(hex: "#gggggg"))
+        XCTAssertEqual(Colour(hex: "#ff0000")?.red, 1)
+        XCTAssertEqual(Colour(hex: "ff0000")?.red, 1, "the leading hash is optional")
+        XCTAssertEqual(Colour(hex: "#00ff00")?.green, 1)
+        XCTAssertNil(Colour(hex: ""), "which is what a NULL device_hex reads as")
+        XCTAssertNil(Colour(hex: "#fff"), "three digits is not a form the colour table uses")
+        XCTAssertNil(Colour(hex: "#gggggg"))
     }
 
     // MARK: - looking a name up
@@ -393,9 +393,9 @@ final class CategoryStoreTests: XCTestCase, @unchecked Sendable {
         let meeting = try XCTUnwrap(categories.activeCategories().first { $0.name == "Meeting" })
 
         XCTAssertEqual(meeting.colourID, 13)
-        let rgb = try XCTUnwrap(meeting.colour?.usingColorSpace(.sRGB))
-        XCTAssertEqual(rgb.greenComponent, 1, accuracy: 0.001, "Cyan, #00ffff")
-        XCTAssertEqual(rgb.blueComponent, 1, accuracy: 0.001)
+        let rgb = try XCTUnwrap(meeting.colour)
+        XCTAssertEqual(rgb.green, 1, accuracy: 0.001, "Cyan, #00ffff")
+        XCTAssertEqual(rgb.blue, 1, accuracy: 0.001)
     }
 
     func testSettingTheColourIsReadBackAsBothTheIDAndTheColour() throws {
@@ -407,8 +407,8 @@ final class CategoryStoreTests: XCTestCase, @unchecked Sendable {
         // Both, because they answer different questions: which palette entry it is, for the picker to tick, and what
         // to draw, for the swatch.
         XCTAssertEqual(category.colourID, 15)
-        let rgb = try XCTUnwrap(category.colour?.usingColorSpace(.sRGB))
-        XCTAssertEqual(rgb.blueComponent, 128.0 / 255, accuracy: 0.001, "Navy, #000080")
+        let rgb = try XCTUnwrap(category.colour)
+        XCTAssertEqual(rgb.blue, 128.0 / 255, accuracy: 0.001, "Navy, #000080")
     }
 
     func testClearingTheColourGoesBackToNone() throws {

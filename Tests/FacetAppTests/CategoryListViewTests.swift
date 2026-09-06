@@ -8,7 +8,7 @@ import XCTest
 /// No database and no window: the view is handed categories, which is the whole of its input.
 @MainActor
 final class CategoryListViewTests: XCTestCase {
-    private func category(_ id: Int, _ name: String, icon: String? = "ic_break", colour: NSColor? = .red) -> CategoryRecord {
+    private func category(_ id: Int, _ name: String, icon: String? = "ic_break", colour: Colour? = SampleColour.red) -> CategoryRecord {
         CategoryRecord(id: id, name: name, iconName: icon, colourID: 0, colour: colour, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true)
     }
 
@@ -91,7 +91,7 @@ final class CategoryListViewTests: XCTestCase {
 
     func testTheIconIsWhiteOnAColourThatNeedsIt() throws {
         let dark = CategoryRecord(id: 1, name: "Dark", iconName: "ic_break", colourID: 0, colour: .black, usesWhiteLines: true, dailyLimitMinutes: 0, isCategoryActive: true)
-        let light = CategoryRecord(id: 2, name: "Light", iconName: "ic_break", colourID: 0, colour: .yellow, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true)
+        let light = CategoryRecord(id: 2, name: "Light", iconName: "ic_break", colourID: 0, colour: SampleColour.yellow, usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true)
 
         XCTAssertEqual(try iconTint(of: CategoryRowView(category: dark)), .white)
         XCTAssertEqual(try iconTint(of: CategoryRowView(category: light)), .black)

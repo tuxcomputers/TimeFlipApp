@@ -237,7 +237,7 @@ final class CategoryRowView: NSButton {
 
         swatch.borderWidth = 0
         // No colour set falls back to the control background, so the icon still has something to sit on.
-        swatch.fillColor = category.colour ?? .controlBackgroundColor
+        swatch.fillColor = category.colour?.nsColor ?? .controlBackgroundColor
         let iconView = NSImageView(image: icon)
         // The icon takes the colour of the swatch it is on: white where the colour is dark enough to
         // swallow a black glyph, which is what the colour's own `white_lines` column is for.

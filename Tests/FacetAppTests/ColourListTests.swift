@@ -9,7 +9,7 @@ import XCTest
 @MainActor
 final class ColourListTests: XCTestCase {
     private func colours(_ count: Int) -> [ColourRecord] {
-        (1 ... count).map { ColourRecord(id: $0, name: "Colour \($0)", colour: .red, usesWhiteLines: false) }
+        (1 ... count).map { ColourRecord(id: $0, name: "Colour \($0)", colour: SampleColour.red, usesWhiteLines: false) }
     }
 
     private func descendants(of root: NSView) -> [NSView] {
@@ -32,9 +32,9 @@ final class ColourListTests: XCTestCase {
         // The ids run Red, Maroon, Brown, Tan ... which is a wheel somebody arranged. Sorting by name would scatter
         // the shades that belong beside each other.
         let palette = [
-            ColourRecord(id: 1, name: "Red", colour: .red, usesWhiteLines: false),
-            ColourRecord(id: 2, name: "Maroon", colour: .brown, usesWhiteLines: true),
-            ColourRecord(id: 3, name: "Brown", colour: .brown, usesWhiteLines: true),
+            ColourRecord(id: 1, name: "Red", colour: SampleColour.red, usesWhiteLines: false),
+            ColourRecord(id: 2, name: "Maroon", colour: SampleColour.brown, usesWhiteLines: true),
+            ColourRecord(id: 3, name: "Brown", colour: SampleColour.brown, usesWhiteLines: true),
         ]
 
         let list = ColourList(colours: palette, selected: CategoryEditRules.noColour)
@@ -45,7 +45,7 @@ final class ColourListTests: XCTestCase {
     func testEachRowCarriesItsNameBesideTheSquare() throws {
         // A colour is not recognisable the way a picture is: "Maroon" and "Brown" are one shade apart and nothing but
         // the word tells them apart, which is why this is a list and the icons are a grid.
-        let list = ColourList(colours: [ColourRecord(id: 4, name: "Tan", colour: .orange, usesWhiteLines: false)], selected: 0)
+        let list = ColourList(colours: [ColourRecord(id: 4, name: "Tan", colour: SampleColour.orange, usesWhiteLines: false)], selected: 0)
 
         let row = try XCTUnwrap(rows(of: list).first)
         XCTAssertTrue(row.subviews.contains { $0 is ColourSwatch })
@@ -53,7 +53,7 @@ final class ColourListTests: XCTestCase {
     }
 
     func testEveryRowIsNamedForItsColour() throws {
-        let list = ColourList(colours: [ColourRecord(id: 4, name: "Tan", colour: .orange, usesWhiteLines: false)], selected: 0)
+        let list = ColourList(colours: [ColourRecord(id: 4, name: "Tan", colour: SampleColour.orange, usesWhiteLines: false)], selected: 0)
 
         let row = try XCTUnwrap(rows(of: list).first)
         XCTAssertEqual(row.accessibilityIdentifier(), "colour-option-Tan")
@@ -144,8 +144,8 @@ final class ColourListTests: XCTestCase {
         // Otherwise a short name like "Red" gives a short row, and a click beside the word lands in a gap.
         let list = ColourList(
             colours: [
-                ColourRecord(id: 1, name: "Red", colour: .red, usesWhiteLines: false),
-                ColourRecord(id: 17, name: "Magenta", colour: .magenta, usesWhiteLines: false),
+                ColourRecord(id: 1, name: "Red", colour: SampleColour.red, usesWhiteLines: false),
+                ColourRecord(id: 17, name: "Magenta", colour: SampleColour.magenta, usesWhiteLines: false),
             ],
             selected: 0
         )

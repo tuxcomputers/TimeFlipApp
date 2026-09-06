@@ -1,4 +1,4 @@
-import AppKit
+import Foundation
 
 /// What one face should light up in, read at the moment it is needed.
 ///
@@ -11,7 +11,7 @@ struct FaceColour: Equatable {
     let categoryName: String?
     /// The colour to light it in, or `nil` for **off**. See `FaceColourRules.channels`, which is where `nil` becomes
     /// black and where the reasoning for that lives.
-    let colour: NSColor?
+    let colour: Colour?
 }
 
 /// Lighting a face on the cube: the bytes `0x11` carries, and what a category's colour becomes on the way there.
@@ -53,16 +53,14 @@ enum FaceColourRules {
     /// is an instruction, and leaving the old one lit would make *None* mean *unchanged*, which is invisible on the
     /// cube and impossible to undo from the window.
     ///
-    /// **Converted to sRGB before it is read**, because the same three numbers mean different colours in different
-    /// spaces and the palette's own hexes are sRGB (`ColourStore`). A colour that would not convert is treated as off,
-    /// which is the honest answer: an unlit face is wrong in a way somebody can see, and a channel read out of the
-    /// wrong space is wrong in a way nobody can.
-    static func channels(of colour: NSColor?) -> (red: UInt16, green: UInt16, blue: UInt16) {
-        guard let sRGB = colour?.usingColorSpace(.sRGB) else { return (0, 0, 0) }
-        func scale(_ channel: CGFloat) -> UInt16 {
+    /// **Already sRGB**, which is what the palette's own hexes are (`ColourStore`) and what the wire wants. `Colour`
+    /// holds no other space, so there is no conversion here to fail.
+    static func channels(of colour: Colour?) -> (red: UInt16, green: UInt16, blue: UInt16) {
+        guard let colour else { return (0, 0, 0) }
+        func scale(_ channel: Double) -> UInt16 {
             UInt16(clamping: Int((channel * 65_535).rounded()))
         }
-        return (scale(sRGB.redComponent), scale(sRGB.greenComponent), scale(sRGB.blueComponent))
+        return (scale(colour.red), scale(colour.green), scale(colour.blue))
     }
 
     /// One face put into words, for the row that says what went out.
@@ -81,14 +79,14 @@ enum FaceColourRules {
 
     /// `#rrggbb`, or `off` where there is no colour. Eight bits a channel, which is what the palette stores and what
     /// somebody would compare against `database/005_colour.sql`.
-    static func hex(of colour: NSColor?) -> String {
-        guard let sRGB = colour?.usingColorSpace(.sRGB) else { return "off" }
-        func scale(_ channel: CGFloat) -> Int {
+    static func hex(of colour: Colour?) -> String {
+        guard let colour else { return "off" }
+        func scale(_ channel: Double) -> Int {
             max(0, min(255, Int((channel * 255).rounded())))
         }
         return String(
             format: "#%02x%02x%02x",
-            scale(sRGB.redComponent), scale(sRGB.greenComponent), scale(sRGB.blueComponent)
+            scale(colour.red), scale(colour.green), scale(colour.blue)
         )
     }
 }

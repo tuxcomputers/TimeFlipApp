@@ -442,7 +442,7 @@ final class CategoryTableRow: NSStackView {
         // anyway, and would take the tooltip explaining the refusal with it.
         button.toolTip = refusalHelp
 
-        let square = ColourSwatch(colour: category.colour)
+        let square = ColourSwatch(colour: category.colour?.nsColor)
         button.addSubview(square)
         NSLayoutConstraint.activate([
             button.widthAnchor.constraint(equalTo: square.widthAnchor),

@@ -14,7 +14,7 @@ final class RetiredCategoryTableTests: XCTestCase {
             id: id,
             name: name,
             iconName: "ic_break",
-            colourID: 0, colour: .red,
+            colourID: 0, colour: SampleColour.red,
             usesWhiteLines: false,
             dailyLimitMinutes: 45,
             isCategoryActive: false

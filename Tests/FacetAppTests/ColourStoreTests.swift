@@ -53,10 +53,10 @@ final class ColourStoreTests: XCTestCase, @unchecked Sendable {
     func testTheHexBecomesTheColourItNames() throws {
         let navy = try XCTUnwrap(colours.all().first { $0.name == "Navy" })
 
-        let rgb = try XCTUnwrap(navy.colour.usingColorSpace(.sRGB))
-        XCTAssertEqual(rgb.redComponent, 0, accuracy: 0.001)
-        XCTAssertEqual(rgb.greenComponent, 0, accuracy: 0.001)
-        XCTAssertEqual(rgb.blueComponent, 128.0 / 255, accuracy: 0.001, "#000080")
+        let rgb = navy.colour
+        XCTAssertEqual(rgb.red, 0, accuracy: 0.001)
+        XCTAssertEqual(rgb.green, 0, accuracy: 0.001)
+        XCTAssertEqual(rgb.blue, 128.0 / 255, accuracy: 0.001, "#000080")
     }
 
     func testWhiteLinesComesStraightFromTheRow() throws {

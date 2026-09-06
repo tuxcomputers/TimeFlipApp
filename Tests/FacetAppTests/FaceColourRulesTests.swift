@@ -10,7 +10,7 @@ import XCTest
 @MainActor
 final class FaceColourRulesTests: XCTestCase {
     private func wanted(_ face: Int, _ hex: String?) -> FaceColour {
-        FaceColour(face: face, categoryName: nil, colour: hex.flatMap(NSColor.init(hex:)))
+        FaceColour(face: face, categoryName: nil, colour: hex.flatMap(Colour.init(hex:)))
     }
 
     func testTheCommandIsTheVendorsEightBytes() {
@@ -29,9 +29,9 @@ final class FaceColourRulesTests: XCTestCase {
     func testEightBitsPerChannelBecomesSixteen() {
         // 0xFF scales to 0xFFFF rather than to 0x00FF, which is the whole of what the scaling is for. Half brightness
         // is the case that catches a shift used where a multiply was meant: 0x80 is 128/255, which is 0x8080.
-        XCTAssertEqual(FaceColourRules.channels(of: NSColor(hex: "#ffffff")).red, 65_535)
-        XCTAssertEqual(FaceColourRules.channels(of: NSColor(hex: "#808080")).green, 0x8080)
-        XCTAssertEqual(FaceColourRules.channels(of: NSColor(hex: "#000000")).blue, 0)
+        XCTAssertEqual(FaceColourRules.channels(of: Colour(hex: "#ffffff")).red, 65_535)
+        XCTAssertEqual(FaceColourRules.channels(of: Colour(hex: "#808080")).green, 0x8080)
+        XCTAssertEqual(FaceColourRules.channels(of: Colour(hex: "#000000")).blue, 0)
     }
 
     func testAFaceWithNoColourIsSentBlack() {
@@ -54,7 +54,7 @@ final class FaceColourRulesTests: XCTestCase {
         // The hex to compare against the palette, and the triple that actually went out, so a scaling problem is
         // visible rather than inferred. The archive logged both for that reason.
         let described = FaceColourRules.describe(
-            FaceColour(face: 2, categoryName: "Meeting", colour: NSColor(hex: "#ff0000"))
+            FaceColour(face: 2, categoryName: "Meeting", colour: Colour(hex: "#ff0000"))
         )
 
         XCTAssertEqual(described, "face 2 Meeting #ff0000 as rgb16 ffff,0000,0000")

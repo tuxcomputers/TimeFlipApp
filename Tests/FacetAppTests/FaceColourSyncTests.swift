@@ -33,7 +33,7 @@ final class FaceColourSyncTests: XCTestCase {
         link: Link? = nil,
         answering: Bool = true,
         takes: Bool = true,
-        colours: @escaping (Int) -> NSColor? = { _ in NSColor(hex: "#ff0000") },
+        colours: @escaping (Int) -> Colour? = { _ in Colour(hex: "#ff0000") },
         on wire: Wire
     ) -> FaceColourSync {
         let link = link ?? Link()
@@ -169,7 +169,7 @@ final class FaceColourSyncTests: XCTestCase {
         // the meantime goes out as what it is now, not as what it was when the run started.
         let wire = Wire()
         var hex = "#ff0000"
-        let colours = sync(answering: false, colours: { _ in NSColor(hex: hex) }, on: wire)
+        let colours = sync(answering: false, colours: { _ in Colour(hex: hex) }, on: wire)
         colours.sendAll(because: "a test")
 
         hex = "#0000ff"

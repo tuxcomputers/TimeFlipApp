@@ -14,7 +14,7 @@ final class CategoryTableTests: XCTestCase {
         _ id: Int,
         _ name: String,
         icon: String? = "ic_break",
-        colour: NSColor? = .red,
+        colour: Colour? = SampleColour.red,
         colourID: Int = 0,
         limit: Int = 0
     ) -> CategoryRecord {
@@ -332,7 +332,7 @@ final class CategoryTableTests: XCTestCase {
 
     func testASwatchWithNoColourSaysSoOutLoud() throws {
         let table = CategoryTable()
-        table.show([category(1, "Break", colour: nil), category(2, "Meeting", colour: .red)])
+        table.show([category(1, "Break", colour: nil), category(2, "Meeting", colour: SampleColour.red)])
 
         let labels = rows(of: table).compactMap { swatchButton(of: $0)?.accessibilityLabel() }
         // Nothing on screen distinguishes a hollow square from a pale one to a screen reader.

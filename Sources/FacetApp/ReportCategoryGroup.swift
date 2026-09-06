@@ -323,7 +323,7 @@ enum ReportSwatch {
         }
 
         swatch.borderWidth = 0
-        swatch.fillColor = total.colour ?? .controlBackgroundColor
+        swatch.fillColor = total.colour?.nsColor ?? .controlBackgroundColor
         let iconView = NSImageView(image: icon)
         // White where the colour is dark enough to swallow a black glyph, which is what the colour's own `white_lines`
         // column is for.

@@ -218,7 +218,7 @@ final class TimingView: NSView {
         guard !isHidden else { return }
         // No colour set falls back to the ordinary label colour, which is what the previous app drew for a
         // category without one.
-        playPauseButton.contentTintColor = category?.colour ?? .labelColor
+        playPauseButton.contentTintColor = category?.colour?.nsColor ?? .labelColor
         elapsedLabel.stringValue = DurationFormat.hoursMinutesSeconds(
             elapsed,
             // Truncated, not rounded: a ticking clock must never read ahead of the time actually recorded.
@@ -311,11 +311,11 @@ final class TimingView: NSView {
             centreIconView.isHidden = true
             return
         }
-        let ink = DeviceFaceRules.lineColour(for: category)
+        let ink = DeviceFaceRules.lineColour(for: category).nsColor
         deviceView.image = ActivityIcon.colouredImage(
             named: Self.deviceArtwork,
             pointSize: Layout.artworkPointSize,
-            fill: DeviceFaceRules.bodyColour(for: category),
+            fill: DeviceFaceRules.bodyColour(for: category).nsColor,
             ink: ink
         )
         deviceView.isHidden = deviceView.image == nil

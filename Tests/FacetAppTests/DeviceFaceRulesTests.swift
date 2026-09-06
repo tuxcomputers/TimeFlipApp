@@ -8,7 +8,7 @@ import XCTest
 /// (`docs/timeflip2-firmware-evidence.sqlite`: the read answered `faces -> 02`, and the flips logged beside it),
 /// which is why they appear here rather than a made-up 5.
 final class DeviceFaceRulesTests: XCTestCase {
-    private func category(colour: NSColor?, whiteLines: Bool = false) -> CategoryRecord {
+    private func category(colour: Colour?, whiteLines: Bool = false) -> CategoryRecord {
         CategoryRecord(
             id: 7, name: "Deep Work", iconName: "ic_admin",
             colourID: 3, colour: colour, usesWhiteLines: whiteLines, dailyLimitMinutes: 0, isCategoryActive: true
@@ -55,7 +55,7 @@ final class DeviceFaceRulesTests: XCTestCase {
     // MARK: - what it is drawn in
 
     func testTheBodyTakesTheCategorysColour() {
-        XCTAssertEqual(DeviceFaceRules.bodyColour(for: category(colour: .red)), .red)
+        XCTAssertEqual(DeviceFaceRules.bodyColour(for: category(colour: SampleColour.red)), SampleColour.red)
     }
 
     func testAnUnlitFaceIsWhitePlastic() {
@@ -69,7 +69,7 @@ final class DeviceFaceRulesTests: XCTestCase {
         // Straight from `colour.white_lines`, so which colours flip is retuned by editing a row rather than by
         // changing code.
         XCTAssertEqual(DeviceFaceRules.lineColour(for: category(colour: .black, whiteLines: true)), .white)
-        XCTAssertEqual(DeviceFaceRules.lineColour(for: category(colour: .yellow, whiteLines: false)), .black)
+        XCTAssertEqual(DeviceFaceRules.lineColour(for: category(colour: SampleColour.yellow, whiteLines: false)), .black)
     }
 
     func testAnUnlitFaceKeepsItsBlackLines() {

@@ -26,7 +26,7 @@ final class ReportCategoryGroupTests: XCTestCase {
             categoryID: id,
             name: name,
             iconName: nil,
-            colour: .red,
+            colour: SampleColour.red,
             usesWhiteLines: false,
             seconds: seconds
         )

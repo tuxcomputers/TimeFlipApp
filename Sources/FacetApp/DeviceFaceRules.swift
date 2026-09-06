@@ -1,4 +1,4 @@
-import AppKit
+import Foundation
 
 /// Which face the cube is resting on, and what colours that face is drawn in.
 ///
@@ -41,7 +41,7 @@ enum DeviceFaceRules {
     /// answered this question three different ways on purpose -- an icon falls back to the ordinary label colour so it
     /// stays legible, the LED falls back to dark because that is off on the hardware, and the drawn body falls back to
     /// white -- and this is that one, copied with its reasoning.
-    static func bodyColour(for category: CategoryRecord?) -> NSColor {
+    static func bodyColour(for category: CategoryRecord?) -> Colour {
         category?.colour ?? .white
     }
 
@@ -55,7 +55,7 @@ enum DeviceFaceRules {
     /// The device's outer outline is **not** this colour. It stays black whatever the face is lit in, so the shape
     /// still reads against the window behind it -- which is why the artwork authors its outline separately from its
     /// inner lines (see `ic_facet.svg`).
-    static func lineColour(for category: CategoryRecord?) -> NSColor {
+    static func lineColour(for category: CategoryRecord?) -> Colour {
         (category?.usesWhiteLines ?? false) ? .white : .black
     }
 }

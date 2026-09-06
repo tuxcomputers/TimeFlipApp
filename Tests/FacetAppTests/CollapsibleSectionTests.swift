@@ -74,7 +74,7 @@ final class CollapsibleSectionTests: XCTestCase {
     func testAReportGroupGoesBackToFolded() {
         // Its default is not a parameter: a totals row is built folded every time, the caller having no say in it.
         let total = CategoryTotal(
-            categoryID: 1, name: "Admin", iconName: nil, colour: .red, usesWhiteLines: false, seconds: 900
+            categoryID: 1, name: "Admin", iconName: nil, colour: SampleColour.red, usesWhiteLines: false, seconds: 900
         )
         let group = ReportCategoryGroup(total: total, showingSeconds: false)
         group.entries = { [] }

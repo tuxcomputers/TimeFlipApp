@@ -1,4 +1,4 @@
-import AppKit
+import Foundation
 
 /// One category's share of a range: what it is called, what it is drawn with, and how many seconds of it fall inside.
 ///
@@ -10,7 +10,7 @@ struct CategoryTotal: Equatable {
     /// `nil` for the None icon (`icon_id` 0), a sentinel row rather than a bundled asset.
     let iconName: String?
     /// `nil` for the None colour (`colour_id` 0), which has no hex of its own.
-    let colour: NSColor?
+    let colour: Colour?
     let usesWhiteLines: Bool
     /// Seconds inside the range, with a stretch that straddles either end clipped to it.
     let seconds: TimeInterval
@@ -126,7 +126,7 @@ final class TimeEntryStore {
                     name: row.string(1) ?? "",
                     // The None row is named "None" rather than left null, so the name is the sentinel.
                     iconName: iconName == "None" ? nil : iconName,
-                    colour: row.string(3).flatMap(NSColor.init(hex:)),
+                    colour: row.string(3).flatMap(Colour.init(hex:)),
                     usesWhiteLines: row.bool(4),
                     seconds: row.double(5)
                 )

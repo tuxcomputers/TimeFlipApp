@@ -1,4 +1,4 @@
-import AppKit
+import Foundation
 
 /// A category as something showing it needs it: the name, the icon and colour it is drawn with, and
 /// whether it is still in use.
@@ -15,7 +15,7 @@ struct CategoryRecord: Equatable {
     /// icon column needs no equivalent, its filename being both at once.
     let colourID: Int
     /// `nil` for the None colour (`colour_id` 0), which has no hex of its own.
-    let colour: NSColor?
+    let colour: Colour?
     /// From the colour's own row: `true` for colours dark enough to swallow a black glyph, so the icon
     /// on top of them is drawn white instead.
     let usesWhiteLines: Bool
@@ -176,7 +176,7 @@ final class CategoryStore {
                     // The None row is named "None" rather than left null, so the name is the sentinel.
                     iconName: iconName == "None" ? nil : iconName,
                     colourID: Int(row.int(7)),
-                    colour: row.string(3).flatMap(NSColor.init(hex:)),
+                    colour: row.string(3).flatMap(Colour.init(hex:)),
                     usesWhiteLines: row.bool(4),
                     dailyLimitMinutes: Int(row.int(6)),
                     isCategoryActive: row.bool(5)
@@ -298,24 +298,5 @@ final class CategoryStore {
         connection.execute(
             "UPDATE category SET daily_limit = \(minutes) WHERE category_id = \(id) AND category_id >= 1;"
         ) && connection.changes > 0
-    }
-}
-
-extension NSColor {
-    /// Parses `"#rrggbb"` (or `"rrggbb"`) into an opaque sRGB colour. `nil` for anything that is not
-    /// exactly six hex digits, which includes the None colour's `NULL` hex.
-    ///
-    /// sRGB explicitly: the same six digits mean different colours in different spaces, and these are
-    /// the values the device is eventually told to light its LED with.
-    convenience init?(hex: String) {
-        var digits = hex.trimmingCharacters(in: .whitespacesAndNewlines)
-        if digits.hasPrefix("#") { digits.removeFirst() }
-        guard digits.count == 6, let rgb = UInt32(digits, radix: 16) else { return nil }
-        self.init(
-            srgbRed: CGFloat((rgb >> 16) & 0xFF) / 255,
-            green: CGFloat((rgb >> 8) & 0xFF) / 255,
-            blue: CGFloat(rgb & 0xFF) / 255,
-            alpha: 1
-        )
     }
 }
