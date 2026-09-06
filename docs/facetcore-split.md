@@ -159,10 +159,20 @@ swift build 2>&1 \
   | grep -oE "'[^']*'" | tr -d "'" | sort -u
 ```
 
-Fix what it names, rebuild, repeat until the list is empty. **94 types, measured** (`linux-port.md`),
-from a codebase that contains **zero** explicit access modifiers. The member count is not knowable up
-front: until a type is visible the compiler cannot say which of its members are wanted, so members
-surface as the types are widened.
+Fix what it names, rebuild, repeat until the list is empty. **Done 2026-09-07: 589 `package`
+declarations, 152 types and 437 members** (`linux-port.md` has the comparison against the estimate).
+The first build names 94 types; widening those exposes the next layer, for about a dozen rounds.
+
+**The grep above only starts it.** Once the types are visible the errors become
+`'x' is inaccessible due to 'internal' protection level`, and the useful part is not the error but the
+note beside it:
+
+```sh
+swift build 2>&1 | grep -E "^/.*note: '.*' declared here"
+```
+
+That carries the declaration's own file and line, which is everything a widening pass needs. Matching on
+member names instead is ambiguous, 15 of 70 in the run that tried it; the note is not ambiguous at all.
 
 ### Use `package`, not `public`
 

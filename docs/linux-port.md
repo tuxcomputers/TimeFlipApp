@@ -21,7 +21,7 @@ moving is a finding that will be measured twice.
 | Does the logic behave? | **Yes**, 432 tests pass | 2026-09-06 |
 | Can the whole test suite run? | **Under XCTest no**, `@MainActor` blocks ~60%. **Under swift-testing yes** | 2026-09-06 |
 | Is there a UI? | Not started, and the toolkit is undecided | -- |
-| Is there a `FacetCore` target? | **Half**: it exists, holds 86 files and compiles with 0 errors and no AppKit. `FacetApp` does not build against it yet | 2026-09-06, Mac |
+| Is there a `FacetCore` target? | **Yes.** 86 files, no AppKit, and `FacetApp` builds on it. 589 access-level edits. 1718 tests green | 2026-09-07, Mac |
 
 **The strategy this settles: port the core, do not reimplement it.** The Swift is portable, so the
 11,000 lines of decision logic and the hermetic suite come across rather than being rewritten against the
@@ -201,27 +201,50 @@ After the split the link lives at `Sources/FacetCore/Resources/Database` and its
 `../../../database` reaching the repository root from the new depth exactly as it did from the old.
 The bundle is `FacetApp_FacetCore.bundle` and holds the same 13 files.
 
-## Found: a real module split needs 94 types widened, not 103
+## Found: a real module split needs 589 access-level edits, and it is done
 
-**Measured on the Mac, 2026-09-06**, by making the split rather than by counting declarations. This
+**Measured on the Mac, 2026-09-07**, by making the split rather than by counting declarations. This
 section replaces an estimate taken from a script on the Linux side; the estimate is left in the table
 below so the two can be compared.
 
-`Sources/FacetCore` now exists and holds **86 files**. It compiles as its own module with **0 errors**,
-and **nothing in it imports AppKit**. `Sources/FacetApp` holds the other **35**.
+**`FacetCore` is real and the whole package builds on it.** 86 files in the core, 35 in `FacetApp`,
+**nothing in the core importing AppKit**, `swift build` clean with no warnings, and **1718 tests passing
+with none skipped**.
 
 | | Estimated, from Linux | Measured, on the Mac |
 |---|---|---|
-| Types the AppKit half names from the portable half | 103 | **94** |
-| Member declarations, an upper bound on the widening | ~511 | **not yet known** |
-| `public`/`package` keywords in `Sources/` | 0 | 0, still |
+| Types that had to be widened | 103 | **152** |
+| Members that had to be widened | ~511 (upper bound) | **437** |
+| **Total `package` declarations** | ~614 | **589** |
+| `public` keywords anywhere | 0 | **0**, still |
+| `package` keywords in `FacetApp` | -- | **0** |
 
-**The member number is not measurable from one build and that is the finding, not an omission.** The
-first build of `FacetApp` against `FacetCore` reports **4,801 error lines**, and the 94 types are all
-that can be read off them: until a type is visible, the compiler cannot say which of its members are
-wanted, so member errors appear only as each type is widened. 2,120 of those lines are already
-`cannot infer contextual base in reference to member`, which is the member work starting to surface
-underneath the type work. The real member count comes out of running the loop, and only then.
+**The type count was low by half, and the reason is worth knowing before estimating this kind of change
+again.** The script counted the types `FacetApp` names directly. What the compiler asks for is those
+plus everything that comes with them: a type used in a `package` signature, a nested type behind a
+`package` enum case, and a parent that has to widen so its own nested type is reachable at all. The
+member count came in **under** its upper bound, which is what an upper bound is for.
+
+**It cannot be read off one build.** The first build of `FacetApp` against `FacetCore` reported 4,801
+error lines naming 94 types; widening those exposed the next layer, and so on for a dozen rounds. Until
+a type is visible the compiler cannot say which of its members are wanted.
+
+**What made the loop tractable: Swift emits `note: 'x' declared here` beside each access error, carrying
+the declaration's own file and line.** That is the whole input a widening pass needs -- no name matching,
+no inferring a receiver's type, nothing widened that the build did not point at. The first attempt
+matched on member names instead and was ambiguous for 15 of 70; the note-driven pass had no ambiguity at
+all.
+
+**Two guesses did creep in, and the compiler caught both**, which is the argument for the discipline
+rather than against it: `package` on three local `let`s inside function bodies, where it is a compile
+error rather than merely wrong, and a generated memberwise initialiser that had swept up locals from the
+function bodies of the struct it belonged to.
+
+**Seven memberwise initialisers had to be written by hand**, Swift not widening a synthesised one with
+its type. That is the only part of the stage that is not mechanical. Two needed care beyond copying the
+stored properties: `DevicePINSource` stores two closures and so needs `@escaping`, and `DeviceInfo`
+needed its four optionals to keep the `nil` defaults the synthesised initialiser had given them, which
+is what `DeviceLogin` relies on when it writes `DeviceInfo()`.
 
 **The stage 3 recipe in [facetcore-split.md](facetcore-split.md) greps for the wrong string.** It looks for
 
@@ -320,11 +343,15 @@ Roughly in dependency order. Nothing here is started.
    - ~~The target, and the files into it.~~ Done. 86 files in `FacetCore`, 35 in `FacetApp`,
      `FacetCore` compiling with 0 errors and no AppKit, the DDL and `google-client.json` moved to its
      resources.
-   - **Stage 3, the access-level loop, has not been started**, and it is the decision this is stopped
-     at. 94 types, an unknown number of members, and `FacetApp` does not build until it is finished.
-     **The `#if canImport(AppKit)` fallback is still available and costs no access changes at all** --
-     what is needed downstream is that the portable half compiles without AppKit, which two targets
-     are one way of getting and not the only one.
+   - ~~Stage 3, the access-level loop.~~ Done 2026-09-07. **589 `package` declarations**, 152 types and
+     437 members, every one of them named by the compiler.
+   - ~~Stage 5, the test target.~~ Done. `@testable import FacetCore` beside `FacetApp` in 100 files,
+     one target still. `ActivityIconTests` is the exception and says why in a comment: both targets
+     generate a `Bundle.module`, so importing both makes every use of it ambiguous.
+   - **What is left is the scripted run**, which `Sources/` moving makes necessary regardless and which
+     `7ade2c7` had already made necessary. It needs a cube and a person.
+
+   The `#if canImport(AppKit)` fallback was not needed and is now moot.
 3. **Platform-aware data directory.** **Much smaller than this item used to claim** (re-measured on the
    Mac, 2026-09-07). The path is a real literal in **one** source file, `DebugTraceRules.swift:24`, one
    test assertion, `DebugTraceRulesTests.swift:53`, and **the seeded `debug` row of
