@@ -1,6 +1,6 @@
 # The Linux port
 
-[← Back to README](../README.md) · [BlueZ notes →](linux-bluez-port-notes.md)
+[← Back to README](../README.md) · [BlueZ notes →](linux-bluez-port-notes.md) · [FacetCore split →](facetcore-split.md)
 
 **The living status of running Facet on Linux.** What has been established, what is left to do, and what
 is still an open question. Every claim here is either marked as measured -- with the date and the machine
@@ -225,7 +225,8 @@ Roughly in dependency order. Nothing here is started.
    **Answered 2026-09-06: swift-testing.** What is left is doing it to the other 59 files.
 2. **Separate the platform half from the portable half.** Two routes, and the choice is open: wrap the
    41 platform files in `#if canImport(AppKit)`, which is a no-op on macOS and can be done from Linux;
-   or a real `FacetCore` target, which is cleaner and needs ~500 access-level edits made at a Mac. Includes moving `AppSettingsPane.Change` out of
+   or a real `FacetCore` target, which is cleaner and needs ~500 access-level edits made at a Mac --
+   written up stage by stage in [facetcore-split.md](facetcore-split.md). Includes moving `AppSettingsPane.Change` out of
    the pane and giving the six `NSColor` files a colour type of their own.
 3. **Platform-aware data directory.** `~/Library/Application Support/Facet` is a literal in four source
    files -- `DebugTraceRules.swift:24`, `DatabaseBootstrap`, `InstanceLock`, `DeveloperConfigFile` -- in
