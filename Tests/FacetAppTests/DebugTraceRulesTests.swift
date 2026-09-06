@@ -47,11 +47,23 @@ final class DebugTraceRulesTests: XCTestCase {
         XCTAssertEqual(DebugTraceRules.stored(for: url), stored)
     }
 
-    func testTheDefaultsAreWhatTheSeedGives() {
-        // `database/011_setting.sql` seeds `{"enabled":false,"directory":"~/Library/Application Support/Facet"}`, and
-        // these are what a database missing that row falls back to. The two must not drift.
+    func testTheDefaultsAreWhatTheSeedGives() throws {
+        // `database/011_setting.sql` seeds `{"enabled":false,"directory":""}`, and these are what a database
+        // missing that row falls back to. The two must not drift.
         XCTAssertFalse(DebugTraceRules.defaultEnabled)
-        XCTAssertEqual(DebugTraceRules.defaultDirectory, "~/Library/Application Support/Facet")
+
+        // **Not asserted against a literal path, because the seed no longer carries one.** The folder differs by
+        // platform and one DDL serves both, so what has to hold is that the empty the seed stores and the default
+        // this file computes name the same folder as each other.
+        let fromEmpty = DatabaseBootstrap.debugDatabaseURL(in: DebugTraceRules.directoryURL(from: ""))
+        let fromDefault = try XCTUnwrap(DebugTraceRules.directoryURL(from: DebugTraceRules.defaultDirectory))
+        XCTAssertEqual(fromEmpty.path, DatabaseBootstrap.debugDatabaseURL(in: fromDefault).path)
+
+        // And that it is the platform's own application support folder rather than anywhere this file chose.
+        let base = try XCTUnwrap(
+            FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        )
+        XCTAssertEqual(fromDefault.path, base.appendingPathComponent("Facet", isDirectory: true).path)
     }
 
     func testTheSeededFolderIsTheOneTheAppAlreadyUses() throws {

@@ -6,6 +6,11 @@ import Foundation
 /// one machine's home directory, and a database is copied between machines and rebuilt from the DDL by the test
 /// suite, so the expansion belongs at the read rather than at the write.
 ///
+/// **And the seeded default is stored as nothing at all**, because the folder it means is different on each
+/// platform and the DDL is shared. Empty resolves to `defaultDirectory` here and to
+/// `DatabaseBootstrap.debugDatabaseURL(in: nil)` at the file, both of which ask `FileManager` rather than naming
+/// a path. See `defaultDirectory`.
+///
 /// **What the trace is called is not here**, and is not a setting either: `DatabaseBootstrap.debugDatabaseURL(in:)`
 /// names the file, so the folder is the only part anybody chooses.
 package enum DebugTraceRules {
@@ -19,9 +24,20 @@ package enum DebugTraceRules {
     /// quiet until asked.
     package static let defaultEnabled = false
 
-    /// The seeded `directory`: the folder the app already keeps its databases in, so a database that never had this
-    /// row and one seeded today put the trace in the same place.
-    package static let defaultDirectory = "~/Library/Application Support/Facet"
+    /// The folder the trace goes in when the setting names none: the one the app already keeps its databases in, so
+    /// a database that never had this row and one seeded today put the trace in the same place.
+    ///
+    /// **Asked rather than written down, because the answer is not the same on both platforms.**
+    /// `~/Library/Application Support/Facet` on macOS and `~/.local/share/Facet` where the XDG layout applies, and
+    /// `FileManager` is what knows which. That is also why `database/011_setting.sql` seeds this as an empty string
+    /// rather than a path: one DDL serves both platforms, so it cannot carry either answer.
+    ///
+    /// In the stored form, with a leading `~`, so it round-trips through `stored(for:)` and can be shown as-is.
+    package static var defaultDirectory: String {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        return stored(for: base.appendingPathComponent("Facet", isDirectory: true))
+    }
 
     /// The stored path as a folder on disk, with `~` expanded, or `nil` when the setting names nothing.
     ///
