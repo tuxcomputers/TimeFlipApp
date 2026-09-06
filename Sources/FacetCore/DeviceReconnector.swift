@@ -189,7 +189,7 @@ package final class DeviceReconnector {
     ///
     /// **Reached only by a launch that has never reached its cube, on the first failed attempt.** How long that
     /// attempt took is not decided here and deliberately not timed here either: reaching a cube at launch is a scan,
-    /// and `BluetoothRadio.timeoutSeconds` already ends a fruitless one at ten seconds, reporting `.unreachable`. A
+    /// and `BluetoothRadio.timeoutSeconds` already ends a fruitless one at fifteen seconds, reporting `.unreachable`. A
     /// second clock in this file would be a second answer to "how long do we look for", free to disagree with the one
     /// the radio is actually keeping.
     ///

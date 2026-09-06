@@ -165,21 +165,25 @@ final class BluetoothRadio: NSObject, CubeRadio {
 
     /// How long a scan runs before stopping itself.
     ///
-    /// **A cube that is awake answers in about a second, and that is measured rather than assumed.** Across eight
-    /// scans that found one (`logs/testlog.sqlite`, runs 29 and 33): fastest 0.33s, median 0.94s, slowest 2.12s. Ten
-    /// seconds is roughly five times the worst of those, which leaves room for a slow one without leaving somebody
-    /// watching a list that was never going to grow.
+    /// **A cube that is awake answers in about a second, and that is measured rather than assumed.** Across **1,581
+    /// scans that found one** (`logs/testlog.sqlite`, every run it holds): fastest 0.05s, median 1.55s, slowest
+    /// **9.33s**. Fifteen seconds is roughly ten times the median.
+    ///
+    /// **The slowest of those is why it is not ten.** 9.33s inside a ten second window is 0.67s of headroom, and a
+    /// scan a little slower than the slowest ever recorded would have been thrown away half a second before the cube
+    /// answered. Nothing in the log has ever needed more than ten -- not one of the 1,581 -- so this buys the tail
+    /// rather than the common case.
     ///
     /// **Waiting longer does not find a sleeping cube, it only looks like it might.** A cube that is not awake does
-    /// not advertise at all, so it is not slow to answer -- it never answers, and no timeout reaches it. Two of the
-    /// ten scans recorded found nothing for exactly that reason, and each was followed seconds later by one that
-    /// found the cube immediately, because somebody had flipped it in between. Thirty seconds spent proving that is
+    /// not advertise at all, so it is not slow to answer -- it never answers, and no timeout reaches it. 143 of the
+    /// recorded scans found nothing for exactly that reason, and one is followed seconds later by a scan that found
+    /// the cube immediately, because somebody had flipped it in between. Thirty seconds spent proving that is
     /// twenty-eight seconds of somebody wondering whether the app is broken.
     ///
     /// What the bound is really for is the other end: a scan with no timeout runs until somebody presses the button
     /// again, and the radio then stays listening for the rest of the session with nothing on screen saying so. It
     /// also lets the status line say "no devices found" and mean it, instead of "looking" for ever.
-    static let timeoutSeconds: TimeInterval = 10
+    static let timeoutSeconds: TimeInterval = 15
 
     /// How long a connect is given before it is called unreachable.
     ///

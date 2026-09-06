@@ -102,16 +102,16 @@ fi
 check_contains "and the button offers to stop it" "$(tree | grep -m1 'id=device-scan ' || true)" "Stop Scan"
 
 # **The wait is the test.** Nothing is pressed here: what is being checked is that an advertisement arrives and
-# survives the filter. Bounded just past the scan's own window (`BluetoothRadio.timeoutSeconds`, ten seconds), because
+# survives the filter. Bounded just past the scan's own window (`BluetoothRadio.timeoutSeconds`, fifteen seconds), because
 # waiting longer than the radio listens is waiting for something nothing is looking for any more. That is still six
-# times the slowest advertisement measured (2.12s across eight scans), so a timeout here is a real absence -- a cube
+# times the slowest advertisement measured (9.33s across 1,581 scans), so a timeout here is a real absence -- a cube
 # that is asleep, or not in the room -- rather than bad luck.
 step "listening for advertisements..."
-found=$(wait_for "$since" "%: peripheral %" 13)
+found=$(wait_for "$since" "%: peripheral %" 18)
 if [ -n "$found" ]; then
     pass "a device answered the scan"
 else
-    fail "the scan ran its full 10 seconds and no TimeFlip answered it -- is the cube awake?"
+    fail "the scan ran its full 15 seconds and no TimeFlip answered it -- is the cube awake?"
     press device-scan
     finish
     exit 1
@@ -181,14 +181,14 @@ expect_log "and the radio was actually told" "$since" "%Scan stopped%"
 
 # **The timeout.** The only way to prove it is to wait it out: a cube that is awake answers in about a second, so
 # nothing shorter than the bound itself distinguishes a scan that ends from one that merely has not been stopped yet.
-# The bound is `BluetoothRadio.timeoutSeconds`, ten seconds, plus a few for the write behind it -- it used to be thirty,
+# The bound is `BluetoothRadio.timeoutSeconds`, fifteen seconds, plus a few for the write behind it -- it used to be thirty,
 # and waiting that out was the slowest thing in this suite for no gain that a measurement could find.
 select_tab Device
 since=$(mark)
 press device-scan
 sleep 1
-step "waiting out the 10 second scan timeout..."
-if wait_for "$since" "%Scan timed out%" 15 >/dev/null; then
+step "waiting out the 15 second scan timeout..."
+if wait_for "$since" "%Scan timed out%" 20 >/dev/null; then
     pass "a scan nobody stops ends by itself"
 else
     fail "the scan was still running 20 seconds in, so the timeout did not fire"
