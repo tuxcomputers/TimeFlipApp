@@ -15,12 +15,52 @@ worse than no line at all, because the next person cannot tell it from a measure
 to know* about the other. You fill in your own facts and you ask your own questions; the other machine
 answers them by adding to its own facts section. Nobody writes in the other machine's half.
 
-| Section | Owned by | Filled by |
-|---|---|---|
-| System information about the Mac | the Mac | the Mac |
-| Information required about the Linux system | the Mac asking | the Linux box answering, into its own section |
-| System information about the Linux | the Linux box | the Linux box |
-| Information required about the Mac | the Linux box asking | the Mac answering, into its own section |
+| Section | Kind | Owned by | Filled by |
+|---|---|---|---|
+| System information about the Mac | facts, permanent | the Mac | the Mac |
+| Information required about the Linux system | **a queue, temporary** | the Mac asking | the Linux box answering, into its own facts section |
+| System information about the Linux | facts, permanent | the Linux box | the Linux box |
+| Information required about the Mac | **a queue, temporary** | the Linux box asking | the Mac answering, into its own facts section |
+
+### An answered question is deleted, not ticked off
+
+**The two *Information required* sections are the conversation between the machines, not a record of
+it.** They are the only part of this file meant to shrink.
+
+1. **Answering means writing the fact into your own *System information* section**, dated, with the
+   command that produced it. That is where the answer lives, permanently, next to everything else true
+   of your machine.
+2. **The machine that answers is the machine that deletes the question**, in the same change that adds
+   the fact. Not struck through, not marked done, not moved to an "answered" list: removed. One edit
+   does both halves, so the question and its answer can never both be outstanding.
+3. **The machine that asked never deletes its own question.** Doing so would be withdrawing it, which is
+   a different act and worth saying out loud in the commit message if that is really what is meant.
+4. **A blank *Information required* section is the goal, and it means something**: that machine has
+   everything it needs from the other. Both blank is the finished state of this file.
+5. **A new need is added as a single item**, on its own, whenever it comes up. Most of the time that is
+   what these sections will hold -- one question, briefly, until it is answered and goes again.
+
+Concretely, the round trip in each direction:
+
+| The Linux box | The Mac |
+|---|---|
+| answers a question in *Information required about the Linux system*, writes the fact into *System information about the Linux*, and **deletes that question** | -- |
+| adds a new item to *Information required about the Mac* | -- |
+| -- | answers it, writes the fact into *System information about the Mac*, and **deletes that request** |
+| -- | adds a new item to *Information required about the Linux system* |
+
+So each machine only ever deletes from the section addressed **to** it, and only ever adds to the
+section addressed **to the other**.
+
+**This is deliberately not the convention [linux-port.md](linux-port.md) uses.** That file strikes an
+answered item through and dates it, because it is a record of what was learned and when. This file is
+not a record; it is a working channel, and a queue that keeps its answered items is a queue nobody reads
+to the bottom of. The permanence lives in the facts sections.
+
+**The numbers are labels, not positions.** Removing a question leaves a gap, and the gap is correct: it
+means that one was answered. Never renumber the rest and never reuse a number, so that a commit message
+or a note saying "answered 7" still points at the same thing years later. A new question takes the next
+number never yet used.
 
 **Keep it current in the same change that changes the answer**, and re-date the line. A toolchain
 upgrade or a distro upgrade makes half of this stale at once, so say when it was taken.
@@ -209,9 +249,12 @@ The Swift version on the `macos-15` runner has **not** been measured and is not 
 
 ## Information required about the Linux system
 
-**Questions from the Mac side.** Each one has the reason it matters and a command that answers it, so
-the answer is a measurement rather than a recollection. Please answer them into *System information
-about the Linux* below rather than editing this list, and say when each was taken.
+**Questions from the Mac side, for the Linux box to answer and then delete.** Each one has the reason it
+matters and a command that answers it, so the answer is a measurement rather than a recollection.
+
+**Answering one means: write the fact into *System information about the Linux* below, dated, and remove
+the question from here in the same change.** Do not answer inline and do not tick it off in place. When
+this heading has nothing under it, the Mac has everything it needs.
 
 Where an answer is already in [linux-port.md](linux-port.md), it is fine to say so and cite it. These
 are asked again because that file records a spike from a scratch directory, and some of it may have
@@ -375,17 +418,24 @@ because the whole point of the split was to make that question askable.
 
 > **To be filled in by the Linux machine.** Mirror the shape of the Mac section above -- the machine,
 > operating system, toolchain, command-line tools, filesystem, where things live, Bluetooth and the
-> cube, display and automation, the suites -- and answer the twelve questions above. Date every line
-> and say what command produced it. Delete this note when there is something here.
+> cube, display and automation, the suites. Date every line and say what command produced it.
+>
+> This is where the answers to the twelve questions land, one at a time, **each one deleted from
+> *Information required about the Linux system* as it is written down here.** Delete this note when
+> there is something here.
 
 ---
 
 ## Information required about the Mac
 
-> **To be filled in by the Linux machine.** Whatever the Linux side needs to know about this Mac and
-> cannot see for itself: toolchain details, paths, how the cube is paired here, what a macOS-only
-> framework actually does in a given file, how something is drawn, what a scripted check observes.
+> **Asked by the Linux machine, answered and then deleted by the Mac.** Whatever the Linux side needs to
+> know about this Mac and cannot see for itself: toolchain details, paths, how the cube is paired here,
+> what a macOS-only framework actually does in a given file, how something is drawn, what a scripted
+> check observes.
 >
-> Ask with a reason and, where it makes sense, the command that would answer it. The Mac answers into
-> *System information about the Mac* above rather than replying inline here, so the facts stay in one
-> place per machine. Delete this note when there is something here.
+> Ask with a reason and, where it makes sense, the command that would answer it. Add items here one at a
+> time as they come up; numbers start at 1 and are never reused.
+>
+> **The Mac answers by writing the fact into *System information about the Mac* above and removing the
+> request from here in the same change**, never by replying inline. Delete this note when there is
+> something here.
