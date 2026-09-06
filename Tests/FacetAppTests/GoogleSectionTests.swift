@@ -58,7 +58,7 @@ final class GoogleSectionTests: XCTestCase {
         )
         XCTAssertEqual(button.title, "Create calendar")
 
-        var requested: [AppSettingsPane.Change] = []
+        var requested: [AppSettingsChange] = []
         pane.onChange = { requested.append($0) }
         button.performClick(nil)
         XCTAssertEqual(requested, [.googleCalendarCreateRequested])
@@ -69,7 +69,7 @@ final class GoogleSectionTests: XCTestCase {
             name: "Harry", email: "harry@tux.com.au",
             calendar: GoogleCalendarRules.calendar(id: "abc@group.calendar.google.com", name: "Facet")
         )
-        var requested: [AppSettingsPane.Change] = []
+        var requested: [AppSettingsChange] = []
         pane.onChange = { requested.append($0) }
 
         // The same cell a category name uses, so the name is read from the cell rather than from a live field.
@@ -90,7 +90,7 @@ final class GoogleSectionTests: XCTestCase {
             name: "Harry", email: "harry@tux.com.au",
             calendar: GoogleCalendarRules.calendar(id: "abc", name: "Facet")
         )
-        var requested: [AppSettingsPane.Change] = []
+        var requested: [AppSettingsChange] = []
         pane.onChange = { requested.append($0) }
 
         let cell = try XCTUnwrap(pane.calendarCell)
@@ -253,7 +253,7 @@ final class GoogleSectionTests: XCTestCase {
         // The button used to be decided from the identity alone, so this state offered Disconnect: a control that
         // said one thing and did another.
         let pane = self.pane(name: "Harry", email: "harry@tux.com.au", credential: .missing)
-        var requested: [AppSettingsPane.Change] = []
+        var requested: [AppSettingsChange] = []
         pane.onChange = { requested.append($0) }
 
         try XCTUnwrap(view(AppSettingsPane.Identifier.googleButton, in: pane) as? NSButton).performClick(nil)
@@ -340,7 +340,7 @@ final class GoogleSectionTests: XCTestCase {
 
     func testPressingSignInAsksRatherThanActs() throws {
         let pane = self.pane()
-        var requested: [AppSettingsPane.Change] = []
+        var requested: [AppSettingsChange] = []
         pane.onChange = { requested.append($0) }
 
         try XCTUnwrap(view(AppSettingsPane.Identifier.googleButton, in: pane) as? NSButton).performClick(nil)
@@ -406,7 +406,7 @@ final class GoogleSectionTests: XCTestCase {
         // Every row on this tab is a request: the window writes it, reads it back, and only then does the pane adopt
         // it. The section must not put itself into the disconnected state on the press.
         let pane = self.pane(name: "Harry", email: "harry@tux.com.au")
-        var requested: [AppSettingsPane.Change] = []
+        var requested: [AppSettingsChange] = []
         pane.onChange = { requested.append($0) }
 
         try XCTUnwrap(view(AppSettingsPane.Identifier.googleButton, in: pane) as? NSButton).performClick(nil)

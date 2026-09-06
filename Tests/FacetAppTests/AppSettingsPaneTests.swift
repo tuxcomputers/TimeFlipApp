@@ -186,7 +186,7 @@ final class AppSettingsPaneTests: XCTestCase {
         // An OS that is lenient about a rule hides every place the rule was broken, so "it passes here" says nothing.
         let window = OffscreenWindow.host(pane)
         defer { window.close() }
-        var reported: [AppSettingsPane.Change] = []
+        var reported: [AppSettingsChange] = []
         pane.onChange = { reported.append($0) }
         pane.show(stored)
         pane.layoutSubtreeIfNeeded()
@@ -202,7 +202,7 @@ final class AppSettingsPaneTests: XCTestCase {
 
     func testAChangedNumberIsReportedInTheUnitTheRowShows() throws {
         let pane = AppSettingsPane()
-        var reported: [AppSettingsPane.Change] = []
+        var reported: [AppSettingsChange] = []
         pane.onChange = { reported.append($0) }
         pane.show(stored)
 
@@ -564,7 +564,7 @@ final class AppSettingsPaneTests: XCTestCase {
         let pane = AppSettingsPane()
         let window = OffscreenWindow.host(pane)
         defer { window.close() }
-        var reported: [AppSettingsPane.Change] = []
+        var reported: [AppSettingsChange] = []
         pane.onChange = { reported.append($0) }
         var values = stored
         values.hasDebugTrace = true
@@ -626,7 +626,7 @@ final class AppSettingsPaneTests: XCTestCase {
         let pane = AppSettingsPane()
         let window = OffscreenWindow.host(pane)
         defer { window.close() }
-        var reported: [AppSettingsPane.Change] = []
+        var reported: [AppSettingsChange] = []
         pane.onChange = { reported.append($0) }
         pane.show(stored)
         pane.layoutSubtreeIfNeeded()
@@ -643,7 +643,7 @@ final class AppSettingsPaneTests: XCTestCase {
         let pane = AppSettingsPane()
         let window = OffscreenWindow.host(pane)
         defer { window.close() }
-        var reported: [AppSettingsPane.Change] = []
+        var reported: [AppSettingsChange] = []
         pane.onChange = { reported.append($0) }
         pane.show(stored)
         pane.layoutSubtreeIfNeeded()

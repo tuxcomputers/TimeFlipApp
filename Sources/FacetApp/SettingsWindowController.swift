@@ -1504,7 +1504,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// window is open, this write wins: the window read the setting when it opened and has been the answer since,
     /// and merging a change nobody in this window made would mean a control that quietly does something other than
     /// what it says.
-    private func store(_ change: AppSettingsPane.Change, from pane: AppSettingsPane) {
+    private func store(_ change: AppSettingsChange, from pane: AppSettingsPane) {
         guard let settings else { return }
         if case .googleDisconnected = change {
             disconnectGoogle(from: pane, using: settings)

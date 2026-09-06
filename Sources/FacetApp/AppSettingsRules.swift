@@ -101,7 +101,7 @@ enum AppSettingsRules {
     /// write the right number into the wrong column.
     /// `nil` for a change that is not one field being set to one value. Signing out empties two fields at once, so
     /// it has no single destination and is written by its own path rather than squeezed through this one.
-    static func destination(for change: AppSettingsPane.Change) -> (setting: String, field: String, value: Stored)? {
+    static func destination(for change: AppSettingsChange) -> (setting: String, field: String, value: Stored)? {
         switch change {
         case let .showsSeconds(on):
             return ("display_seconds", "enabled", .flag(on))
@@ -138,7 +138,7 @@ enum AppSettingsRules {
 
     /// What a row is called when something has to be said about it out loud, which is the label beside it rather than
     /// the column it writes: nobody reading an alert knows what `low_battery_level` is.
-    static func title(for change: AppSettingsPane.Change) -> String {
+    static func title(for change: AppSettingsChange) -> String {
         switch change {
         case .showsSeconds: return "Show seconds"
         case .dailyResetHour12: return "Daily reset at"

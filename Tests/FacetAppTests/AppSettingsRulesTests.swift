@@ -100,7 +100,7 @@ final class AppSettingsRulesTests: XCTestCase {
         // One place decides this. The row knows what was typed and the table knows nothing about rows, so a mapping
         // each end half-knew is how a control comes to write the right number into the wrong column.
         let destinations = [
-            AppSettingsPane.Change.showsSeconds(false),
+            AppSettingsChange.showsSeconds(false),
             .dailyResetHour12(2),
             .fetchIntervalMinutes(9),
             .blipSeconds(3),
