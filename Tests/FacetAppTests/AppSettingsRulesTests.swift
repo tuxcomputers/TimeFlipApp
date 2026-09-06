@@ -1,4 +1,5 @@
 @testable import FacetApp
+@testable import FacetCore
 import XCTest
 
 /// Covers `AppSettingsRules`: the bounds each App tab row is held to, and the two conversions between what the

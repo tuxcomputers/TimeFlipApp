@@ -1,4 +1,5 @@
 @testable import FacetApp
+@testable import FacetCore
 import XCTest
 
 /// Stopping the cube on a face with no category, and starting it again when the face is given one.

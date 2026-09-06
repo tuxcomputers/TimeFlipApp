@@ -1,3 +1,6 @@
+// FacetCore is deliberately not imported here. Both targets generate a `Bundle.module`
+// accessor, so importing both makes every `Bundle.module` in this file ambiguous, and the
+// icons this file reads are FacetApp resources. Nothing here needs a core type.
 @testable import FacetApp
 import AppKit
 import XCTest

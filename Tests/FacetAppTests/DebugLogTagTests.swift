@@ -1,4 +1,5 @@
 @testable import FacetApp
+@testable import FacetCore
 import XCTest
 
 /// Covers `DebugLog.Tag`'s padding, which is the one thing about it that can break by adding a case.

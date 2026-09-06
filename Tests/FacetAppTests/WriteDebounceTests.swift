@@ -1,4 +1,5 @@
 @testable import FacetApp
+@testable import FacetCore
 import XCTest
 
 /// Covers holding a write back until the value stops moving.

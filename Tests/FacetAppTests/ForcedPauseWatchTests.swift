@@ -1,4 +1,5 @@
 @testable import FacetApp
+@testable import FacetCore
 import XCTest
 
 /// Putting `ForcedPause`'s decision on the wire: what is sent, when it is claimed, and the window in which the tables

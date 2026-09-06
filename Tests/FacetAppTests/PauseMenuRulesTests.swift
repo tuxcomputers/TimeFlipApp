@@ -1,4 +1,5 @@
 @testable import FacetApp
+@testable import FacetCore
 import XCTest
 
 /// The dropdown's Pause item: what it acts on, what it is called, and whether it can be chosen at all.

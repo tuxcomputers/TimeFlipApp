@@ -1,4 +1,5 @@
 @testable import FacetApp
+@testable import FacetCore
 import XCTest
 
 /// Covers `CategoryRenameRules`: what a typed name means, and what the dialogue about it offers.

@@ -1,4 +1,5 @@
 @testable import FacetApp
+@testable import FacetCore
 import XCTest
 
 /// Covers `SettingsTab`: the tabs that exist, their labels, and the identifiers a script addresses

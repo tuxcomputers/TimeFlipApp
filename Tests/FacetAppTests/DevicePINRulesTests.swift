@@ -1,4 +1,5 @@
 @testable import FacetApp
+@testable import FacetCore
 import XCTest
 
 /// Covers `DevicePINRules`: when a cube's PIN is changed, what it is changed to, where that is written and how the

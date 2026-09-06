@@ -1,4 +1,5 @@
 @testable import FacetApp
+@testable import FacetCore
 import XCTest
 
 /// Covers `SettingStore`: reading a setting's fields, writing one of them, and -- the important one -- that it

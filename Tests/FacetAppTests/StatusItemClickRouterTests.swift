@@ -1,4 +1,5 @@
 @testable import FacetApp
+@testable import FacetCore
 import XCTest
 
 /// Covers `StatusItemClickRouter`: which half of the status item means what, and when the right half means

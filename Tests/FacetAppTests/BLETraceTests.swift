@@ -1,4 +1,5 @@
 @testable import FacetApp
+@testable import FacetCore
 import CoreBluetooth
 import Foundation
 import XCTest

@@ -1,4 +1,5 @@
 @testable import FacetApp
+@testable import FacetCore
 import XCTest
 
 /// Covers `StepperHoldRules`: the tick sequence a held arrow runs through.

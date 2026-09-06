@@ -1,4 +1,5 @@
 @testable import FacetApp
+@testable import FacetCore
 import XCTest
 
 /// Covers `ManualTimerRules` and `DurationFormat`: what the timing control shows, and how a duration reads.

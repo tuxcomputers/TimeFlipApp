@@ -1,4 +1,5 @@
 @testable import FacetApp
+@testable import FacetCore
 import XCTest
 
 /// Covers what a battery reading becomes on screen, and when it becomes a warning.

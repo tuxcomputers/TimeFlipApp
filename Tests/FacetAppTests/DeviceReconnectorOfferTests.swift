@@ -1,4 +1,5 @@
 @testable import FacetApp
+@testable import FacetCore
 import XCTest
 
 /// Covers the branch a paired launch takes when it cannot find its cube: whether it asks, and what each answer does.

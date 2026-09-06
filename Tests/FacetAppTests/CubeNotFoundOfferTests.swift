@@ -1,4 +1,5 @@
 @testable import FacetApp
+@testable import FacetCore
 import XCTest
 
 /// Covers when a failed attempt on the paired cube is put to the user, and when it is retried quietly.

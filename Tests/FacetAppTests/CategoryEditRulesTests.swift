@@ -1,4 +1,5 @@
 @testable import FacetApp
+@testable import FacetCore
 import XCTest
 
 /// Covers `CategoryEditRules`: the bounds on a daily limit, what a click on a picker stores, and when a category

@@ -1,4 +1,5 @@
 @testable import FacetApp
+@testable import FacetCore
 import XCTest
 
 /// Covers `FaceStore`: which category a face holds, and what it takes to change it.

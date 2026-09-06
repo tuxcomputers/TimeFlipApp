@@ -1,4 +1,5 @@
 @testable import FacetApp
+@testable import FacetCore
 import XCTest
 
 /// Covers `CategoryCreateRules`: what a typed name should do about the categories already holding it.

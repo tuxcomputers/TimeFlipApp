@@ -1,4 +1,5 @@
 @testable import FacetApp
+@testable import FacetCore
 import XCTest
 
 /// The hard `daily_limit`: the pause it sends when a category spends its budget, the refusal to send the unpause

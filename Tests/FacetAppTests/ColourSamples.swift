@@ -1,4 +1,5 @@
 @testable import FacetApp
+@testable import FacetCore
 
 /// Colours to give a test category.
 ///

@@ -1,4 +1,5 @@
 @testable import FacetApp
+@testable import FacetCore
 import XCTest
 
 /// Covers `DeviceNameRules`: what a typed device name does, when the row will open at all, and what the refusals say.

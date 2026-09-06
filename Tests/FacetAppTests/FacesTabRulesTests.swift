@@ -1,4 +1,5 @@
 @testable import FacetApp
+@testable import FacetCore
 import XCTest
 
 /// What a click on a category row does, and therefore whether the row is drawn live.
