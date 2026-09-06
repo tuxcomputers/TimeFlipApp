@@ -4,7 +4,7 @@ Behaviour measured on real hardware that the vendor spec does not describe, and 
 
 This is the third source in the hierarchy set out in the root `CLAUDE.md`: `docs/TimeFlip2 BLE Protocol v4.3.md` is authoritative, `docs/timeflip.md` describes this codebase's driver, and **this file records what the hardware actually does where the spec is silent**. Where this file and the spec disagree, the hardware wins, because these are measurements.
 
-**Device under test.** Manufacturer `DI_LABS`, model `2.0`, hardware `TFv4.1`, firmware `FW_v3.64`, read from the Device Information service. Host macOS, CoreBluetooth. Measured 2026-08-01/02, and findings 4 and 5 on the same cube on 2026-08-17. Finding 7 is older traffic from the same cube, 2026-07-28 to 2026-08-14, recorded by the archived app rather than this one. Those four values are no longer only the archive's: finding 5 is this app reading them itself, and they came back identical.
+**Device under test.** Manufacturer `DI_LABS`, model `2.0`, hardware `TFv4.1`, firmware `FW_v3.64`, read from the Device Information service. Host macOS, CoreBluetooth, **except finding 12 and the Linux notes in finding 8, which were measured from Linux Mint 22.3 on BlueZ 5.72 on 2026-09-06** -- the first measurements here taken through anything other than CoreBluetooth, and the reason they are worth having is that a second stack shows which of these facts were about the cube and which were about the host. Measured 2026-08-01/02, and findings 4 and 5 on the same cube on 2026-08-17. Finding 7 is older traffic from the same cube, 2026-07-28 to 2026-08-14, recorded by the archived app rather than this one. Those four values are no longer only the archive's: finding 5 is this app reading them itself, and they came back identical.
 
 ## The evidence file
 
@@ -19,6 +19,8 @@ Rows 309 to 319 are finding 5, added the same day from a driven run, and copied 
 Rows 340 to 356 and 384 to 399 are finding 6, from the same day: the `0xFF` write and its acknowledgement, the silence that followed it, and then the login two minutes later that proves the wipe took by being accepted on the vendor PIN. The gap between rows 355 and 356 is the finding — nothing was written in it because nothing happened.
 
 Rows 14520 to 14534 and 19557 to 19580 are finding 7, and they are the odd ones out here: they come from the **archived app's own production database**, not from a scripted run of this one, because the charge is the one thing the rebuild had never read at the time the finding was written. Both stretches are unedited runs of consecutive ids. The first is a connect sequence with the battery read inside it; the second is seven minutes in which nothing was asked for and values arrived anyway.
+
+Rows 20001 to 20051 are finding 12 and the Linux paragraphs of finding 8, added on 2026-09-06. **They are the only rows here that no `debug_log` ever held**: they come from `scripts/linux-ble-probe.py` on a Linux host, which prints rather than writes rows, so they were transcribed from its output. The id range is deliberately clear of every other, so a query can exclude them and get only what this app and the archive recorded. They cover two scans filtered on the service UUID that saw nothing, the unfiltered scan that saw the cube at once, the advertisement's own properties, the whole GATT tree, a login on the vendor default PIN, and sixteen face notifications.
 
 ```
 sqlite3 docs/timeflip2-firmware-evidence.sqlite \
@@ -36,6 +38,9 @@ sqlite3 docs/timeflip2-firmware-evidence.sqlite \
 | `login` | reaching a cube and presenting a PIN: each attempt, and what the cube made of it |
 | `battery` | the charge, as the archived app recorded every reading it received |
 | `conn-phase` | how long a step of the archived app's connect sequence took |
+| `advert` | what the advertisement itself carried, read off the BlueZ `Device1` object |
+| `gatt` | the resolved service and characteristic tree, with each characteristic's flags |
+| `probe` | a stage of the Linux reachability probe, and what it made of it |
 | `hist-*` | its history fetches, which are the only other traffic in the quiet window of finding 7 |
 
 Checked in deliberately, at 60 KB. These measurements cost an evening of device time and several wrong conclusions along the way, and a claim about firmware behaviour is worth little without the trace behind it.
@@ -61,7 +66,7 @@ The next connection does report it: `peripheralDidUpdateName(_:)` fires about tw
 
 **Consequence for this app:** a name the app has written and the device has confirmed beats a connect-time read, because the read is the stale one. `AppState.shouldAdoptReportedName` implements that, taking the reported name only on a first pairing.
 
-**Unresolved.** Whether the device applies a rename immediately or defers it cannot be determined from macOS, since the host only re-reads GAP on connect. Answering it needs a second BLE central with no cached record of the device.
+**Unresolved, but no longer unanswerable.** Whether the device applies a rename immediately or defers it cannot be determined from macOS, since the host only re-reads GAP on connect. Answering it needs a second BLE central with no cached record of the device -- and finding 12 is one: a Linux host on BlueZ, which has never held a record of this cube and can be made to forget it on demand with `Adapter1.RemoveDevice`. The experiment is to rename from the Mac and read the GAP name from Linux, and it has not been run yet.
 
 ### Forcing the new name to appear
 
@@ -295,6 +300,23 @@ The archive drew exactly this conclusion and wrote down what the alternative cos
 answered first "so a colleague's cube advertising a moment sooner was enough to lock this user out of their own
 device with a `wrong password` that named nothing" (`ApplicationDelegate.swift`).
 
+### On Linux the address is visible, and it is a random one
+
+BlueZ hands out the device's BLE address, which CoreBluetooth never shows at all. On this cube it is
+`E8:DB:D8:CF:F9:0F`, `AddressType: random` (row 20007). The top two bits of `E8` are `11`, which makes it a *static*
+random address rather than a rotating private one -- so it is per-unit and stable at least for as long as a session.
+
+**It does not overturn this finding, and the rule above stands unchanged.** The BLE specification permits a static
+random address to change on power cycle, and nothing here has tested whether this one survives a battery pull or a
+factory reset. So it is a better hint than the per-host UUID CoreBluetooth offers, and it is still a hint. The cube
+that accepts this app's PIN is this app's cube.
+
+Worth recording from the same rows, because it settles a question a port has to ask early: `Paired: 0` and
+`Bonded: 0` (row 20009), on a cube the probe had just logged into and driven for forty seconds. **The cube needs no
+OS-level pairing or bonding.** Authentication is entirely the app-level PIN written to the password characteristic,
+which is why nothing in this app ever asks the host to pair, and why a port does not have to reproduce a pairing
+agent to get started.
+
 ### A second attempt on the same peripheral must let the first one go
 
 Measured twice, a fortnight apart, by two different codebases against the same cube. The archive, 2026-08-09: "a second attempt that
@@ -417,6 +439,45 @@ stored window keeps its real value throughout, that being what turning the gestu
 and not an off switch -- a knock hard enough is still a knock -- which is why `double_tap_settings` is seeded off
 rather than on: the gesture stops the clock on any knock hard enough, including one through the desk the cube is
 sitting on.
+
+## 12. The advertisement carries no service UUID, and a scan filtered on one finds nothing
+
+**The cube does not put its service UUID in its advertisement**, so a scan filtered on
+`f1196f50-71a4-11e6-bdf4-0800200c9a66` never sees it. BlueZ reports the `Device1` object's `UUIDs` property as
+**empty** (row 20010) on a cube that plainly has the service, since the same connection goes on to resolve it along
+with all eight of its characteristics.
+
+Measured on Linux Mint 22.3, BlueZ 5.72, 2026-09-06, rows 20001 to 20011. Two scans with the filter set saw nothing
+in six seconds and then in twenty; with the filter removed and nothing else changed, the same cube appeared in under
+one second at RSSI -68.
+
+What the advertisement does carry:
+
+| Field | Value |
+|---|---|
+| Local name | `TimeFlip v2.0` |
+| Service UUIDs | none at all |
+| Manufacturer data, company `0xFFFF` | `54 2E 46 6C 69 70 00`, ASCII `T.Flip` |
+| Address type | random, and static rather than rotating (finding 8) |
+
+A 128-bit UUID costs 16 of the 31 bytes an advertisement has, so spending them on a name instead is an ordinary
+decision. What makes it worth a finding is that **it is invisible from CoreBluetooth**, which is why it went
+unrecorded for a year of driving this hardware: `BluetoothRadio` passes `withServices: nil`, that works, and nothing
+ever forces the question of whether the narrower filter would have.
+
+**Consequence for this app, and more so for anything reimplementing it.**
+`BluetoothRadio.scanForPeripherals(withServices: nil, options: nil)` and `DeviceScanRules.vendorName`, matching the
+name as a substring, are not breadth for its own sake and not a stylistic preference: **they are the only thing that
+works.** A port that reaches for a service-UUID scan filter -- the obvious, more precise-looking choice on any BLE
+stack, and the first thing tried here -- gets a twenty-second dead end on a cube sitting on the desk, with no error
+to explain it. That is exactly how this was found.
+
+**The manufacturer data is a second marker, and an untested one.** Company ID `0xFFFF` is the Bluetooth SIG value
+reserved for testing rather than an assigned identifier, so `T.Flip` is not an authoritative vendor stamp and should
+not be treated as one. It has also not been checked against a *renamed* cube, which is the case that would make it
+useful -- finding 1 has the advertised local name staying `TimeFlip v2.0` permanently, so if the manufacturer data is
+equally fixed then a cube renamed away from the vendor default still carries two ways to recognise it. Worth
+measuring before anything relies on it.
 
 ## Raised with the vendor
 
