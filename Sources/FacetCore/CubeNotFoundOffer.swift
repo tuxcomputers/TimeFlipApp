@@ -1,7 +1,7 @@
 import Foundation
 
 /// What somebody picked when told the cube could not be found.
-enum CubeNotFoundAnswer: Equatable {
+package enum CubeNotFoundAnswer: Equatable {
     /// Look again: one more attempt, and the question again if that finds nothing too. There is no limit on how many
     /// times this can be chosen.
     case rescan
@@ -42,7 +42,7 @@ enum CubeNotFoundAnswer: Equatable {
 /// What it deliberately does not model is whether the question is on screen or whether it has been given up on. Both are
 /// about whether an attempt may run at all, which is `DeviceReconnectRules.shouldAttempt`'s question.
 struct CubeNotFoundOffer {
-    enum Decision: Equatable {
+    package enum Decision: Equatable {
         /// Go round again on the usual backoff.
         case keepTrying
         /// Stop, and ask whether to retry or time by hand.

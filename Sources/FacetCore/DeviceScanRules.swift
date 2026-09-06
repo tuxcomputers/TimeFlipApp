@@ -6,21 +6,29 @@ import Foundation
 /// `CBPeripheral` cannot be constructed outside CoreBluetooth, so a scanner that decided things about one directly
 /// could only ever be tested by holding a cube. `BluetoothScanner` turns each callback into one of these and asks
 /// the rules; the rules are the part with the reasoning in it.
-struct ScannedDevice: Equatable, Identifiable {
+package struct ScannedDevice: Equatable, Identifiable {
     /// The peripheral identifier CoreBluetooth assigns. **This Mac's name for the device, not the device's own**:
     /// it is stable on this machine and meaningless on any other, which is why `device_uuid` is described the way
     /// it is in `database/011_setting.sql`.
-    let id: UUID
+    package let id: UUID
 
     /// `CBPeripheral.name`, the GAP Device Name. What a rename changes, and what macOS caches.
-    let peripheralName: String?
+    package let peripheralName: String?
 
     /// The advertisement's local name. **This cube never changes it**, so it still reads `TimeFlip v2.0` on a device
     /// renamed to something else entirely.
-    let advertisedName: String?
+    package let advertisedName: String?
 
     /// Whether the advertisement carried the TimeFlip service UUID. Rarely true on real hardware, hence the names.
-    let advertisesTimeFlipService: Bool
+    package let advertisesTimeFlipService: Bool
+
+    /// Memberwise, spelled out because Swift does not widen a synthesised one with its type.
+    package init(id: UUID, peripheralName: String?, advertisedName: String?, advertisesTimeFlipService: Bool) {
+        self.id = id
+        self.peripheralName = peripheralName
+        self.advertisedName = advertisedName
+        self.advertisesTimeFlipService = advertisesTimeFlipService
+    }
 }
 
 /// Which advertisements the Device tab lists, and what it calls them.
@@ -42,7 +50,7 @@ struct ScannedDevice: Equatable, Identifiable {
 /// right, but they arrive here as a value with both names on it instead of two overloads taking loose strings, and
 /// the label rule moves in beside them, because choosing what to match on and choosing what to display are the same
 /// question asked twice about the same pair of names.
-enum DeviceScanRules {
+package enum DeviceScanRules {
     /// The vendor's own name, matched as a substring.
     ///
     /// Substring rather than equality because the hardware ships as `TimeFlip v2.0` and the family's names all
@@ -58,7 +66,7 @@ enum DeviceScanRules {
     ///   - previouslyKnown: `device_name.previous_name`, the name before that. It is here for the stale GAP read: the
     ///     scan immediately after a rename still sees the old name, which is exactly when somebody is watching for
     ///     the new one.
-    static func isEligible(_ device: ScannedDevice, remembered: String?, previouslyKnown: String?) -> Bool {
+    package static func isEligible(_ device: ScannedDevice, remembered: String?, previouslyKnown: String?) -> Bool {
         if device.advertisesTimeFlipService { return true }
         return [device.peripheralName, device.advertisedName].contains {
             matches($0, remembered: remembered, previouslyKnown: previouslyKnown)
@@ -88,7 +96,7 @@ enum DeviceScanRules {
     /// A device with neither is still listed, under a placeholder: an advertisement with no name at all is exactly
     /// what somebody scanning with **All Devices** ticked is looking at, and dropping it would make the escape hatch
     /// out of the filter narrower than the filter.
-    static func label(for device: ScannedDevice) -> String {
+    package static func label(for device: ScannedDevice) -> String {
         for name in [device.peripheralName, device.advertisedName] {
             if let name, !name.trimmingCharacters(in: .whitespaces).isEmpty { return name }
         }
@@ -110,7 +118,7 @@ enum DeviceScanRules {
     ///
     /// The previous name is behind the current one rather than beside it: both are this app's own writing, and the
     /// one it wrote last is the one the cube should be answering to.
-    static func reachOrder(
+    package static func reachOrder(
         _ devices: [ScannedDevice],
         preferring preferred: UUID?,
         remembered: String?,
@@ -150,7 +158,7 @@ enum DeviceScanRules {
     /// cube the filter cannot see, and it would be useless if the one device being looked for sat at the bottom of a
     /// room's worth of headphones. Sorted by name rather than by arrival so two scans of the same room produce the
     /// same list, and broken by identifier so two devices sharing a name do not swap places between redraws.
-    static func ordered(_ devices: [ScannedDevice], remembered: String?, previouslyKnown: String?) -> [ScannedDevice] {
+    package static func ordered(_ devices: [ScannedDevice], remembered: String?, previouslyKnown: String?) -> [ScannedDevice] {
         devices.sorted { first, second in
             let firstEligible = isEligible(first, remembered: remembered, previouslyKnown: previouslyKnown)
             let secondEligible = isEligible(second, remembered: remembered, previouslyKnown: previouslyKnown)

@@ -26,7 +26,7 @@ import Foundation
 /// neither identifier available is unique to a cube -- so the loop lives in `BluetoothRadio.reach` now, and what
 /// arrives here is its single answer. See `DeviceLoginRules.reconnectCandidates` for which PINs may be presented.
 @MainActor
-final class DeviceReconnector {
+package final class DeviceReconnector {
     private let radio: CubeRadio
     private let settings: SettingStore
     private let debugLog: DebugLog?
@@ -65,7 +65,7 @@ final class DeviceReconnector {
     /// **One-way, and it dies with the process.** Nothing sets it back, so a restart is what looks for the cube
     /// again -- which is what the dialog says. `CubeNotFoundOffer` deliberately does not model it, its own note
     /// saying this is about whether an attempt may run at all.
-    private(set) var hasGivenUpOnCube = false
+    package private(set) var hasGivenUpOnCube = false
 
     /// Whether the question is on screen right now. Nothing may attempt a connection until it is answered.
     private var isAwaitingAnswer = false
@@ -78,7 +78,7 @@ final class DeviceReconnector {
     /// **`nil` means no offer**, and the loop then behaves exactly as it did before there was one -- retrying on the
     /// backoff for ever. That is what a test gets by default, and it is the honest fallback for a build with nowhere
     /// to put a dialog: an app that stopped trying and had no way to say so would simply look broken.
-    var onCubeNotFound: ((String, @escaping (CubeNotFoundAnswer) -> Void) -> Void)?
+    package var onCubeNotFound: ((String, @escaping (CubeNotFoundAnswer) -> Void) -> Void)?
 
     /// Called the moment this launch is told to time by hand, so whatever draws intermittently is redrawn.
     ///
@@ -86,16 +86,16 @@ final class DeviceReconnector {
     /// surface reads `ManualTimerRules.isManualMode` when it next asks -- but two of them only ask on a tick that
     /// does not run in this state. The menu bar repaints while something is being timed and nothing is; the Faces tab
     /// repaints on a flip and there is no cube to flip. So this is a redraw, not a notification of state.
-    var onGaveUpOnCube: (() -> Void)?
+    package var onGaveUpOnCube: (() -> Void)?
 
     /// Called when the answer is to quit. `nil` leaves the launch as it was, which is what a test wants.
     ///
     /// **Injected rather than calling `NSApp` here**, so this type stays testable without AppKit and the app keeps
     /// one way out: `main.swift` wires this to the same terminate the menu bar's Quit uses, so the quit sequence
     /// runs exactly as it does from anywhere else.
-    var onQuitRequested: (() -> Void)?
+    package var onQuitRequested: (() -> Void)?
 
-    init(
+    package init(
         radio: CubeRadio,
         settings: SettingStore,
         debugLog: DebugLog?,
@@ -113,7 +113,7 @@ final class DeviceReconnector {
     ///
     /// **Called at launch, and it is not conditional on anything the caller knows.** Whether this app has a device is a
     /// question for the table, asked here, so a launch does not have to work out whether to bother.
-    func follow() {
+    package func follow() {
         guard settings.flag("paired", field: "paired") == true else {
             debugLog?.record(.pair, "Nothing paired, so there is no cube to follow")
             return
@@ -164,7 +164,7 @@ final class DeviceReconnector {
     /// Device tab is a device this loop is now responsible for, so the count that governs the backoff has to include it.
     /// The alternative is a loop that has to be told which attempts are its own, which is a second copy of a question the
     /// radio already answers.
-    func noteOutcome(_ outcome: DeviceLoginOutcome) {
+    package func noteOutcome(_ outcome: DeviceLoginOutcome) {
         guard outcome != .loggedIn else {
             // **Reset on the way in, not on the way out.** The next drop starts its own retries from two seconds,
             // because a cube that has just been connected to is plainly in the room -- and carrying an old count over
@@ -255,7 +255,7 @@ final class DeviceReconnector {
     ///
     /// **The pairing is untouched**, which is the archive's rule and the row's own description: going out of range does
     /// not change which device this app is paired to. So this is the start of the next attempt rather than an ending.
-    func noteDropped() {
+    package func noteDropped() {
         guard settings.flag("paired", field: "paired") == true else { return }
         debugLog?.record(.pair, "The cube went away; it is still paired here, so it will be looked for again")
         scheduleAttempt()

@@ -10,7 +10,7 @@ import Foundation
 ///
 /// Decisions only, no view and no database. The range itself is nothing the table holds -- it is a question being
 /// asked, not a setting -- so the source-of-truth rule has nothing to say about where it lives.
-enum ReportRangeRules {
+package enum ReportRangeRules {
     /// The upper bound for both calendars: the last instant of today, so today is selectable and every later date is
     /// drawn greyed out.
     ///
@@ -21,7 +21,7 @@ enum ReportRangeRules {
     /// The *end* of today rather than the start of it: a day cell carries whatever time of day the selection holds,
     /// so a bound at today's 00:00 would put today itself out of range for any selection carrying an afternoon time,
     /// greying out the one day most reports want.
-    static func latestSelectableDay(now: Date = Date(), calendar: Calendar = .current) -> Date {
+    package static func latestSelectableDay(now: Date = Date(), calendar: Calendar = .current) -> Date {
         let startOfToday = calendar.startOfDay(for: now)
         let startOfTomorrow = calendar.date(byAdding: .day, value: 1, to: startOfToday)
             ?? startOfToday.addingTimeInterval(24 * 60 * 60)
@@ -30,7 +30,7 @@ enum ReportRangeRules {
 
     /// What the From calendar may offer: anything up to today. Unbounded below, history going back as far as it goes
     /// back.
-    static func allowedStarts(latest: Date) -> ClosedRange<Date> {
+    package static func allowedStarts(latest: Date) -> ClosedRange<Date> {
         Date.distantPast ... latest
     }
 
@@ -43,14 +43,14 @@ enum ReportRangeRules {
     /// Clamped at `latest` as well, and not for a case the screen can produce: a `ClosedRange` whose upper bound sits
     /// under its lower one traps at runtime, so a start that arrived from somewhere else -- a clock that moved
     /// backwards -- would crash the tab rather than draw oddly.
-    static func allowedEnds(start: Date, latest: Date, calendar: Calendar = .current) -> ClosedRange<Date> {
+    package static func allowedEnds(start: Date, latest: Date, calendar: Calendar = .current) -> ClosedRange<Date> {
         min(calendar.startOfDay(for: start), latest) ... latest
     }
 
     /// The span both calendars draw bold, which is **passed to each of them** rather than only to the one owning that
     /// end of it: the point is that the selection reads as one range across the pair instead of as two separately
     /// highlighted days.
-    static func emphasised(start: Date, end: Date?) -> ClosedRange<Date> {
+    package static func emphasised(start: Date, end: Date?) -> ClosedRange<Date> {
         let other = end ?? start
         return min(start, other) ... max(start, other)
     }
@@ -60,13 +60,13 @@ enum ReportRangeRules {
     /// The To calendar's lower bound stops a *new* end landing before the start, but a start moving forward past an
     /// end already chosen would strand it behind, so it is carried along. An end that was never set stays unset:
     /// dropping back to a single day would be the screen changing the question.
-    static func endCarriedForward(start: Date, end: Date?) -> Date? {
+    package static func endCarriedForward(start: Date, end: Date?) -> Date? {
         guard let end else { return nil }
         return max(end, start)
     }
 
     /// The end after a day is picked in the To calendar. Never before the start, for the same reason its bound is.
-    static func endChosen(_ picked: Date, start: Date) -> Date {
+    package static func endChosen(_ picked: Date, start: Date) -> Date {
         max(picked, start)
     }
 
@@ -82,7 +82,7 @@ enum ReportRangeRules {
     ///
     /// Half-open, `start ..< end`: a stretch beginning exactly at the closing boundary belongs to the next day, not
     /// to both.
-    static func bounds(
+    package static func bounds(
         start: Date,
         end: Date?,
         resetHour: Int,
@@ -126,5 +126,5 @@ enum ReportRangeRules {
     ///
     /// The archive's wording, and the archive's point: an unset end is not a missing value to be filled in, it is the
     /// common case said in one click. Pick a day on the left and get that day.
-    static let unsetEndSubtitle = "not set, reporting one day"
+    package static let unsetEndSubtitle = "not set, reporting one day"
 }

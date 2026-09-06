@@ -21,17 +21,17 @@ import Foundation
 /// here and nothing to restore: an open row means running, no open row means paused, and a launch inherits the
 /// answer by asking.
 @MainActor
-final class TimingReadout {
+package final class TimingReadout {
     /// What a view needs in order to draw the session, and nothing else.
-    struct Reading: Equatable {
+    package struct Reading: Equatable {
         /// The category on the face being timed, or `nil` when that face holds none.
-        let category: CategoryRecord?
+        package let category: CategoryRecord?
 
         /// Whether the clock is running, stopped, or there is nothing to run at all.
-        let timingState: TimingState
+        package let timingState: TimingState
 
         /// The category's total for the day so far, in seconds. Zero when there is no category to total.
-        let seconds: TimeInterval
+        package let seconds: TimeInterval
 
         /// Whether that figure is going up as the clock ticks, whoever is doing the measuring.
         ///
@@ -46,14 +46,14 @@ final class TimingReadout {
         /// glyph. A cube that has flipped but whose history has not been fetched yet still names its new face on the
         /// reading, and the newest row for that face may be a stretch that finished an hour ago -- so "is this cube
         /// paused" and "is this total moving" are not the same answer, and only the second one is about the number.
-        let isCounting: Bool
+        package let isCounting: Bool
 
         /// The face the cube is resting on, or `nil` when there is no cube to follow and the app is timingState by hand.
         ///
         /// **What tells the two pictures apart**, and it is on the reading rather than asked separately by each thing
         /// that draws so that they cannot come to disagree -- which they did: the Faces tab drew the cube's face
         /// while the menu bar went on drawing the manual session, because each asked its own question.
-        let cubeFace: Int?
+        package let cubeFace: Int?
 
         /// Whether the cube itself is paused, or `nil` when there is no cube being followed -- and also when there is
         /// one that has not answered the question yet.
@@ -62,7 +62,7 @@ final class TimingReadout {
         /// the app is running no clock at all, so `timingState` is idle; what is or is not running is the cube, and this is
         /// the cube's own answer to it. Keeping them apart is what stops a cube's reading starting the status item's
         /// tick, or reading as a session that could be clicked to pause.
-        let cubePauseState: CubePauseState
+        package let cubePauseState: CubePauseState
 
         /// Whether the cube this reading is about can be reached **right now**.
         ///
@@ -77,7 +77,7 @@ final class TimingReadout {
         /// answered differently by whoever is asking.
         ///
         /// `false` whenever there is no `cubeFace` at all, which costs nothing: there is nothing to reach.
-        let isCubeConnected: Bool
+        package let isCubeConnected: Bool
 
         /// Written out rather than left to the memberwise one so `cubeFace` can default to "no cube": a reading is
         /// about what the app is timingState unless it says otherwise, which is what every reading was before there was a
@@ -105,12 +105,12 @@ final class TimingReadout {
         }
 
         /// Nothing being timed, which is what a view built without a database draws.
-        static let idle = Reading(category: nil, timingState: .idle, seconds: 0)
+        package static let idle = Reading(category: nil, timingState: .idle, seconds: 0)
 
         /// Whether the clock is running on this category right now, which is the one case where picking it again
         /// means nothing: the clock is already where it should be, and starting it over would rotate the face and
         /// close a segment for a click that asked for no change.
-        func isTiming(_ categoryID: Int) -> Bool {
+        package func isTiming(_ categoryID: Int) -> Bool {
             timingState == .running && category?.id == categoryID
         }
     }
@@ -125,7 +125,7 @@ final class TimingReadout {
     ///
     /// A closure rather than a radio, for the reason every dependency here is one: this is read per draw, and what it
     /// asks must be the live answer rather than one taken when the app started.
-    var cubeFace: () -> Int? = { nil }
+    package var cubeFace: () -> Int? = { nil }
 
     /// Whether this launch is timingState by hand, which is the one thing that stops the cube being asked about at all.
     ///
@@ -141,7 +141,7 @@ final class TimingReadout {
     /// a cube hands the clock to it and forgetting one takes it back, both from the next reading on. Nothing has to be
     /// told: a reading is taken by asking, so there is no copy here to go stale -- which is what a mode decided once
     /// at startup was, and why every one of those changes used to need a restart.
-    var isManualMode: () -> Bool = { false }
+    package var isManualMode: () -> Bool = { false }
 
     /// Whether a cube is this app's cube, read from `paired` at the moment a reading is taken.
     ///
@@ -155,7 +155,7 @@ final class TimingReadout {
     /// The archive kept these apart with a `reconnecting` case, "distinct from `.failed`/`.disconnected` so the menu
     /// bar keeps showing the last known activity/icon instead of tearing down to an unpaired look"
     /// (`AppState.swift`). This is that case, asked rather than stored.
-    var isCubePaired: () -> Bool = { false }
+    package var isCubePaired: () -> Bool = { false }
 
     /// What the cube itself last said about being paused, from its answer to `0x10`. `nil` when it has not been asked
     /// or there is no link to ask over.
@@ -170,10 +170,10 @@ final class TimingReadout {
     /// **A locked cube reports itself paused whatever its pause byte says** (`DeviceCommandRules.Status`), so this is
     /// only as true as the question that produced it. That is another reason it yields to the history the moment
     /// there is any.
-    var cubeSaysPaused: () -> Bool? = { nil }
+    package var cubeSaysPaused: () -> Bool? = { nil }
 
 
-    init(categories: CategoryStore, faces: FaceStore, events: DeviceEventRecorder, dayTotal: DayTotal) {
+    package init(categories: CategoryStore, faces: FaceStore, events: DeviceEventRecorder, dayTotal: DayTotal) {
         self.categories = categories
         self.faces = faces
         self.events = events
@@ -181,7 +181,7 @@ final class TimingReadout {
     }
 
     /// The session as it stands at `now`.
-    func read(at now: Date = Date()) -> Reading {
+    package func read(at now: Date = Date()) -> Reading {
         // **A cube wins whenever there is one** -- unless this launch has been told to get on without one. What the
         // app is timingState by hand is otherwise a stand-in for exactly the device that has turned up, so a reading taken
         // while a cube is connected is about the cube. Both questions are asked here rather than resolved by whoever

@@ -6,32 +6,32 @@ import Foundation
 /// name. The calendar lives in the user's own account and they can rename it at Google in two clicks, so a lookup by
 /// name would create a duplicate the first time somebody did. That is the same fault as matching a cube by its
 /// advertised name, which this codebase has already paid for once.
-enum GoogleCalendarRules {
+package enum GoogleCalendarRules {
     /// Both fields live in the `google_account` row, beside the identity, because a calendar selection is meaningless
     /// without an account (`database/011_setting.sql`).
-    static let idField = "calendar_id"
-    static let nameField = "calendar_name"
+    package static let idField = "calendar_id"
+    package static let nameField = "calendar_name"
 
     /// What a new calendar is called unless somebody says otherwise. The name the privacy policy already tells people
     /// to expect.
-    static let defaultName = "Facet"
+    package static let defaultName = "Facet"
 
     static let endpoint = URL(string: "https://www.googleapis.com/calendar/v3/calendars")!
 
     /// What the table holds about the calendar.
-    struct Calendar: Equatable {
-        var id: String?
-        var name: String?
+    package struct Calendar: Equatable {
+        package var id: String?
+        package var name: String?
 
         /// **Decided by the id alone.** A name with no id behind it is a label for something that cannot be written
         /// to, and treating it as a calendar would mean the app believing it has somewhere to sync.
-        var exists: Bool { id != nil }
+        package var exists: Bool { id != nil }
 
-        static let none = Calendar(id: nil, name: nil)
+        package static let none = Calendar(id: nil, name: nil)
     }
 
     /// Reads the calendar out of what the table gave back, treating blank as absent, as the identity fields are.
-    static func calendar(id: String?, name: String?) -> Calendar {
+    package static func calendar(id: String?, name: String?) -> Calendar {
         Calendar(id: trimmedOrNil(id), name: trimmedOrNil(name))
     }
 
@@ -46,7 +46,7 @@ enum GoogleCalendarRules {
     ///
     /// Trimmed, and an empty one falls back to the default rather than being sent: Google would take a calendar called
     /// "" and the user would then have an unnamed row in their calendar list with no obvious way back.
-    static func name(fromTyped typed: String) -> String {
+    package static func name(fromTyped typed: String) -> String {
         trimmedOrNil(typed) ?? defaultName
     }
 
@@ -87,7 +87,7 @@ enum GoogleCalendarRules {
     ///
     /// **The id is required and the name is not.** A reply with no id is not a calendar this app can use, where a
     /// missing summary is only a missing label.
-    static func calendar(fromResponse data: Data) -> Calendar? {
+    package static func calendar(fromResponse data: Data) -> Calendar? {
         guard
             let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
             let id = object["id"] as? String, !id.isEmpty
@@ -102,7 +102,7 @@ enum GoogleCalendarRules {
     /// **Neither case makes a calendar.** Connecting an account is not somebody asking for a calendar in it, so a
     /// sign-in can only ever confirm one that is already recorded. Making one is the Create button's job and nothing
     /// else's, which is what keeps Facet from putting a calendar into an account that never asked for it.
-    enum Settlement: Equatable {
+    package enum Settlement: Equatable {
         /// A calendar is recorded. Fetch it, which proves it is there and brings its current name back in the same
         /// request.
         case check(id: String)
@@ -115,7 +115,7 @@ enum GoogleCalendarRules {
 
     /// Reads the stored id the same way everything else here does, so a blank one is no calendar rather than a
     /// calendar whose id is the empty string.
-    static func settlement(forStoredID storedID: String?) -> Settlement {
+    package static func settlement(forStoredID storedID: String?) -> Settlement {
         guard let id = calendar(id: storedID, name: nil).id else { return .leaveToTheUser }
         return .check(id: id)
     }
@@ -133,7 +133,7 @@ enum GoogleCalendarRules {
     static let missingName = "Not created"
 
     /// Errors worth telling somebody about, in words that say whose problem it is.
-    enum Failure: LocalizedError, Equatable {
+    package enum Failure: LocalizedError, Equatable {
         case notSignedIn
         /// The Keychain refused to hand over the token. **Not the same as not being signed in**: the item may be
         /// there and readable by a differently-signed copy of this app, so telling somebody to sign in again would
@@ -143,7 +143,7 @@ enum GoogleCalendarRules {
         case renameFailed(String)
         case deleteFailed(String)
 
-        var errorDescription: String? {
+        package var errorDescription: String? {
             switch self {
             case .notSignedIn:
                 return "Facet is not connected to a Google account, so it cannot make a calendar."

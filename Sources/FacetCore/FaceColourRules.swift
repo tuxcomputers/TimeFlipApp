@@ -5,13 +5,20 @@ import Foundation
 /// **A face, not a category.** What the cube is told is "facet 3 is this colour", so the category is carried only to
 /// put a name on the log row: nothing downstream branches on it, and a face holding nothing is as complete an answer
 /// as a face holding Meeting.
-struct FaceColour: Equatable {
+package struct FaceColour: Equatable {
     let face: Int
     /// The category on the face, for the row that says what went out. `nil` for a face holding nothing.
     let categoryName: String?
     /// The colour to light it in, or `nil` for **off**. See `FaceColourRules.channels`, which is where `nil` becomes
     /// black and where the reasoning for that lives.
     let colour: Colour?
+
+    /// Memberwise, spelled out because Swift does not widen a synthesised one with its type.
+    package init(face: Int, categoryName: String?, colour: Colour?) {
+        self.face = face
+        self.categoryName = categoryName
+        self.colour = colour
+    }
 }
 
 /// Lighting a face on the cube: the bytes `0x11` carries, and what a category's colour becomes on the way there.

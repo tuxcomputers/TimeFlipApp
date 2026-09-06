@@ -11,10 +11,10 @@ import Foundation
 /// true -- but a lookup at the rate a person flips a cube buys nothing for the risk of a row filed under
 /// the zone the app launched in.
 @MainActor
-final class TimezoneStore {
+package final class TimezoneStore {
     private let connection: DatabaseConnection
 
-    init(connection: DatabaseConnection) {
+    package init(connection: DatabaseConnection) {
         self.connection = connection
     }
 

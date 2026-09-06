@@ -21,7 +21,7 @@ import Security
 /// **Deliberately not unit tested**, as `GoogleTokenStore` is not: CI has no Keychain, and a test that reached the
 /// developer's own would be writing to the machine it runs on. What is tested is every decision around it
 /// (`DevicePINRules`, `DevicePINSource`), and what says the item itself works is a device run.
-enum DevicePINStore {
+package enum DevicePINStore {
     /// Keyed by the bundle identifier so two builds do not fight over one item, and suffixed so the cube's PIN and
     /// the Google refresh token are two items rather than one overwritten by turns.
     private static var service: String {
@@ -62,7 +62,7 @@ enum DevicePINStore {
     /// What the Keychain said when asked for the PIN. **Three answers, not two**, for `GoogleTokenStore.Lookup`'s
     /// reason: "there is no PIN" and "the Keychain would not answer" have opposite remedies, and collapsing them
     /// would have the app rotate a cube that already has a perfectly good PIN it simply could not read.
-    enum Lookup: Equatable {
+    package enum Lookup: Equatable {
         case found(String)
         /// `errSecItemNotFound`: nothing is stored, which is what a cube nobody has paired yet looks like.
         case missing

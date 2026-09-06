@@ -11,9 +11,9 @@ import Foundation
 ///
 /// So the rule is a value here rather than a condition written out at each of the two call sites, and the drawing asks
 /// the same question the click answers.
-enum FacesTabRules {
+package enum FacesTabRules {
     /// What clicking a category row would do at this moment.
-    enum Click: Equatable {
+    package enum Click: Equatable {
         /// Put the category on the face the cube is resting on. No clock starts: the cube is doing the timing.
         case assignToFace(Int)
         /// Start the app's own clock on it, rotating the manual faces. What every click did before there was a cube.
@@ -31,7 +31,7 @@ enum FacesTabRules {
         /// alert -- one is a face somebody deliberately pinned, the other is an app that has not found its cube yet --
         /// and both are states somebody can see the reason for elsewhere on the tab: the lock is red, and the Device
         /// tab says the cube is not connected.
-        var doesAnything: Bool {
+        package var doesAnything: Bool {
             switch self {
             case .assignToFace, .startTiming: return true
             case .faceIsLocked, .waitingForTheDevice: return false
@@ -45,7 +45,7 @@ enum FacesTabRules {
     ///   - isFaceLocked: whether that face keeps what it has. Ignored when there is no face.
     ///   - isManualMode: whether this launch is timing by hand, which is the only thing that lets a click start the
     ///     app's own clock while a device is on record.
-    static func click(
+    package static func click(
         cubeFace: Int?,
         isFaceLocked: Bool,
         isManualMode: Bool,

@@ -5,15 +5,15 @@ import Foundation
 /// Two facts rather than one, because they answer different questions: `isBatteryLow` is whether the warning stands, and
 /// `isBlinkOn` is which half of the flash is currently up. A screen reader wants the first and a colour wants the
 /// second.
-struct LowBatteryAlert: Equatable {
+package struct LowBatteryAlert: Equatable {
     /// Whether the level has dropped to the warning level and not yet climbed back out of it.
-    let isBatteryLow: Bool
+    package let isBatteryLow: Bool
 
     /// Whether the blink is on its coloured phase. Never true unless `isBatteryLow` is.
-    let isBlinkOn: Bool
+    package let isBlinkOn: Bool
 
     /// Nothing to warn about: no cube, or a cube with charge in it.
-    static let none = LowBatteryAlert(isBatteryLow: false, isBlinkOn: false)
+    package static let none = LowBatteryAlert(isBatteryLow: false, isBlinkOn: false)
 }
 
 /// The low-battery warning: whether it stands, and the flash that carries it.
@@ -36,7 +36,7 @@ struct LowBatteryAlert: Equatable {
 /// latch, the timer, the threshold and a mirror of the whole state across `MenuBarController` and `AppState`, so the
 /// Settings window learned about the blink by being told about it twice.
 @MainActor
-final class LowBatteryWatch {
+package final class LowBatteryWatch {
     /// How long each half of the flash lasts.
     ///
     /// **The archive's half-second, copied**, and its note on why is worth keeping: deliberately faster than the
@@ -52,16 +52,16 @@ final class LowBatteryWatch {
 
     /// Called whenever what should be on screen changes: the warning arming or clearing, and every half-second while
     /// it is up. Whoever draws asks for `alert` when it fires.
-    var onChanged: (@MainActor () -> Void)?
+    package var onChanged: (@MainActor () -> Void)?
 
     private var isBatteryLow = false
     private var isBlinkOn = false
     private var blink: Timer?
 
     /// What to draw, now.
-    var alert: LowBatteryAlert { LowBatteryAlert(isBatteryLow: isBatteryLow, isBlinkOn: isBlinkOn) }
+    package var alert: LowBatteryAlert { LowBatteryAlert(isBatteryLow: isBatteryLow, isBlinkOn: isBlinkOn) }
 
-    init(level: @escaping @MainActor () -> Int?, settings: SettingStore?, debugLog: DebugLog?) {
+    package init(level: @escaping @MainActor () -> Int?, settings: SettingStore?, debugLog: DebugLog?) {
         self.level = level
         self.settings = settings
         self.debugLog = debugLog
@@ -74,7 +74,7 @@ final class LowBatteryWatch {
     /// would miss for as long as the cube's charge held steady, which on this hardware is hours.
     ///
     /// - Parameter reason: what prompted this, for the log. Only written when the verdict actually moves.
-    func reconsider(because reason: String) {
+    package func reconsider(because reason: String) {
         let before = alert
         let level = level()
         // Read here, at the point of use. `SettingStore` answers `nil` for a missing or malformed row and refuses to

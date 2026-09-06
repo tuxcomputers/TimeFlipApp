@@ -13,11 +13,11 @@ import Foundation
 /// table: a category's, a face's, a swatch's.
 ///
 /// Components are `0...1` and are not clamped on the way in. `nsColor` is how the UI draws one.
-struct Colour: Equatable {
-    let red: Double
-    let green: Double
-    let blue: Double
-    let alpha: Double
+package struct Colour: Equatable {
+    package let red: Double
+    package let green: Double
+    package let blue: Double
+    package let alpha: Double
 
     init(red: Double, green: Double, blue: Double, alpha: Double = 1) {
         self.red = red

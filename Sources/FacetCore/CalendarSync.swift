@@ -18,7 +18,7 @@ import Foundation
 /// `insertEvent`, nothing there ever called it, and no code there ever wrote `synced_to_google_calendar`. What that
 /// file does contribute is the event's shape, which is massaged into `GoogleEventRules` rather than copied.
 @MainActor
-final class CalendarSync {
+package final class CalendarSync {
     private let connection: DatabaseConnection
     private let settings: SettingStore
     private let debugLog: DebugLog?
@@ -26,7 +26,7 @@ final class CalendarSync {
     /// `GoogleCalendarClient.currentAccessToken`, which resolves the signed-in account afresh on every call.
     private let accessToken: () async throws -> String
 
-    init(
+    package init(
         connection: DatabaseConnection,
         settings: SettingStore,
         debugLog: DebugLog?,
@@ -54,7 +54,7 @@ final class CalendarSync {
     ///
     /// Safe to call as often as anything likes. A second call while a pass is running sets a flag rather than starting
     /// a second pass, so two sweeps cannot be sending the same entry at the same time.
-    func sweep(because reason: String) {
+    package func sweep(because reason: String) {
         guard !isCalendarSweeping else {
             isAnotherSweepWanted = true
             return

@@ -9,7 +9,7 @@ import Foundation
 /// **The frame layout is the vendor's and the traps are the archive's**, both recorded in `docs/timeflip.md` §5 before
 /// this app existed. Everything below that is not simply a byte offset was paid for by a real device or a real
 /// database, and is marked where it sits.
-enum DeviceHistoryRules {
+package enum DeviceHistoryRules {
     /// One frame on the history characteristic, which is always 20 bytes.
     static let frameLength = 20
 
@@ -18,7 +18,7 @@ enum DeviceHistoryRules {
     /// **The archive's cap, kept.** A cube holds far fewer than this, so reaching it means the stream is not ending --
     /// a sentinel that never came, or frames that keep parsing as something. Stopping is better than reading for ever,
     /// and the next refresh starts again from what actually landed.
-    static let frameCap = 2048
+    package static let frameCap = 2048
 
     // MARK: - asking
 
@@ -26,7 +26,7 @@ enum DeviceHistoryRules {
     ///
     /// `0xFFFFFFFF` is the vendor's own "give me the latest" and is why this takes an optional rather than a magic
     /// number at the call site.
-    static func readEvent(_ eventNumber: Int? = nil) -> Data {
+    package static func readEvent(_ eventNumber: Int? = nil) -> Data {
         Data([0x01]) + bigEndian(eventNumber.map(UInt32.init(clamping:)) ?? 0xFFFF_FFFF)
     }
 
@@ -34,7 +34,7 @@ enum DeviceHistoryRules {
     ///
     /// **From it, not past it.** The newest row on file is normally the cube's still-open segment, and asking for it
     /// again is how its finished duration comes back. Advancing past it would lose exactly that.
-    static func readHistory(from eventNumber: Int) -> Data {
+    package static func readHistory(from eventNumber: Int) -> Data {
         Data([0x02]) + bigEndian(UInt32(clamping: max(eventNumber, 0)))
     }
 
@@ -54,7 +54,7 @@ enum DeviceHistoryRules {
     /// **Three answers, which is why this is a state and not two booleans.** It was `isEndOfStream` and
     /// `isNoSuchEvent`, and the second had to test the first before it could answer, because a terminator is also
     /// four zero bytes. One classifier decides once, in order, and a caller cannot ask them the wrong way round.
-    enum HistoryFrameState: Equatable {
+    package enum HistoryFrameState: Equatable {
         /// A real event, there to be read into a segment.
         case event
         /// The cube saying it has no such event, which is how "no history at all" arrives.
@@ -67,7 +67,7 @@ enum DeviceHistoryRules {
     ///
     /// **Order matters and is the whole point of doing it here.** End of stream is tested first, because its
     /// seventeen zeros also satisfy the four-zero test that says "no such event".
-    static func historyFrameState(_ frame: Data) -> HistoryFrameState {
+    package static func historyFrameState(_ frame: Data) -> HistoryFrameState {
         if isEndOfStream(frame) { return .endOfStream }
         if isNoSuchEvent(frame) { return .noSuchEvent }
         return .event
@@ -119,7 +119,7 @@ enum DeviceHistoryRules {
     /// every reply to `0x01` was thrown away with "a frame this app cannot read" while the cube was answering
     /// perfectly well (measured 2026-08-21). `docs/timeflip.md` describes a five-byte duration at `13...17` and is
     /// wrong about both, which is why `CLAUDE.md` puts the vendor spec above it.
-    static func segment(from frame: Data) -> DeviceEventSegment? {
+    package static func segment(from frame: Data) -> DeviceEventSegment? {
         guard frame.count >= 17, !isEndOfStream(frame) else { return nil }
         let bytes = [UInt8](frame)
 

@@ -14,13 +14,13 @@ import Foundation
 /// Nothing here is kept between calls, which is what makes it correct after a relaunch, after a category is
 /// renamed, and after somebody edits a row by hand.
 @MainActor
-final class DayTotal {
+package final class DayTotal {
     private let settings: SettingStore
     private let entries: TimeEntryStore
     private let events: DeviceEventRecorder
     private let faces: FaceStore
 
-    init(settings: SettingStore, entries: TimeEntryStore, events: DeviceEventRecorder, faces: FaceStore) {
+    package init(settings: SettingStore, entries: TimeEntryStore, events: DeviceEventRecorder, faces: FaceStore) {
         self.settings = settings
         self.entries = entries
         self.events = events
@@ -69,7 +69,7 @@ final class DayTotal {
 
     /// The start of the day `now` falls in, from the setting as it reads at this moment. Change the reset time
     /// and the next answer is against the new window, with nothing needing to be told.
-    func windowStart(at now: Date) -> Date {
+    package func windowStart(at now: Date) -> Date {
         let reset = DayWindow.resetTime(
             hour: settings.integer(Self.resetSetting, field: "hour"),
             minute: settings.integer(Self.resetSetting, field: "minute")

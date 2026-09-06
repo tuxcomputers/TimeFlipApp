@@ -27,7 +27,7 @@ import SQLite3
 /// **The file is opened on the first message, not at launch.** A launch that never records creates no
 /// `debug.sqlite` at all, which is what somebody who has never turned this on should find in their folder.
 @MainActor
-final class DebugLog {
+package final class DebugLog {
     /// Which subsystem a message came from. The table's `tag` column and the console prefix are the
     /// same value, so there is one list rather than two that can disagree.
     ///
@@ -35,7 +35,7 @@ final class DebugLog {
     /// they interleave. The width is derived rather than written down, which means a new case re-pads
     /// every existing tag automatically -- so **add a case here** rather than putting a literal
     /// `[Tag]` in a message, and check the console after adding a long one.
-    enum Tag: String, CaseIterable {
+    package enum Tag: String, CaseIterable {
         /// Clicks on the status item, and which half they landed on.
         case click
         /// What the status item is drawn in: the colour of its name, its glyph and its figure
@@ -202,7 +202,7 @@ final class DebugLog {
     ///   - databaseURL: where the trace goes. Nothing is created here; the file is brought up on the first message
     ///     actually recorded.
     ///   - isRecording: what the `debug` row says at launch.
-    init(databaseURL: URL, isRecording: Bool) {
+    package init(databaseURL: URL, isRecording: Bool) {
         self.databaseURL = databaseURL
         self.isRecording = isRecording
         // Line-buffered stdout. Otherwise a click's line sits in the buffer until the process exits
@@ -219,7 +219,7 @@ final class DebugLog {
     /// **The change is the first and last thing in the trace either way.** Turning it on writes a line saying so, so
     /// a submitted trace says where it begins; turning it off writes one before it stops, so a trace that ends
     /// abruptly is telling you it was switched off rather than that the app died.
-    func setRecording(_ recording: Bool) {
+    package func setRecording(_ recording: Bool) {
         guard recording != isRecording else { return }
         if !recording {
             record(.trace, "Logging turned off")
@@ -243,7 +243,7 @@ final class DebugLog {
     /// build the string at every call site before this is even entered, so a launch that records nothing would still
     /// pay for a hex dump of every BLE packet. Nothing here reads `message()` until it is known that somebody wants
     /// it, and it is read exactly once.
-    func record(_ tag: Tag, _ message: @autoclosure () -> String) {
+    package func record(_ tag: Tag, _ message: @autoclosure () -> String) {
         guard isRecording else { return }
         openIfNeeded()
         let now = Date()

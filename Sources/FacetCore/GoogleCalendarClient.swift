@@ -5,7 +5,7 @@ import Foundation
 /// **Two requests exist in this whole type, and neither is on a timer.** Creating happens once per account, renaming
 /// only when somebody types a new name. Nothing polls, because a poll would be a Calendar API request per launch per
 /// user for a label that rarely changes, and "starting the app costs nothing" is a property worth keeping.
-enum GoogleCalendarClient {
+package enum GoogleCalendarClient {
     /// A short-lived access token, from the refresh token in the Keychain.
     ///
     /// **Never stored.** It is good for an hour, and keeping it would mean a second credential on disk to no purpose:
@@ -45,7 +45,7 @@ enum GoogleCalendarClient {
     /// sign-out clears the Keychain item, and anything holding a token from before it would go on acting on an account
     /// the app says it is not connected to. This is the first design rule applied to something that does not live in a
     /// table but changes for the same reasons.
-    static func currentAccessToken(session: URLSession = .shared) async throws -> String {
+    package static func currentAccessToken(session: URLSession = .shared) async throws -> String {
         guard let credentials = GoogleCredentials.resolve() else {
             throw GoogleOAuthRules.Failure.noCredentials
         }
@@ -67,7 +67,7 @@ enum GoogleCalendarClient {
     /// brings back its current name, so a rename made at Google is picked up on the one occasion the app was going to
     /// ask anyway. Throws `CalendarGone` when it does not resolve, which is the only thing allowed to lead to making
     /// another one.
-    static func get(
+    package static func get(
         id: String,
         accessToken: String,
         session: URLSession = .shared
@@ -88,7 +88,7 @@ enum GoogleCalendarClient {
     ///
     /// **Called once**, at the end of a sign-in, and otherwise only from the recovery button. Everything else keys off
     /// the stored id.
-    static func create(
+    package static func create(
         name: String,
         accessToken: String,
         session: URLSession = .shared
@@ -110,7 +110,7 @@ enum GoogleCalendarClient {
     ///
     /// **A real rename, at Google.** A name that only changed inside Facet would be a setting that does something
     /// other than what it says, which is the two-answers problem the first design rule exists to prevent.
-    static func rename(
+    package static func rename(
         id: String,
         to name: String,
         accessToken: String,
@@ -141,7 +141,7 @@ enum GoogleCalendarClient {
     /// **A calendar that is already gone counts as deleted.** `CalendarGone` means the id does not resolve, which is
     /// the outcome being asked for however it came about -- reporting that as a failure would leave somebody trying to
     /// delete a thing that is not there.
-    static func delete(id: String, accessToken: String, session: URLSession = .shared) async throws {
+    package static func delete(id: String, accessToken: String, session: URLSession = .shared) async throws {
         guard let url = GoogleCalendarRules.url(forCalendar: id) else {
             throw GoogleCalendarRules.Failure.deleteFailed("that calendar id cannot be addressed")
         }
@@ -193,4 +193,4 @@ enum GoogleCalendarClient {
 ///
 /// Its own type rather than a case of `Failure`, so that the one place allowed to respond by creating another calendar
 /// has to name it deliberately. Anything catching `Failure` generally will not catch this by accident.
-struct CalendarGone: Error {}
+package struct CalendarGone: Error {}

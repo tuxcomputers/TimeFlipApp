@@ -8,7 +8,7 @@ import Foundation
 /// Nothing here does any deciding. `DeviceReconnectRules` reads the four flags and answers whether an attempt is
 /// worth making; `reach` is the attempt itself.
 @MainActor
-protocol CubeRadio: AnyObject {
+package protocol CubeRadio: AnyObject {
     /// The device this app is currently logged in to, or `nil`.
     var connectedDevice: UUID? { get }
     /// Whether a scan is running.

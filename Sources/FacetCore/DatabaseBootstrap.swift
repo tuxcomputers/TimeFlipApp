@@ -17,10 +17,10 @@ import SQLite3
 /// changes, `sqlite3_exec` stops at the first failing statement and silently abandons the rest of
 /// that file -- the archived implementation carried a `skipSatisfiedColumnAdditions` pass for
 /// exactly this, worth copying back on the day a migration lands rather than before.
-enum DatabaseBootstrap {
+package enum DatabaseBootstrap {
     /// What one run did, so the caller can say so rather than guess.
-    struct Outcome {
-        let databaseURL: URL
+    package struct Outcome {
+        package let databaseURL: URL
         /// Whether the database file had to be brought into being. Reported, not acted on: the work
         /// below is identical either way.
         let createdDatabase: Bool
@@ -28,7 +28,7 @@ enum DatabaseBootstrap {
         let filesApplied: [String]
     }
 
-    enum Failure: Error, CustomStringConvertible {
+    package enum Failure: Error, CustomStringConvertible {
         case ddlDirectoryNotFound
         case ddlDirectoryUnreadable(URL, String)
         case ddlDirectoryEmpty(URL)
@@ -37,7 +37,7 @@ enum DatabaseBootstrap {
         case fileUnreadable(String)
         case statementFailed(file: String, message: String)
 
-        var description: String {
+        package var description: String {
             switch self {
             case .ddlDirectoryNotFound:
                 return "could not locate the bundled Database directory (Resources/Database)"
@@ -86,7 +86,7 @@ enum DatabaseBootstrap {
     /// `directory` carries, and this is where the file inside it gets its name.
     ///
     /// - Parameter directory: the folder to keep the trace in. `nil` for the one beside the app's own database.
-    static func debugDatabaseURL(in directory: URL? = nil) -> URL {
+    package static func debugDatabaseURL(in directory: URL? = nil) -> URL {
         (directory ?? defaultDatabaseURL().deletingLastPathComponent()).appendingPathComponent("debug.sqlite")
     }
 
@@ -136,7 +136,7 @@ enum DatabaseBootstrap {
     /// All three parameters are injectable so this is testable against a temporary database and the repository's own
     /// `database/` directory, with no bundle involved.
     @discardableResult
-    static func ensureDatabase(
+    package static func ensureDatabase(
         at databaseURL: URL? = nil,
         ddlDirectory: URL? = nil,
         numbered: Range<Int> = 0..<firstDebugDDLNumber

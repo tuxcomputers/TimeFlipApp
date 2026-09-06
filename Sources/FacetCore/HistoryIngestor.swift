@@ -27,9 +27,9 @@ import Foundation
 /// table is the position and it is re-read on every refresh, which is what lets a factory reset be an ordinary answer
 /// rather than a special case: once a post-reset row is in the table, the same read returns it.
 @MainActor
-final class HistoryIngestor {
+package final class HistoryIngestor {
     /// What a refresh came to, for whoever wants to redraw afterwards.
-    enum Outcome: Equatable {
+    package enum Outcome: Equatable {
         /// No cube, or one that could not be asked.
         case nothingToAsk
         /// The cube is still on the segment already recorded. Its duration was refreshed; no stream was fetched.
@@ -85,9 +85,9 @@ final class HistoryIngestor {
     private var generation = 0
 
     /// Told after every refresh that changed anything, so both surfaces can redraw.
-    var onChanged: (() -> Void)?
+    package var onChanged: (() -> Void)?
 
-    init(
+    package init(
         events: DeviceEventRecorder,
         readLastEvent: @escaping (@escaping (DeviceEventSegment?) -> Void) -> Void,
         fetchHistory: @escaping (Int, @escaping ([DeviceEventSegment]) -> Void) -> Void,
@@ -100,7 +100,7 @@ final class HistoryIngestor {
     }
 
     /// Asks the cube what has happened and records it.
-    func refresh(because reason: String, then finished: ((Outcome) -> Void)? = nil) {
+    package func refresh(because reason: String, then finished: ((Outcome) -> Void)? = nil) {
         guard !isHistoryFetching else {
             // Said rather than returned silently. A refresh that folded into one already running otherwise leaves no
             // trace at all, and the archive records a real run where exactly that made a startup fetch look as though
@@ -159,7 +159,7 @@ final class HistoryIngestor {
     ///
     /// The pending re-run goes too. It named a reason to talk to a cube that is gone, and a reconnection asks for the
     /// history itself as the first thing it does (`the link came up`).
-    func linkEnded() {
+    package func linkEnded() {
         guard isHistoryFetching || pendingReason != nil else { return }
         debugLog?.record(.history, "The history fetch goes with the link")
         // Bumped so the abandoned conversation's own answers, if any still arrive, are recognised as somebody else's.

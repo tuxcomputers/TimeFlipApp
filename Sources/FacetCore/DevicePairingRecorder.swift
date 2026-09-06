@@ -30,18 +30,18 @@ import Foundation
 /// that callers had to remember to call in the right order -- the order is what makes `previous_name` correct, so it
 /// belongs in the thing that writes them rather than in whoever calls it.
 @MainActor
-struct DevicePairingRecorder {
+package struct DevicePairingRecorder {
     private let settings: SettingStore
     private let debugLog: DebugLog?
 
-    init(settings: SettingStore, debugLog: DebugLog?) {
+    package init(settings: SettingStore, debugLog: DebugLog?) {
         self.settings = settings
         self.debugLog = debugLog
     }
 
     /// Records a confirmed pairing and marks the connection up. Answers whether every row took it.
     @discardableResult
-    func recordPairing(with device: ScannedDevice, at moment: Date = Date()) -> Bool {
+    package func recordPairing(with device: ScannedDevice, at moment: Date = Date()) -> Bool {
         // **Which write was refused is collected, not just whether one was.** "the table refused a write" names the
         // problem and nothing else, and on 2026-08-22 that cost half an hour of reading a log backwards to find out
         // that a busy database had dropped one of these six. A refusal is rare enough that the failure message is the
@@ -109,7 +109,7 @@ struct DevicePairingRecorder {
     /// morning is a record of a pairing that did not happen -- and the debug log is what a device run is read from, so a
     /// line that names the wrong event costs somebody an hour later on.
     @discardableResult
-    func recordReconnection(with device: ScannedDevice, at moment: Date = Date()) -> Bool {
+    package func recordReconnection(with device: ScannedDevice, at moment: Date = Date()) -> Bool {
         var wrote = settings.write("connection", field: "connected", true)
         wrote = settings.write("connection", field: "last_connection", Self.stamp(moment)) && wrote
         debugLog?.record(
@@ -142,7 +142,7 @@ struct DevicePairingRecorder {
     /// (`DeviceScanRules.isEligible`), so the cube is findable either way round, and the connection after that reports
     /// the real name and puts the two back.
     @discardableResult
-    func recordName(_ name: String, because reason: String) -> Bool {
+    package func recordName(_ name: String, because reason: String) -> Bool {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else {
             debugLog?.record(.pair, "Asked to record an empty name for the cube, which is not a name, so nothing changed")
@@ -182,7 +182,7 @@ struct DevicePairingRecorder {
     /// them is a separate question and belongs to `DeviceInfoRules.detail`, which asks about the pairing at the point
     /// the words are chosen rather than letting an empty row stand in for "no device".
     @discardableResult
-    func recordInfo(_ info: DeviceInfo) -> Bool {
+    package func recordInfo(_ info: DeviceInfo) -> Bool {
         guard !info.isEmpty else {
             debugLog?.record(.info, "The cube said nothing about itself, so nothing was recorded")
             return true
@@ -230,7 +230,7 @@ struct DevicePairingRecorder {
     /// pairing a second cube that exposes no Device Information service would leave the first one's manufacturer and
     /// firmware on screen attributed to it. The row describes *the paired device*, and after this there is not one.
     @discardableResult
-    func recordForget() -> Bool {
+    package func recordForget() -> Bool {
         var wrote = settings.write("paired", field: "paired", false)
         wrote = settings.write("device_uuid", field: "uuid", "") && wrote
         // The connection goes down with the pairing: a connection is only meaningful while there is a device for it
@@ -271,7 +271,7 @@ struct DevicePairingRecorder {
     /// the vendor default first and the stored one after it, so a wiped cube and an unwiped one are both reachable on
     /// the next attempt without this having to guess which happened.
     @discardableResult
-    func recordFactoryReset() -> Bool {
+    package func recordFactoryReset() -> Bool {
         var wrote = recordForget()
         if let name = settings.string("device_name", field: "name"), !name.isEmpty {
             wrote = settings.write("device_name", field: "previous_name", name) && wrote
@@ -291,7 +291,7 @@ struct DevicePairingRecorder {
     /// does not change which device this app is paired to, and clearing it here would make the app forget a perfectly
     /// good cube the moment somebody carried it out of the room.
     @discardableResult
-    func recordConnectionLost(because reason: String, at moment: Date = Date()) -> Bool {
+    package func recordConnectionLost(because reason: String, at moment: Date = Date()) -> Bool {
         var wrote = settings.write("connection", field: "connected", false)
         wrote = settings.write("connection", field: "connection_lost", Self.stamp(moment)) && wrote
         debugLog?.record(
@@ -312,7 +312,7 @@ struct DevicePairingRecorder {
     ///
     /// Written whether or not anything was connected: it says the app was asked to stop, which is true either way.
     @discardableResult
-    func recordQuit(at moment: Date = Date()) -> Bool {
+    package func recordQuit(at moment: Date = Date()) -> Bool {
         var wrote = settings.write("connection", field: "connected", false)
         wrote = settings.write("connection", field: "quit_request", Self.stamp(moment)) && wrote
         wrote = settings.write("connection", field: "connection_lost", "") && wrote

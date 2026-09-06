@@ -6,10 +6,10 @@ import Foundation
 /// A `device_event` is what a device says happened; a `time_entry` is what the app counts. Keeping them apart
 /// is what lets the second question have an answer of its own -- and the answer is not always yes, which is
 /// the whole reason this exists rather than an `INSERT ... SELECT`.
-enum TimeEntryRules {
+package enum TimeEntryRules {
 
     /// What to do with a finished segment.
-    enum Decision: Equatable {
+    package enum Decision: Equatable {
         /// It becomes a `time_entry`.
         case create
         /// It does not, for this reason. Nothing is written and the segment stays as it is.
@@ -19,7 +19,7 @@ enum TimeEntryRules {
     /// Why a segment produced no entry. Named rather than boolean, because "no entry" covers cases that need
     /// telling apart afterwards: one of these is normal, one is a pause, and one means the question was asked
     /// too early.
-    enum Reason: Equatable {
+    package enum Reason: Equatable {
         /// Still running. The question belongs to the moment it closes, not before.
         case stillRunning
         /// A paused stretch is time not spent, so it is never counted. The previous app's conversion said the

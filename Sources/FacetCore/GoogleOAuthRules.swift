@@ -11,12 +11,12 @@ import Foundation
 /// built around iOS view controllers, and its macOS loopback path is the least-exercised part of it. The flow for an
 /// installed app is small enough that owning it is cheaper than depending on it, and this way the parts that matter
 /// are ordinary Swift with tests on them rather than calls into a framework.
-enum GoogleOAuthRules {
+package enum GoogleOAuthRules {
     /// Google's endpoints. Fixed rather than discovered, deliberately: one request saved on every sign-in, and these
     /// two have not moved in the lifetime of OAuth 2.0. If they ever do, the discovery document at
     /// `accounts.google.com/.well-known/openid-configuration` is the thing to read.
     static let authorizationEndpoint = URL(string: "https://accounts.google.com/o/oauth2/v2/auth")!
-    static let tokenEndpoint = URL(string: "https://oauth2.googleapis.com/token")!
+    package static let tokenEndpoint = URL(string: "https://oauth2.googleapis.com/token")!
 
     /// Exactly what the console is configured with. Asking for more than this at runtime gets the request rejected,
     /// and asking for less gets a token that cannot do the job.
@@ -32,8 +32,8 @@ enum GoogleOAuthRules {
     /// **This is what actually protects the exchange**, given that the client secret ships inside the binary and is
     /// not a secret at all (see `docs/google-oauth-setup.md`). The verifier never leaves this process until the token
     /// request, so an authorization code intercepted on its way back is worthless without it.
-    struct PKCE: Equatable {
-        let verifier: String
+    package struct PKCE: Equatable {
+        package let verifier: String
         let challenge: String
     }
 
@@ -41,7 +41,7 @@ enum GoogleOAuthRules {
     ///
     /// 32 random bytes, base64url encoded, which lands at 43 characters: the shortest length RFC 7636 allows, and the
     /// one Google's own samples use. `SystemRandomNumberGenerator` is a CSPRNG.
-    static func pkce() -> PKCE {
+    package static func pkce() -> PKCE {
         var bytes = [UInt8](repeating: 0, count: 32)
         var generator = SystemRandomNumberGenerator()
         for index in bytes.indices {
@@ -54,7 +54,7 @@ enum GoogleOAuthRules {
 
     /// An opaque value echoed back by Google, so a redirect that did not come from the request this process made can
     /// be told apart from one that did.
-    static func state() -> String {
+    package static func state() -> String {
         var bytes = [UInt8](repeating: 0, count: 16)
         var generator = SystemRandomNumberGenerator()
         for index in bytes.indices {
@@ -76,7 +76,7 @@ enum GoogleOAuthRules {
     /// `access_type=offline` with `prompt=consent` is what makes Google return a **refresh** token rather than only an
     /// access token good for an hour. Without both, a second sign-in on the same account returns no refresh token at
     /// all, and the app silently loses the ability to sync the moment the first one expires.
-    static func authorizationURL(clientID: String, redirect: String, pkce: PKCE, state: String) -> URL {
+    package static func authorizationURL(clientID: String, redirect: String, pkce: PKCE, state: String) -> URL {
         var components = URLComponents(url: authorizationEndpoint, resolvingAgainstBaseURL: false)!
         components.queryItems = [
             URLQueryItem(name: "client_id", value: clientID),
@@ -93,7 +93,7 @@ enum GoogleOAuthRules {
     }
 
     /// What came back on the loopback redirect.
-    enum Redirect: Equatable {
+    package enum Redirect: Equatable {
         case code(String)
         /// Google said no, or the person pressed Cancel, which arrives as `error=access_denied`.
         case denied(String)
@@ -106,7 +106,7 @@ enum GoogleOAuthRules {
     /// **A mismatched state is `ignored` rather than an error**, because that is what it means: some other request
     /// arrived on this port, and the one being waited for has not come yet. Failing the sign-in on it would let
     /// anything that can reach the loopback port cancel somebody's sign-in.
-    static func redirect(fromRequestLine line: String, expectedState: String) -> Redirect {
+    package static func redirect(fromRequestLine line: String, expectedState: String) -> Redirect {
         // "GET /callback?code=...&state=... HTTP/1.1"
         let parts = line.split(separator: " ")
         guard parts.count >= 2, let components = URLComponents(string: String(parts[1])) else { return .ignored }
@@ -120,7 +120,7 @@ enum GoogleOAuthRules {
     }
 
     /// What the browser is left looking at. Plain and final: the flow is over and the app has what it needs.
-    static func redirectResponse(_ body: String) -> String {
+    package static func redirectResponse(_ body: String) -> String {
         let html = """
         <!doctype html><meta charset="utf-8"><title>Facet</title>
         <style>body{font:17px -apple-system,system-ui,sans-serif;margin:4rem auto;max-width:26rem;color:#1c1d21}</style>
@@ -138,14 +138,14 @@ enum GoogleOAuthRules {
     }
 
     /// The tokens and the identity, out of the token endpoint's reply.
-    struct Tokens: Equatable {
-        let accessToken: String
+    package struct Tokens: Equatable {
+        package let accessToken: String
         /// **Absent is a real answer and a bad one.** Google only issues a refresh token when it feels like it, which
         /// is why `access_type=offline` and `prompt=consent` are both on the authorization URL. Without one the app
         /// can sync for an hour and then silently cannot.
-        let refreshToken: String?
-        let name: String?
-        let email: String?
+        package let refreshToken: String?
+        package let name: String?
+        package let email: String?
     }
 
     /// Reads the token response, taking the identity from the `id_token` rather than asking for it.
@@ -157,7 +157,7 @@ enum GoogleOAuthRules {
     /// **The ID token is not verified, and that is correct here.** OpenID Connect says a token taken directly from the
     /// token endpoint over TLS needs no signature check, because the channel already establishes who sent it. The
     /// check exists for tokens that arrived by some other route, which this one cannot have.
-    static func tokens(fromTokenResponse data: Data) -> Tokens? {
+    package static func tokens(fromTokenResponse data: Data) -> Tokens? {
         guard
             let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
             let accessToken = object["access_token"] as? String
@@ -193,7 +193,7 @@ enum GoogleOAuthRules {
     /// **Named here rather than at each throw site** so the same failure cannot be described two ways, and so the
     /// wording can say whose problem it is. A suspended project and a closed browser tab are both "sign-in failed",
     /// and only one of them is worth trying again.
-    enum Failure: LocalizedError, Equatable {
+    package enum Failure: LocalizedError, Equatable {
         case noCredentials
         case denied(String)
         case listenerFailed(String)
@@ -201,7 +201,7 @@ enum GoogleOAuthRules {
         case noRefreshToken
         case cancelled
 
-        var errorDescription: String? {
+        package var errorDescription: String? {
             switch self {
             case .noCredentials:
                 return "This copy of Facet has no Google credentials built into it, so it cannot sign in."

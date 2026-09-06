@@ -4,16 +4,16 @@ import Foundation
 ///
 /// Carries what a row needs to draw rather than a category id to look up, because the totals are one read: joining the
 /// name, the icon and the colour in the same statement is what stops a list of totals becoming a query per row.
-struct CategoryTotal: Equatable {
-    let categoryID: Int
-    let name: String
+package struct CategoryTotal: Equatable {
+    package let categoryID: Int
+    package let name: String
     /// `nil` for the None icon (`icon_id` 0), a sentinel row rather than a bundled asset.
-    let iconName: String?
+    package let iconName: String?
     /// `nil` for the None colour (`colour_id` 0), which has no hex of its own.
-    let colour: Colour?
-    let usesWhiteLines: Bool
+    package let colour: Colour?
+    package let usesWhiteLines: Bool
     /// Seconds inside the range, with a stretch that straddles either end clipped to it.
-    let seconds: TimeInterval
+    package let seconds: TimeInterval
 }
 
 /// One recorded stretch, as the Report tab lists it: when it began, when it ended, and how long that was.
@@ -22,13 +22,13 @@ struct CategoryTotal: Equatable {
 /// the total on its heading. A stretch running across the boundary is shown as the part inside, not as the whole of
 /// itself: the alternative is a list whose figures do not sum to the number above them, which reads as a bug in one of
 /// the two.
-struct TimeEntryRecord: Equatable {
-    let timeEntryID: Int
-    let start: Date
-    let end: Date
+package struct TimeEntryRecord: Equatable {
+    package let timeEntryID: Int
+    package let start: Date
+    package let end: Date
 
     /// Derived rather than stored, so it cannot disagree with the two ends beside it.
-    var seconds: TimeInterval { max(0, end.timeIntervalSince(start)) }
+    package var seconds: TimeInterval { max(0, end.timeIntervalSince(start)) }
 }
 
 /// The `time_entry` table, read. `TimeEntryRecorder` is what writes it.
@@ -36,10 +36,10 @@ struct TimeEntryRecord: Equatable {
 /// Split because the questions are different sizes: writing an entry is a decision about one segment, and
 /// reading is "how much time does this category have". They share a table and nothing else.
 @MainActor
-final class TimeEntryStore {
+package final class TimeEntryStore {
     private let connection: DatabaseConnection
 
-    init(connection: DatabaseConnection) {
+    package init(connection: DatabaseConnection) {
         self.connection = connection
     }
 
@@ -98,7 +98,7 @@ final class TimeEntryStore {
     /// A **still-running** segment contributes nothing, because it is not an entry yet. `time_entry` is what the app
     /// counts, written when a segment closes, so a clock running right now shows on the Faces tab and in the menu bar
     /// and arrives here when it stops.
-    func totals(from windowStart: Date, to windowEnd: Date) -> [CategoryTotal] {
+    package func totals(from windowStart: Date, to windowEnd: Date) -> [CategoryTotal] {
         let startEpoch = windowStart.timeIntervalSince1970
         let endEpoch = windowEnd.timeIntervalSince1970
         var totals: [CategoryTotal] = []
@@ -153,7 +153,7 @@ final class TimeEntryStore {
     ///
     /// Clipped at both ends, like the totals and for the same reason: these are the figures that have to add up to the
     /// one on the heading above them.
-    func entries(categoryID: Int, from windowStart: Date, to windowEnd: Date) -> [TimeEntryRecord] {
+    package func entries(categoryID: Int, from windowStart: Date, to windowEnd: Date) -> [TimeEntryRecord] {
         let startEpoch = windowStart.timeIntervalSince1970
         let endEpoch = windowEnd.timeIntervalSince1970
         var records: [TimeEntryRecord] = []
@@ -192,7 +192,7 @@ final class TimeEntryStore {
     /// carried it as a column on its category load, which this app cannot afford: `CategoryStore.category(id:)` is
     /// read once a second while a clock is on screen, and a subquery over `time_entry` on each of those buys nothing
     /// -- an active row draws no date at all (see `CategoryLastUsedText`).
-    func lastUsed(categoryID: Int) -> Date? {
+    package func lastUsed(categoryID: Int) -> Date? {
         var epoch: Double?
         connection.forEachRow(
             """

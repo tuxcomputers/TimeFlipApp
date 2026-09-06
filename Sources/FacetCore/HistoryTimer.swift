@@ -14,7 +14,7 @@ import Foundation
 /// its own open segment. Either way the answer goes to `DeviceEventRecorder`, which decides what it means for
 /// the rows.
 @MainActor
-final class HistoryTimer {
+package final class HistoryTimer {
     /// The setting and the field inside it. Named here rather than at the call site so the string appears
     /// once.
     static let settingName = "fetch_history_interval_seconds"
@@ -79,7 +79,7 @@ final class HistoryTimer {
     /// can be asserted without waiting for a real interval to elapse.
     private(set) var scheduledSeconds: TimeInterval?
 
-    init(
+    package init(
         settings: SettingStore,
         debugLog: DebugLog?,
         hasSomethingToFollow: @escaping @MainActor () -> Bool = { true },
@@ -92,7 +92,7 @@ final class HistoryTimer {
     }
 
     /// Reads the interval and arms the first timeout, **if there is anything to ask about**.
-    func start() {
+    package func start() {
         guard hasSomethingToFollow() else {
             debugLog?.record(.history, "History timer not started, nothing is being timed")
             return
@@ -107,7 +107,7 @@ final class HistoryTimer {
     /// For the moment something begins being timed. Called through `onTimingChanged`, which is the one funnel every
     /// path that changes what is being timed already goes through -- a second, parallel notification would be one more
     /// thing for a new path to forget.
-    func resumeIfStopped() {
+    package func resumeIfStopped() {
         guard holder.timer == nil else { return }
         start()
     }

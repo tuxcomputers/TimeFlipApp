@@ -16,7 +16,7 @@ import Foundation
 /// whole of adding it: nothing has to be told, which is what keeps this true of "every collapsible group the app
 /// grows" rather than of the three that existed when it was written.
 @MainActor
-protocol CollapsibleSection: AnyObject {
+package protocol CollapsibleSection: AnyObject {
     /// Puts the section back to the state it is built in.
     ///
     /// Silent: this is not the user folding anything, so it must not reach `onToggle` and must not write a `debug_log`

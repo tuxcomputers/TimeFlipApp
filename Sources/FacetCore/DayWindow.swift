@@ -5,14 +5,14 @@ import Foundation
 /// It does not start at midnight. The `daily_reset_time` setting is seeded to 03:00 for a stated reason: a
 /// session running across midnight should not be cut in half by the calendar. So a day is the span from the
 /// most recent occurrence of that local time up to now, and a total is what falls inside it.
-enum DayWindow {
+package enum DayWindow {
     /// Where `daily_reset_time` sits when the row is missing or holds something that is not a number, and the
     /// bounds a hand-edited row is held to. Matches `database/011_setting.sql`.
     static let defaultHour = 3
     static let defaultMinute = 0
 
     /// The reset time in force, from what the row says.
-    static func resetTime(hour: Int?, minute: Int?) -> (hour: Int, minute: Int) {
+    package static func resetTime(hour: Int?, minute: Int?) -> (hour: Int, minute: Int) {
         (
             hour: min(23, max(0, hour ?? defaultHour)),
             minute: min(59, max(0, minute ?? defaultMinute))

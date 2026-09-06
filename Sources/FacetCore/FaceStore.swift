@@ -6,16 +6,16 @@ import Foundation
 /// whole categories, so the two tables stay with their own readers: what a category *is* comes from
 /// `CategoryStore`, and which one a face holds comes from here.
 @MainActor
-final class FaceStore {
+package final class FaceStore {
     private let connection: DatabaseConnection
 
-    init(connection: DatabaseConnection) {
+    package init(connection: DatabaseConnection) {
         self.connection = connection
     }
 
     /// The category assigned to a face, or `nil` if the face holds the seeded *Unassigned* row (id 0) --
     /// which is a face with nothing on it, not a face holding a category called Unassigned.
-    func categoryID(forFace faceID: Int) -> Int? {
+    package func categoryID(forFace faceID: Int) -> Int? {
         var assigned: Int?
         connection.forEachRow("SELECT category_id FROM face WHERE face_id = \(faceID);") { row in
             let categoryID = Int(row.int(0))
@@ -30,7 +30,7 @@ final class FaceStore {
     /// **A reader, so a refusal can say which.** `assign` already refuses a locked face at the write, and that is
     /// where the guarantee belongs -- but "the write refused" is not something anybody can act on, and a category
     /// that silently fails to land is a control that reads as broken rather than as one being deliberate.
-    func isFaceLocked(face faceID: Int) -> Bool? {
+    package func isFaceLocked(face faceID: Int) -> Bool? {
         var locked: Bool?
         connection.forEachRow("SELECT locked FROM face WHERE face_id = \(faceID);") { row in
             locked = row.bool(0)
@@ -44,7 +44,7 @@ final class FaceStore {
     /// write refuses rather than trusting every caller to have checked. Face 13 is never locked -- being
     /// reassigned is the whole point of it -- so manual mode is unaffected by the guard it shares.
     @discardableResult
-    func assign(categoryID: Int, toFace faceID: Int) -> Bool {
+    package func assign(categoryID: Int, toFace faceID: Int) -> Bool {
         // The row count, not just the step: the statement runs happily against a locked face and changes
         // nothing, and "refused" has to be distinguishable from "done".
         return connection.execute(
@@ -58,14 +58,14 @@ final class FaceStore {
     /// itself is always the user's to change, or it would be a switch that can only be flicked one way. `changes` is
     /// still checked, so a face with no row reads as refused rather than as done.
     @discardableResult
-    func setLocked(_ locked: Bool, face faceID: Int) -> Bool {
+    package func setLocked(_ locked: Bool, face faceID: Int) -> Bool {
         connection.execute(
             "UPDATE face SET locked = \(locked ? 1 : 0) WHERE face_id = \(faceID);"
         ) && connection.changes > 0
     }
 
     /// Clears a face back to *Unassigned*.
-    func clear(face faceID: Int) -> Bool {
+    package func clear(face faceID: Int) -> Bool {
         assign(categoryID: 0, toFace: faceID)
     }
 
@@ -74,7 +74,7 @@ final class FaceStore {
     /// Both halves in one read because both answers are needed together: retiring a category takes it off the faces
     /// it is on, and a locked face is one the user has said keeps what it has, so the question is never "which faces"
     /// without "and may I".
-    func facesHolding(categoryID: Int) -> [(face: Int, isFaceLocked: Bool)] {
+    package func facesHolding(categoryID: Int) -> [(face: Int, isFaceLocked: Bool)] {
         var found: [(face: Int, isFaceLocked: Bool)] = []
         connection.forEachRow(
             "SELECT face_id, locked FROM face WHERE category_id = \(categoryID) ORDER BY face_id;"

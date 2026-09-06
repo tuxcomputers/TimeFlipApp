@@ -1,7 +1,7 @@
 import Foundation
 
 /// How a raw duration in seconds becomes the whole number of seconds a format string prints.
-enum DurationRounding {
+package enum DurationRounding {
     /// For a live, ticking value: the seconds shown are never ahead of what has actually elapsed.
     case truncate
     /// For a static historical sum: a 59.6-second total reads as a minute, not one second short of what
@@ -15,11 +15,11 @@ enum DurationRounding {
 /// hours in a figure beside it.
 ///
 /// Copied from the previous app: it is right, and rewriting it would land in the same place.
-enum DurationFormat {
+package enum DurationFormat {
     private static let secondsPerMinute = 60
     private static let secondsPerHour = 3_600
 
-    static func hoursMinutesSeconds(
+    package static func hoursMinutesSeconds(
         _ duration: TimeInterval,
         rounding: DurationRounding,
         showingSeconds: Bool

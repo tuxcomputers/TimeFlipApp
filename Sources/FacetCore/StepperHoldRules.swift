@@ -13,11 +13,11 @@ import Foundation
 ///
 /// It earns its keep on a wide range. A daily limit runs 0 to 1440, and stepping by 1 the whole way makes crossing
 /// it a chore, which is the difference between a control somebody uses and one they give up on.
-enum StepperHoldRules {
+package enum StepperHoldRules {
     static let singleStepInterval: TimeInterval = 0.1
     static let fiveStepInterval: TimeInterval = 0.3
     /// How long an arrow is held before it starts repeating, so a plain click is one step and nothing more.
-    static let initialHoldDelay: TimeInterval = 0.4
+    package static let initialHoldDelay: TimeInterval = 0.4
 
     /// The second multiple of 5 strictly beyond `holdStartValue` in the direction of travel (`direction` is `+1` for
     /// the up arrow, `-1` for the down arrow). Once the value reaches this, ticks switch from 1 to 5.
@@ -41,14 +41,14 @@ enum StepperHoldRules {
 
     /// The value after one more tick while held, given the value the hold started at (fixed for the duration of the
     /// hold, and used only to work out the boundary) and the current, possibly already advanced, value.
-    static func nextValue(current: Int, holdStartValue: Int, direction: Int) -> Int {
+    package static func nextValue(current: Int, holdStartValue: Int, direction: Int) -> Int {
         let step = (isPastSecondBoundary(current: current, holdStartValue: holdStartValue, direction: direction) ? 5 : 1)
             * direction
         return current + step
     }
 
     /// How long to wait before the next tick, given the value just reached.
-    static func tickInterval(current: Int, holdStartValue: Int, direction: Int) -> TimeInterval {
+    package static func tickInterval(current: Int, holdStartValue: Int, direction: Int) -> TimeInterval {
         isPastSecondBoundary(current: current, holdStartValue: holdStartValue, direction: direction)
             ? fiveStepInterval
             : singleStepInterval

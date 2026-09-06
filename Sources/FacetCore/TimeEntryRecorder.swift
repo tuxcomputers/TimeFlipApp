@@ -12,9 +12,9 @@ import Foundation
 /// module's standing rule rather than a property of the record, and reading it first means a decision is never
 /// taken against a value read at some other moment.
 @MainActor
-final class TimeEntryRecorder {
+package final class TimeEntryRecorder {
     /// What considering a segment came to.
-    enum Outcome: Equatable {
+    package enum Outcome: Equatable {
         /// It counted, and this is the row.
         case created(timeEntryID: Int, categoryID: Int)
         /// It did not count. Nothing was written to `time_entry`.
@@ -42,9 +42,9 @@ final class TimeEntryRecorder {
     ///
     /// **After the transaction, never inside it.** The entry has to be a committed row before anything is told about
     /// it, or a listener that reads the table would find nothing there.
-    var onEntryRecorded: (() -> Void)?
+    package var onEntryRecorded: (() -> Void)?
 
-    init(connection: DatabaseConnection, settings: SettingStore, faces: FaceStore, debugLog: DebugLog?) {
+    package init(connection: DatabaseConnection, settings: SettingStore, faces: FaceStore, debugLog: DebugLog?) {
         self.connection = connection
         self.settings = settings
         self.faces = faces

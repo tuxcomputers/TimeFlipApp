@@ -6,7 +6,7 @@ import Foundation
 /// the archive and for the reason recorded there: menu building makes real `NSMenuItem`s and is out of reach of a
 /// test, and that is exactly how the dropdown came to disagree with the status item about manual mode -- one was
 /// taught and the other was not, and nothing failed.
-enum CubeLockRules {
+package enum CubeLockRules {
     /// What the item is called.
     ///
     /// **"Unlock" rather than "Resume", which is the archive's pair and is the one that reads correctly here.**
@@ -22,7 +22,7 @@ enum CubeLockRules {
     /// **Unknown reads as "Lock".** That covers a cube nobody has asked yet and one that would not answer, and it is
     /// the safer of the two to be wrong about: an item that offers to lock an already-locked cube sends a command
     /// that changes nothing, while one offering to unlock a running cube would unpause what was never paused.
-    static func title(cubeLockState: CubeLockState) -> String {
+    package static func title(cubeLockState: CubeLockState) -> String {
         cubeLockState == .locked ? "Unlock" : "Lock"
     }
 
@@ -35,7 +35,7 @@ enum CubeLockRules {
     /// **Manual mode is not a case here, unlike Pause.** Pause survives into manual mode because the thing it acts on
     /// moved into the app; lock has no such half. It is a device command with a device state behind it, and with no
     /// device there is nothing to send and nothing to report.
-    static func isEnabled(isCubeConnected: Bool) -> Bool {
+    package static func isEnabled(isCubeConnected: Bool) -> Bool {
         isCubeConnected
     }
 }

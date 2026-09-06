@@ -23,13 +23,13 @@ import Foundation
 /// to the open file description, so a second attempt conflicts even from the same process; `fcntl`
 /// locks belong to the process, so a second attempt inside one process quietly succeeds. Both work
 /// against a real second launch, but only the first can be tested without spawning one.
-final class InstanceLock {
+package final class InstanceLock {
     /// Why a claim did not succeed.
     ///
     /// `cannotTell` is deliberately not folded into `heldByAnotherInstance`: failing to open the lock
     /// file (no directory, a read-only home) says nothing about whether another instance exists, and
     /// treating it as one would let a filesystem problem stop the app from ever starting.
-    enum Denial: Error, Equatable {
+    package enum Denial: Error, Equatable {
         case heldByAnotherInstance
         case cannotTell(String)
     }
@@ -55,7 +55,7 @@ final class InstanceLock {
     /// `InstanceLock` that is not locked, and no second call that could report success for having done
     /// nothing. **Keep what it returns** -- the lock lives on the open file description, so letting the
     /// object go releases it and hands the app's identity to the next launch while this one runs on.
-    static func claim(at url: URL = defaultURL) -> Result<InstanceLock, Denial> {
+    package static func claim(at url: URL = defaultURL) -> Result<InstanceLock, Denial> {
         // Normally already there, since the database lives in it, but a first-ever launch reaches here
         // before anything has created it.
         try? FileManager.default.createDirectory(

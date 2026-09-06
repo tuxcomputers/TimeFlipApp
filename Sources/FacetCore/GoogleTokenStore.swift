@@ -12,7 +12,7 @@ import Security
 /// **Per user and per machine**, which falls out of the Keychain rather than being arranged: a login Keychain belongs
 /// to one account on one Mac, so a database copied to a second machine arrives with no token and asks for a sign-in,
 /// which is the right answer.
-enum GoogleTokenStore {
+package enum GoogleTokenStore {
     /// Keyed by the bundle identifier so a developer build and a release build do not fight over one item.
     private static var service: String {
         (Bundle.main.bundleIdentifier ?? "au.com.tux.facet") + ".google"
@@ -25,7 +25,7 @@ enum GoogleTokenStore {
     /// **Add-then-update rather than delete-then-add.** Deleting first leaves a window with no token at all, and a
     /// crash inside it would lose a working connection to save a new one.
     @discardableResult
-    static func save(refreshToken: String) -> Bool {
+    package static func save(refreshToken: String) -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -52,7 +52,7 @@ enum GoogleTokenStore {
     ///
     /// This used to be one `guard` that returned `nil` for both, which is the "nothing fails silently" rule broken in
     /// the place it costs most: `.missing` and `.unavailable` arrive at the App tab as the same words.
-    enum Lookup: Equatable {
+    package enum Lookup: Equatable {
         case found(String)
         /// `errSecItemNotFound`: nothing is stored. Signing in is the whole of the fix.
         case missing
@@ -61,7 +61,7 @@ enum GoogleTokenStore {
     }
 
     /// Asks the Keychain, and says which of the three answers came back.
-    static func lookUp() -> Lookup {
+    package static func lookUp() -> Lookup {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -95,7 +95,7 @@ enum GoogleTokenStore {
     /// **`true` when there was nothing to delete**, because the caller asked for there to be no token and there is
     /// none. Reporting failure would make a second sign-out look broken.
     @discardableResult
-    static func clear() -> Bool {
+    package static func clear() -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

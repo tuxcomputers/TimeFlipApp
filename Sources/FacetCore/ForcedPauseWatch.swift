@@ -20,7 +20,7 @@ import Foundation
 /// **Everything is read at the moment it is needed**, per the first rule in `CLAUDE.md`. Nothing is held between
 /// looks except the enforcement's claim, which is not a copy of any row -- see its own note.
 @MainActor
-final class ForcedPauseWatch {
+package final class ForcedPauseWatch {
     /// The face the cube's open segment names, or `nil` for a cube with no open segment to read.
     private let cubeFace: () -> Int?
 
@@ -66,7 +66,7 @@ final class ForcedPauseWatch {
     /// currently in flight tells them apart.
     private var isForcedPauseSending = false
 
-    init(
+    package init(
         cubeFace: @escaping () -> Int?,
         hasCategory: @escaping (Int) -> Bool,
         cubePauseState: @escaping () -> CubePauseState,
@@ -89,7 +89,7 @@ final class ForcedPauseWatch {
     }
 
     /// One look. Internal so a test can call it in place of the funnels.
-    func check() {
+    package func check() {
         guard !isForcedPauseSending else { return }
 
         let face = cubeFace()

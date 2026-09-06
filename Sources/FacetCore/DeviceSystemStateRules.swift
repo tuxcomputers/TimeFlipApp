@@ -16,9 +16,9 @@ import Foundation
 /// notification was traced and dropped. That is worse than not subscribing: the cube announces a factory reset here,
 /// and it announces a **flash memory fault** here, and history lives in flash -- so a cube that has quietly stopped
 /// recording says so on this characteristic and the app had no way to hear it.
-enum DeviceSystemStateRules {
+package enum DeviceSystemStateRules {
     /// What the cube wants the app to do.
-    enum CubeSyncState: Equatable {
+    package enum CubeSyncState: Equatable {
         case ok
         /// It has been put back to the factory, so whatever it held is gone.
         case factoryReset
@@ -34,7 +34,7 @@ enum DeviceSystemStateRules {
     }
 
     /// Whether the cube's own hardware is working.
-    enum CubeHardwareState: Equatable {
+    package enum CubeHardwareState: Equatable {
         case ok
         case accelerometer
         /// **Where history is stored.** A cube reporting this records nothing and cannot say so any other way: its
@@ -44,21 +44,21 @@ enum DeviceSystemStateRules {
         case unknown(UInt16)
     }
 
-    struct State: Equatable {
-        let cubeSyncState: CubeSyncState
+    package struct State: Equatable {
+        package let cubeSyncState: CubeSyncState
         let cubeHardwareState: CubeHardwareState
         /// The raw halves, kept so a row in the log can name a code this app does not recognise.
         let rawSync: UInt16
         let rawHardware: UInt16
 
         /// Whether anything here is worth saying out loud.
-        var isEverythingFine: Bool { cubeSyncState == .ok && cubeHardwareState == .ok }
+        package var isEverythingFine: Bool { cubeSyncState == .ok && cubeHardwareState == .ok }
     }
 
     /// Reads the four bytes, or `nil` for a payload that is not one.
     ///
     /// Two big-endian halves: the first says what wants syncing, the second says what is broken.
-    static func state(from value: Data?) -> State? {
+    package static func state(from value: Data?) -> State? {
         guard let value, value.count >= 4 else { return nil }
         let bytes = [UInt8](value)
         let rawSync = UInt16(bytes[0]) << 8 | UInt16(bytes[1])
@@ -99,7 +99,7 @@ enum DeviceSystemStateRules {
     ///
     /// **Spelled out because the codes are the only thing the cube gives and they mean nothing to a reader.** An
     /// unrecognised one carries its number, which is the whole reason `unknown` keeps it.
-    static func describe(_ state: State) -> String {
+    package static func describe(_ state: State) -> String {
         "\(describe(state.cubeSyncState)), hardware \(describe(state.cubeHardwareState))"
     }
 

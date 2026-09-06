@@ -12,7 +12,7 @@ import Foundation
 /// Every command goes out through `send`, so every one of them is read back before it is believed (see the read-back
 /// rule in `CLAUDE.md`). What this adds on top is the sequencing and the setting.
 @MainActor
-final class CubeLock {
+package final class CubeLock {
     /// Where `pause_on_lock` is read from, at the step that needs it.
     private let settings: SettingStore?
 
@@ -62,11 +62,11 @@ final class CubeLock {
     ///
     /// **Set after construction**, because `DailyLimitWatch` is built from things that are built after this. A `var`
     /// rather than an `init` parameter for the same reason `QuitSequence.cubeLock` is one.
-    var isLimitReached: () -> Bool = { false }
+    package var isLimitReached: () -> Bool = { false }
 
     private let debugLog: DebugLog?
 
-    init(
+    package init(
         settings: SettingStore?,
         isCubeConnected: @escaping () -> Bool,
         send: @escaping (Data, @escaping (Bool) -> Void) -> Void,
@@ -106,7 +106,7 @@ final class CubeLock {
     ///
     /// Returns whether anything was sent. `false` means `finished` will not be called.
     @discardableResult
-    func togglePause(then finished: @escaping (Bool) -> Void) -> Bool {
+    package func togglePause(then finished: @escaping (Bool) -> Void) -> Bool {
         setPause(cubePauseState() != .paused, then: finished)
     }
 
@@ -119,7 +119,7 @@ final class CubeLock {
     ///
     /// Returns whether anything was sent. `false` means `finished` will not be called.
     @discardableResult
-    func setPause(_ wanted: Bool, then finished: @escaping (Bool) -> Void) -> Bool {
+    package func setPause(_ wanted: Bool, then finished: @escaping (Bool) -> Void) -> Bool {
         guard isCubeConnected() else {
             debugLog?.record(.command, "No cube connected, so there is nothing to pause or resume")
             return false
@@ -166,7 +166,7 @@ final class CubeLock {
     /// Returns whether anything was sent. `false` means `finished` will not be called and there is nothing to wait
     /// for, which is what lets the quit answer `.terminateNow` from the same fact rather than a second opinion.
     @discardableResult
-    func lock(then finished: @escaping (Bool) -> Void) -> Bool {
+    package func lock(then finished: @escaping (Bool) -> Void) -> Bool {
         guard isCubeConnected() else {
             debugLog?.record(.command, "No cube connected, so there is nothing to pause or lock")
             return false
@@ -212,7 +212,7 @@ final class CubeLock {
     /// the setting that made it has since been turned off would strand somebody's cube in the one state this app can
     /// otherwise not get it out of.
     @discardableResult
-    func resume(then finished: @escaping (Bool) -> Void) -> Bool {
+    package func resume(then finished: @escaping (Bool) -> Void) -> Bool {
         guard isCubeConnected() else {
             debugLog?.record(.command, "No cube connected, so there is nothing to unlock")
             return false

@@ -5,27 +5,27 @@ import Foundation
 ///
 /// Separate from the views for the reason every other `...Rules` type here is: a decision inside a control is a
 /// decision no test can reach, and both of these have an edge that matters more than the common case.
-enum CategoryEditRules {
+package enum CategoryEditRules {
     /// A day's worth of minutes, and the most a daily limit can be.
     ///
     /// The previous app's ceiling, with its reasoning: the limit is a budget for time tracked in one day, so a day is
     /// the most that can be spent against it and anything above it is unreachable rather than merely generous. It is
     /// also what a stepper needs in order to have somewhere to stop.
-    static let maximumDailyLimitMinutes = 1_440
+    package static let maximumDailyLimitMinutes = 1_440
 
     /// Zero, which is the seeded value and means no limit at all rather than a limit of nothing.
-    static let disabledDailyLimit = 0
+    package static let disabledDailyLimit = 0
 
     /// A typed or stepped limit, brought inside the bounds.
     ///
     /// Clamped rather than refused: the field is a number box, so the only ways out of range are a held arrow and a
     /// typed figure, and in both cases the nearest allowed value is what the person meant.
-    static func dailyLimitMinutes(_ requested: Int) -> Int {
+    package static func dailyLimitMinutes(_ requested: Int) -> Int {
         min(maximumDailyLimitMinutes, max(disabledDailyLimit, requested))
     }
 
     /// Why a category cannot be changed at all, or `nil` when it can.
-    enum EditRefusal: Equatable {
+    package enum EditRefusal: Equatable {
         /// A locked face holds this category. A locked face is one the user has said keeps what it has, and what it
         /// has is not only *which* category but how that category looks on the cube -- its icon and its colour are
         /// what the face shows.
@@ -45,7 +45,7 @@ enum CategoryEditRules {
     /// Only the *active* list is affected, which needs no check here because it is the only list that offers edits.
     /// Reinstating a category a locked face holds -- which a database written before any of this can have -- must
     /// still work, since reinstating puts nothing on any face.
-    static func editRefusal(facesHolding faces: [(face: Int, isFaceLocked: Bool)]) -> EditRefusal? {
+    package static func editRefusal(facesHolding faces: [(face: Int, isFaceLocked: Bool)]) -> EditRefusal? {
         let locked = faces.filter(\.isFaceLocked).map(\.face)
         return locked.isEmpty ? nil : .lockedFaces(locked)
     }
@@ -56,12 +56,12 @@ enum CategoryEditRules {
     /// Copied from the previous app along with its reasoning: the None row (`icon_id` 0) is a sentinel rather than a
     /// bundled asset, so there is nothing to draw in a cell for it, and a grid that could only ever set an icon would
     /// make "no icon" a state a category could leave but never return to.
-    static func iconSelection(clicked iconID: Int, selected selectedIconID: Int) -> Int {
+    package static func iconSelection(clicked iconID: Int, selected selectedIconID: Int) -> Int {
         iconID == selectedIconID ? noIcon : iconID
     }
 
     /// The `icon_id` meaning no icon at all, which is what every category starts with.
-    static let noIcon = 0
+    package static let noIcon = 0
 
     /// The `colour_id` a click on the colour list should store.
     ///
@@ -70,7 +70,7 @@ enum CategoryEditRules {
     /// two independent decisions about two different tables, and one of them changing later should not have to be
     /// untangled from the other first. What they do share is the sentence above, so a call site reads the same way
     /// whichever it is asking about.
-    static func colourSelection(clicked colourID: Int, selected selectedColourID: Int) -> Int {
+    package static func colourSelection(clicked colourID: Int, selected selectedColourID: Int) -> Int {
         colourID == selectedColourID ? noColour : colourID
     }
 
@@ -79,7 +79,7 @@ enum CategoryEditRules {
     static let noColour = 0
 
     /// Whether a retired category can come back, and what stops it.
-    enum ReinstateDecision: Equatable {
+    package enum ReinstateDecision: Equatable {
         case reinstate
         /// An active category already holds this name, so bringing this one back under it is not possible.
         case refuse(activeNamesake: CategoryRecord)
@@ -98,7 +98,7 @@ enum CategoryEditRules {
     /// - Parameters:
     ///   - category: the retired row whose box was ticked.
     ///   - matches: every category holding that name, whatever state each is in -- `CategoryStore.matching(name:)`.
-    static func reinstateDecision(for category: CategoryRecord, matching matches: [CategoryRecord]) -> ReinstateDecision {
+    package static func reinstateDecision(for category: CategoryRecord, matching matches: [CategoryRecord]) -> ReinstateDecision {
         // Itself excluded: a retired row always matches its own name, and it is not in its own way.
         guard let namesake = matches.first(where: { $0.isCategoryActive && $0.id != category.id }) else {
             return .reinstate
@@ -110,7 +110,7 @@ enum CategoryEditRules {
     ///
     /// Every control in the row carries this, rather than one of them: whichever is reached for first is the one that
     /// has to explain itself, and a disabled control with no reason is a control that looks broken.
-    static func editRefusalHelp(_ refusal: EditRefusal?, categoryName: String) -> String? {
+    package static func editRefusalHelp(_ refusal: EditRefusal?, categoryName: String) -> String? {
         switch refusal {
         case nil:
             return nil

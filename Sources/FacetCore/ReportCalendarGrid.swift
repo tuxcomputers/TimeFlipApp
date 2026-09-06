@@ -11,11 +11,11 @@ import Foundation
 ///
 /// Everything here takes its `Calendar`, so the locale's first weekday is honoured rather than a Monday or Sunday
 /// being assumed, and tests can pin a calendar instead of inheriting the machine's.
-enum ReportCalendarGrid {
+package enum ReportCalendarGrid {
     /// Six weeks, always. A month needs five or six depending on where it starts, and a grid that changed height
     /// between months would move everything under it as you page.
-    static let weeksShown = 6
-    static let daysPerWeek = 7
+    package static let weeksShown = 6
+    package static let daysPerWeek = 7
 
     /// The first instant of the month containing `date`.
     static func startOfMonth(containing date: Date, calendar: Calendar) -> Date {
@@ -28,7 +28,7 @@ enum ReportCalendarGrid {
     /// The days that pad the first and last weeks are the **real** adjacent-month dates rather than blanks, so every
     /// cell has a date to name -- which is what lets the range emphasis run continuously across a month boundary
     /// instead of stopping at the edge of the grid, and gives VoiceOver something to read for a padding cell.
-    static func days(forMonthContaining date: Date, calendar: Calendar) -> [Date] {
+    package static func days(forMonthContaining date: Date, calendar: Calendar) -> [Date] {
         let firstOfMonth = startOfMonth(containing: date, calendar: calendar)
         let weekday = calendar.component(.weekday, from: firstOfMonth)
         // How far the 1st sits from the start of its week, given where this locale's week begins.
@@ -46,7 +46,7 @@ enum ReportCalendarGrid {
     /// S/M/T/W/T/F/S in English, and the `EEEEEE` "short narrow" format is ragged in en_GB, which returns a mix of
     /// two- and three-letter forms (`Mon Tu Wed Th Fri Sat Su`). Cutting is safe for locales whose symbols are already
     /// shorter -- Japanese weekdays are a single character and pass through untouched.
-    static func weekdaySymbols(calendar: Calendar, locale: Locale) -> [String] {
+    package static func weekdaySymbols(calendar: Calendar, locale: Locale) -> [String] {
         var source = calendar
         source.locale = locale
         let symbols = source.shortWeekdaySymbols
@@ -58,13 +58,13 @@ enum ReportCalendarGrid {
     }
 
     /// Whether two instants fall in the same month of the same year.
-    static func isSameMonth(_ lhs: Date, _ rhs: Date, calendar: Calendar) -> Bool {
+    package static func isSameMonth(_ lhs: Date, _ rhs: Date, calendar: Calendar) -> Bool {
         calendar.isDate(lhs, equalTo: rhs, toGranularity: .month)
     }
 
     /// Whether two instants fall on the same day. What the emphasis and selection comparisons use, since both sides
     /// carry a time of day that has nothing to do with the question.
-    static func isSameDay(_ lhs: Date, _ rhs: Date, calendar: Calendar) -> Bool {
+    package static func isSameDay(_ lhs: Date, _ rhs: Date, calendar: Calendar) -> Bool {
         calendar.isDate(lhs, inSameDayAs: rhs)
     }
 
@@ -73,7 +73,7 @@ enum ReportCalendarGrid {
     /// This is what stops the calendar paging into a month where everything is greyed out: a month is reachable only
     /// if some part of it lies inside `allowed`. Comparing whole months rather than instants is deliberate -- the
     /// month containing the last selectable day is reachable even though most of it sits beyond that day.
-    static func month(
+    package static func month(
         movedFrom displayed: Date,
         by months: Int,
         within allowed: ClosedRange<Date>,
@@ -95,7 +95,7 @@ enum ReportCalendarGrid {
     /// The month to show for a given selection, pulled inside `allowed` if the selection sits outside it. Used when
     /// the calendar first appears and whenever the bounds move under it -- the To calendar's lower bound follows the
     /// start date, and it must not be left displaying a month it can no longer reach.
-    static func displayableMonth(
+    package static func displayableMonth(
         for selection: Date,
         within allowed: ClosedRange<Date>,
         calendar: Calendar

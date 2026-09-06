@@ -3,7 +3,7 @@ import Foundation
 /// What a confirmed pairing puts in the `setting` table, decided away from the writing of it.
 ///
 /// Two questions, both about names, and both easy to get wrong in a way no test with a radio in it would catch.
-enum DevicePairingRules {
+package enum DevicePairingRules {
     /// The name to record for a cube: its **GAP name and nothing else**.
     ///
     /// **Not `DeviceScanRules.label`**, which is what the list shows and falls back to the advertised name and then to
@@ -57,7 +57,7 @@ enum DevicePairingRules {
     /// last rename would be recorded under the current name until somebody renamed it. Both halves of that are
     /// unlikely together, and a rename puts it right; adopting the stale read instead would break the ordinary path
     /// every time a renamed cube reconnects.
-    static func adoption(of reported: String, current: String?, previouslyKnown: String?) -> ReportedName {
+    package static func adoption(of reported: String, current: String?, previouslyKnown: String?) -> ReportedName {
         let reported = reported.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !reported.isEmpty else { return .unchanged }
         if reported == current?.trimmingCharacters(in: .whitespacesAndNewlines) { return .unchanged }
@@ -68,7 +68,7 @@ enum DevicePairingRules {
     }
 
     /// What a name arriving from a cube is worth.
-    enum ReportedName: Equatable {
+    package enum ReportedName: Equatable {
         /// News: write it down, and keep what it replaced.
         case adopt
         /// The name already on record. Nothing to write, and nothing to say.
@@ -89,11 +89,11 @@ enum DevicePairingRules {
     /// **Gated on the pairing and not on the connection**, which is the same distinction the TimeFlip section draws: a cube
     /// out of range is still this app's cube, and putting the Scan button back the moment it went quiet would offer to
     /// replace a device that is merely in another room.
-    static func showsScanControls(isCubePaired: Bool) -> Bool { !isCubePaired }
+    package static func showsScanControls(isCubePaired: Bool) -> Bool { !isCubePaired }
 
     /// Whether **Forget** and **Reset** are on show. The other half of the same swap: exactly one of the two sets is up
     /// at any time, because they answer the two states the section can be in.
-    static func showsPairedControls(isCubePaired: Bool) -> Bool { isCubePaired }
+    package static func showsPairedControls(isCubePaired: Bool) -> Bool { isCubePaired }
 
     /// Whether **Forget Device** may be pressed.
     ///
@@ -106,7 +106,7 @@ enum DevicePairingRules {
     /// **Refused while an attempt is in flight**, which is the archive's other half: a connect owns the pairing state
     /// until it resolves, and dropping it from underneath one would leave the two disagreeing about whether there is a
     /// device. An attempt is over in seconds.
-    static func allowsForget(isCubePaired: Bool, isReachingForCube: Bool) -> Bool { isCubePaired && !isReachingForCube }
+    package static func allowsForget(isCubePaired: Bool, isReachingForCube: Bool) -> Bool { isCubePaired && !isReachingForCube }
 
     /// Whether **Reset Device** may be pressed.
     ///
@@ -119,7 +119,7 @@ enum DevicePairingRules {
     /// the reset was then "confirmed" without any cube being touched. Here there is one path and it is the radio, so a
     /// live button with nothing connected would report a wipe that never left the Mac. Wanting to stop chasing a cube
     /// is what Forget is for, and it stays available in exactly that state.
-    static func allowsReset(isCubePaired: Bool, isCubeConnected: Bool, isReachingForCube: Bool) -> Bool {
+    package static func allowsReset(isCubePaired: Bool, isCubeConnected: Bool, isReachingForCube: Bool) -> Bool {
         isCubePaired && isCubeConnected && !isReachingForCube
     }
 }

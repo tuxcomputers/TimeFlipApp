@@ -12,7 +12,7 @@ import Foundation
 /// **What is *not* here is what is not on that tab.** The battery warning's bounds moved to `BatteryRules` on
 /// 2026-09-03 with the row itself, which is now the Device tab's, and they sit beside the other numbers the
 /// threshold is judged by rather than beside settings it no longer shares a tab with.
-enum AppSettingsRules {
+package enum AppSettingsRules {
     // MARK: - the daily reset
 
     /// The hour the day's accounting rolls over, on a 12-hour face.
@@ -22,17 +22,17 @@ enum AppSettingsRules {
     /// and PM was only ever a way to pick a wrong one. The archive found that out and reduced the row to one field,
     /// one suffix, one pair of arrows -- which also retired the twelve arrow clicks it used to take to cross from AM
     /// to PM.
-    static let resetHours = 1 ... 12
-    static let resetSuffix = "AM"
+    package static let resetHours = 1 ... 12
+    package static let resetSuffix = "AM"
     /// The seeded `daily_reset_time`: 3 AM rather than midnight, so a session spanning midnight is not split.
-    static let defaultResetHour24 = 3
+    package static let defaultResetHour24 = 3
 
     /// A 24-hour hour as it reads on a 12-hour face: 0 becomes 12, 13 becomes 1.
     ///
     /// A stored PM hour still has to draw as *something* on an AM-only face, and it draws as its clock-face hour --
     /// the same 3 for 15:00 -- rather than being silently corrected here. Correcting the stored value is a write, and
     /// this is a reading.
-    static func hour12(from hour24: Int) -> Int {
+    package static func hour12(from hour24: Int) -> Int {
         let onTheFace = ((hour24 % 12) + 12) % 12
         return onTheFace == 0 ? 12 : onTheFace
     }
@@ -44,10 +44,10 @@ enum AppSettingsRules {
     ///
     /// An hour is the far end of useful, the periodic fetch being a safety net behind the live face and pause events
     /// rather than the main path.
-    static let fetchIntervalMinutes = 1 ... 60
+    package static let fetchIntervalMinutes = 1 ... 60
     /// The seeded `fetch_history_interval_seconds`, which is **below the floor on purpose**: sub-minute polling makes
     /// history arrive quickly while testing, so the seed is a developer's value and this row floors it.
-    static let defaultFetchIntervalSeconds = 10
+    package static let defaultFetchIntervalSeconds = 10
 
     // MARK: - the blip filter
 
@@ -57,22 +57,22 @@ enum AppSettingsRules {
     /// **The ceiling is deliberately low.** Measured blips are 0 to 3 seconds, so anything much beyond the default is
     /// discarding real work, and a mistyped 90 silently throwing away a minute and a half of tracked time would be a
     /// bad thing to have to notice later.
-    static let blipSeconds = 0 ... 30
+    package static let blipSeconds = 0 ... 30
     /// The seeded `blip_time`, which is the vendor's own number: the `0x02` history stream carries "all intervals
     /// that lasted for at least 5 sec", so matching it discards exactly what a bulk read would never have shown.
-    static let defaultBlipSeconds = 5
+    package static let defaultBlipSeconds = 5
 
     // MARK: - saying it in words
 
     /// Seconds as whole minutes, rounded down, and never below the row's own floor: the seeded interval is smaller
     /// than a minute, and a row showing `0 mins` would be reporting a number the control cannot even hold.
-    static func minutes(fromSeconds seconds: Int) -> Int {
+    package static func minutes(fromSeconds seconds: Int) -> Int {
         max(fetchIntervalMinutes.lowerBound, seconds / 60)
     }
 
     /// The unit beside a number, singular for exactly one. "1 min" and "2 mins", which is the archive's own wording
     /// and worth the branch: "1 mins" is the kind of thing that makes an app look unfinished.
-    static func unit(_ singular: String, _ plural: String, for value: Int) -> String {
+    package static func unit(_ singular: String, _ plural: String, for value: Int) -> String {
         value == 1 ? singular : plural
     }
 
@@ -84,12 +84,12 @@ enum AppSettingsRules {
     /// **Always AM**, which is what the row offers, so a value stored as a PM hour is normalised to its AM equivalent
     /// the first time somebody touches the row. The archive did the same, deliberately: the face cannot express the
     /// old value, so leaving it alone would mean a row that reads 3 and stores 15.
-    static func hour24(fromFace hour12: Int) -> Int {
+    package static func hour24(fromFace hour12: Int) -> Int {
         hour12 % 12
     }
 
     /// Whole minutes as the seconds the table stores.
-    static func seconds(fromMinutes minutes: Int) -> Int {
+    package static func seconds(fromMinutes minutes: Int) -> Int {
         minutes * 60
     }
 
@@ -101,7 +101,7 @@ enum AppSettingsRules {
     /// write the right number into the wrong column.
     /// `nil` for a change that is not one field being set to one value. Signing out empties two fields at once, so
     /// it has no single destination and is written by its own path rather than squeezed through this one.
-    static func destination(for change: AppSettingsChange) -> (setting: String, field: String, value: Stored)? {
+    package static func destination(for change: AppSettingsChange) -> (setting: String, field: String, value: Stored)? {
         switch change {
         case let .showsSeconds(on):
             return ("display_seconds", "enabled", .flag(on))
@@ -130,7 +130,7 @@ enum AppSettingsRules {
     }
 
     /// What goes into the column: the three shapes a setting's field takes.
-    enum Stored: Equatable {
+    package enum Stored: Equatable {
         case flag(Bool)
         case number(Int)
         case text(String)
@@ -138,7 +138,7 @@ enum AppSettingsRules {
 
     /// What a row is called when something has to be said about it out loud, which is the label beside it rather than
     /// the column it writes: nobody reading an alert knows what `low_battery_level` is.
-    static func title(for change: AppSettingsChange) -> String {
+    package static func title(for change: AppSettingsChange) -> String {
         switch change {
         case .showsSeconds: return "Show seconds"
         case .dailyResetHour12: return "Daily reset at"

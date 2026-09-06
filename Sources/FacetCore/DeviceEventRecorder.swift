@@ -18,11 +18,11 @@ import Foundation
 ///
 /// `processed` is untouched here for the same reason: it is the time entry side's marker, not this side's.
 @MainActor
-final class DeviceEventRecorder {
+package final class DeviceEventRecorder {
     /// What recording a segment did, for a caller that wants to say so or to react to it.
-    struct Outcome: Equatable {
+    package struct Outcome: Equatable {
         /// The row now holding this segment.
-        let deviceEventID: Int
+        package let deviceEventID: Int
 
         /// Whether that row is the live one (`finalised = 0`), i.e. the segment still in progress.
         let isOpen: Bool
@@ -46,7 +46,7 @@ final class DeviceEventRecorder {
     /// `nil` in a build without the dev flag, which is all there is to switching this off.
     private let debugLog: DebugLog?
 
-    init(
+    package init(
         connection: DatabaseConnection,
         timezones: TimezoneStore,
         timeEntries: TimeEntryRecorder?,
@@ -132,7 +132,7 @@ final class DeviceEventRecorder {
     /// remapped in there, and doing it the other way round would file the segment that just ended under the
     /// category that replaced it.
     @discardableResult
-    func startSegment(face: Int, at moment: Date) -> Outcome? {
+    package func startSegment(face: Int, at moment: Date) -> Outcome? {
         let startEpoch = Int(moment.timeIntervalSince1970)
         return record(
             DeviceEventSegment(
@@ -165,7 +165,7 @@ final class DeviceEventRecorder {
     /// carries the cube's own measurement of it, which is the same reasoning `closeSegmentsStrandedOnAppFaces` gives
     /// for leaving these alone at startup.
     @discardableResult
-    func closeOpenSegment(at moment: Date) -> Outcome? {
+    package func closeOpenSegment(at moment: Date) -> Outcome? {
         guard let open = openSegment() else { return nil }
         guard ManualFace.isAppFace(open.face) else {
             // Said rather than returned in silence: a quit that closed nothing and a quit that found nothing open
@@ -215,7 +215,7 @@ final class DeviceEventRecorder {
     /// Quiet by default. At one tick every ten seconds a row apiece would bury everything else in `debug_log`,
     /// and a tick that did what the last one did says nothing; a refused write still reports itself.
     @discardableResult
-    func refreshOpenSegment(at moment: Date) -> Outcome? {
+    package func refreshOpenSegment(at moment: Date) -> Outcome? {
         guard let open = openSegment() else { return nil }
         // **Only a segment this app is measuring.** With a cube followed the same tick asks the cube for its history,
         // and what comes back is the device's own measurement of this stretch; growing the row from the wall clock
@@ -271,7 +271,7 @@ final class DeviceEventRecorder {
     /// Which is the whole difference between the two kinds of face: the app's own segments stop existing when the
     /// app does, and a cube's do not.
     @discardableResult
-    func closeSegmentsStrandedOnAppFaces() -> [Int] {
+    package func closeSegmentsStrandedOnAppFaces() -> [Int] {
         let stranded = openRowIDs(onFacesAbove: ManualFace.highestDeviceFace)
         guard !stranded.isEmpty else { return [] }
         guard connection.execute(
@@ -315,10 +315,10 @@ final class DeviceEventRecorder {
     // MARK: - what is already on record
 
     /// The segment still open: what is happening right now, as far as the table is concerned.
-    struct OpenSegment: Equatable {
+    package struct OpenSegment: Equatable {
         let deviceEventID: Int
         let eventNumber: Int
-        let face: Int
+        package let face: Int
         let startEpoch: Int
         let isPaused: Bool
     }
@@ -329,7 +329,7 @@ final class DeviceEventRecorder {
     ///
     /// Internal because a running segment has no `time_entry` yet, so anything summing a category's time has to
     /// add this on top -- which is also what stops it being counted twice.
-    func openSegment() -> OpenSegment? {
+    package func openSegment() -> OpenSegment? {
         var found: OpenSegment?
         connection.forEachRow(
             "SELECT device_event_id, event_number, device_face, start_epoch, paused FROM device_event "
@@ -548,7 +548,7 @@ final class DeviceEventRecorder {
         return found
     }
 
-    func latestFace(in faces: [Int]) -> Int? {
+    package func latestFace(in faces: [Int]) -> Int? {
         guard !faces.isEmpty else { return nil }
         let list = faces.map(String.init).joined(separator: ",")
         var found: Int?
@@ -571,7 +571,7 @@ final class DeviceEventRecorder {
     ///
     /// Not the face the *next* segment goes on: that is `ManualFace.next(after: latestFace(in:))`, which must see
     /// the raw `nil` to start the rotation at its beginning rather than one past it.
-    func currentManualFace() -> Int {
+    package func currentManualFace() -> Int {
         latestFace(in: ManualFace.all) ?? ManualFace.first
     }
 

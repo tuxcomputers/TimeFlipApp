@@ -12,15 +12,15 @@ import Foundation
 /// `dd/MM` and a 24-hour clock were asked for, and a machine set to en_US would otherwise render the day as `08/13`
 /// and the time as `1:08 PM`. Fixed also keeps the columns the same width down the list, which is what lets the
 /// figures be compared by eye.
-enum ReportEntryText {
+package enum ReportEntryText {
     /// The day, as `dd/MM`. No year: a report covers a range somebody has just picked on two calendars, so the year is
     /// on screen twice already.
-    static func date(_ date: Date, calendar: Calendar = .current) -> String {
+    package static func date(_ date: Date, calendar: Calendar = .current) -> String {
         formatter(pattern: "dd/MM", calendar: calendar).string(from: date)
     }
 
     /// A clock time, to the minute or to the second.
-    static func clock(_ date: Date, showingSeconds: Bool, calendar: Calendar = .current) -> String {
+    package static func clock(_ date: Date, showingSeconds: Bool, calendar: Calendar = .current) -> String {
         formatter(pattern: showingSeconds ? "HH:mm:ss" : "HH:mm", calendar: calendar).string(from: date)
     }
 
@@ -28,13 +28,13 @@ enum ReportEntryText {
     /// here and another way in the menu bar.
     ///
     /// Rounded rather than truncated, as the totals are: this is a finished stretch, not a figure still counting up.
-    static func duration(_ seconds: TimeInterval, showingSeconds: Bool) -> String {
+    package static func duration(_ seconds: TimeInterval, showingSeconds: Bool) -> String {
         DurationFormat.hoursMinutesSeconds(seconds, rounding: .round, showingSeconds: showingSeconds)
     }
 
     /// What a screen reader is given for a row, which is the whole of it in words: a column of digits conveys nothing
     /// read out on its own.
-    static func spoken(_ entry: TimeEntryRecord, showingSeconds: Bool, calendar: Calendar = .current) -> String {
+    package static func spoken(_ entry: TimeEntryRecord, showingSeconds: Bool, calendar: Calendar = .current) -> String {
         let day = formatter(pattern: "d MMMM", calendar: calendar).string(from: entry.start)
         let from = clock(entry.start, showingSeconds: showingSeconds, calendar: calendar)
         let to = clock(entry.end, showingSeconds: showingSeconds, calendar: calendar)

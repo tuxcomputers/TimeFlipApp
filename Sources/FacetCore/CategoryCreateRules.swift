@@ -6,8 +6,8 @@ import Foundation
 /// in, a decision comes out. The previous app learned this the hard way -- these decisions lived as
 /// private methods inside a SwiftUI view, which made the most error-prone logic in the tab unreachable
 /// by any test.
-enum CategoryCreateRules {
-    enum Decision: Equatable {
+package enum CategoryCreateRules {
+    package enum Decision: Equatable {
         /// Nothing typed. Not an error, and not worth an alert -- just nothing to do.
         case ignore
         /// Insert a new category under this name.
@@ -30,12 +30,12 @@ enum CategoryCreateRules {
     /// **The order is the order the buttons are added**, which on this platform means the first is the default and
     /// sits rightmost. Reactivate leads because it is the answer that keeps the history, and it is what typing a name
     /// somebody used before usually means; Cancel is last, and the only one that changes nothing.
-    enum RetiredNamesakeChoice: String, Equatable, CaseIterable {
+    package enum RetiredNamesakeChoice: String, Equatable, CaseIterable {
         case reactivate
         case createNew
         case cancel
 
-        var buttonTitle: String {
+        package var buttonTitle: String {
             switch self {
             case .reactivate: return "Reactivate"
             case .createNew: return "Create new one"
@@ -50,13 +50,13 @@ enum CategoryCreateRules {
     /// one to bring back: they share a name and nothing on the button distinguishes them. Offering it would mean the
     /// app picking one on the user's behalf, which is the thing it cannot know. Creating a new one is unaffected --
     /// only an *active* namesake bars a name -- so that button stays, and Cancel with it.
-    static func choices(retiredNamesakes count: Int) -> [RetiredNamesakeChoice] {
+    package static func choices(retiredNamesakes count: Int) -> [RetiredNamesakeChoice] {
         count == 1 ? [.reactivate, .createNew, .cancel] : [.createNew, .cancel]
     }
 
     /// What the dialogue says. The name is quoted, as it is in every other message this window shows, so a name with
     /// a space in it cannot be misread as part of the sentence.
-    static func retiredNamesakeMessage(name: String) -> String {
+    package static func retiredNamesakeMessage(name: String) -> String {
         "The category \"\(name)\" already exists as a deactivated category"
     }
 
@@ -65,7 +65,7 @@ enum CategoryCreateRules {
     /// **Because the count is also the reason a button is missing.** With more than one there is no Reactivate to
     /// offer, and a dialogue that quietly presented fewer choices than it did last time would read as a bug rather
     /// than as an answer nobody can give.
-    static func retiredNamesakeCount(_ count: Int) -> String {
+    package static func retiredNamesakeCount(_ count: Int) -> String {
         count == 1
             ? "There is one category with the same name."
             : "There are \(count) categories with the same name."
@@ -77,7 +77,7 @@ enum CategoryCreateRules {
     /// Turning an answer back into a choice lives here rather than at the alert, and takes the same list the buttons
     /// were built from, so the order on screen and the meaning of the answer cannot drift apart -- including when
     /// the list is the shorter one.
-    static func choice(forButtonIndex index: Int, offering choices: [RetiredNamesakeChoice]) -> RetiredNamesakeChoice? {
+    package static func choice(forButtonIndex index: Int, offering choices: [RetiredNamesakeChoice]) -> RetiredNamesakeChoice? {
         guard choices.indices.contains(index) else { return nil }
         return choices[index]
     }
@@ -87,7 +87,7 @@ enum CategoryCreateRules {
     /// **The same number is a `CHECK` on `category_name` (`database/007_category.sql`)**, which is the one that
     /// actually holds: this is what stops a name reaching it, not what decides the limit. Both fields that take a
     /// name are held to it as they are typed, so the constraint is never the thing a person meets.
-    static let maximumLength = 35
+    package static let maximumLength = 35
 
     /// Collapses whitespace and cuts the result to `maximumLength`, which is what the table will hold whatever was
     /// typed. Collapsing is so that a trailing space cannot slip a duplicate past the check that follows, and two
@@ -99,7 +99,7 @@ enum CategoryCreateRules {
     ///
     /// Every name reaching the table comes through here, from both fields and both decisions, which is what makes
     /// this a guarantee rather than a second opinion.
-    static func normalise(_ raw: String) -> String {
+    package static func normalise(_ raw: String) -> String {
         let collapsed = raw.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         guard collapsed.count > maximumLength else { return collapsed }
         return String(collapsed.prefix(maximumLength)).trimmingCharacters(in: .whitespaces)
@@ -107,7 +107,7 @@ enum CategoryCreateRules {
 
     /// `matching` is asked for **every** category holding the normalised name, active one first (see
     /// `CategoryStore.matching`), because how many there are changes the answer.
-    static func decision(rawName: String, matching: (String) -> [CategoryRecord]) -> Decision {
+    package static func decision(rawName: String, matching: (String) -> [CategoryRecord]) -> Decision {
         let name = normalise(rawName)
         guard !name.isEmpty else { return .ignore }
 

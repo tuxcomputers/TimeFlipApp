@@ -5,7 +5,7 @@ import Foundation
 ///
 /// Each number is in the unit the *row* shows -- a 12-hour face, whole minutes -- rather than the unit the table
 /// stores, for the same reason: converting is a rule, and doing it here would be a second place it happens.
-enum AppSettingsChange: Equatable {
+package enum AppSettingsChange: Equatable {
     case showsSeconds(Bool)
     case dailyResetHour12(Int)
     case fetchIntervalMinutes(Int)

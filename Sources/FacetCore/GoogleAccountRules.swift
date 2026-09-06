@@ -18,23 +18,23 @@ import Foundation
 ///   Facet makes its own calendar under `calendar.app.created` instead, so there is nothing to choose.
 ///
 /// What survives is the part that was always the section's job: saying which account is connected.
-enum GoogleAccountRules {
+package enum GoogleAccountRules {
     /// The `setting` row this section reads, and the two fields of it that hold the identity.
     ///
     /// The row carries `calendar_id`, `calendar_name` and `client_id` as well, which this section does not touch.
     /// `database/011_setting.sql` is explicit that **only the identity is cleared on sign-out**, so that a later
     /// sign-in with a different account re-fetches, while the configuration beside it survives.
-    static let setting = "google_account"
-    static let nameField = "name"
-    static let emailField = "email"
+    package static let setting = "google_account"
+    package static let nameField = "name"
+    package static let emailField = "email"
 
     /// The identity the `google_account` row carries, which is **half** of a connection.
     ///
     /// Both fields are optional and independently so: the row starts as `{}`, and the userinfo endpoint can return a
     /// profile with no name on it. So an identity exists if *either* is there, not if both are.
-    struct Account: Equatable {
-        var name: String?
-        var email: String?
+    package struct Account: Equatable {
+        package var name: String?
+        package var email: String?
 
         /// **Whether the row names somebody, and nothing more than that.**
         ///
@@ -42,11 +42,11 @@ enum GoogleAccountRules {
         /// file exists to correct: the identity is in the database and the token that makes it usable is in the
         /// Keychain, so a row can name an account perfectly while the app has no way to act as it. Measured on
         /// 2026-08-26: a complete row, an App tab reading Connected, and no Keychain item at all.
-        var hasGoogleIdentity: Bool {
+        package var hasGoogleIdentity: Bool {
             name != nil || email != nil
         }
 
-        static let none = Account(name: nil, email: nil)
+        package static let none = Account(name: nil, email: nil)
     }
 
     /// Reads an account out of what the table gave back, treating blank as absent.
@@ -54,7 +54,7 @@ enum GoogleAccountRules {
     /// **A field of spaces is not a name.** Sign-out writes empty strings rather than deleting the keys, so an empty
     /// string has to mean the same as a missing key or signing out would leave the section claiming a connection to
     /// an account called "".
-    static func account(name: String?, email: String?) -> Account {
+    package static func account(name: String?, email: String?) -> Account {
         Account(name: trimmedOrNil(name), email: trimmedOrNil(email))
     }
 
@@ -69,7 +69,7 @@ enum GoogleAccountRules {
     ///
     /// A straight mirror of `GoogleTokenStore.Lookup`, kept as its own type so this file can be reasoned about, and
     /// tested, without a Keychain anywhere near it.
-    enum Credential: Equatable {
+    package enum Credential: Equatable {
         case present
         case missing
         /// The Keychain would not answer. **Nothing is known**, which is not the same as knowing there is nothing.
@@ -82,7 +82,7 @@ enum GoogleAccountRules {
     /// be revoked at myaccount.google.com, expire through disuse, or die with a password change, and the stored bytes
     /// read identically in every case. So this is the answer to a question asked at the point of use, and it goes
     /// stale the moment it is given, which is why it is a parameter rather than a field on anything.
-    enum Verification: Equatable {
+    package enum Verification: Equatable {
         /// Nobody has asked yet. The ordinary state for the instant a window opens.
         case notAsked
         case working
@@ -97,7 +97,7 @@ enum GoogleAccountRules {
     ///
     /// **One value, computed, rather than a pile of booleans read in whatever order two `if`s happen to run in.**
     /// Every string, every button and the calendar row all come from this, so they cannot disagree with each other.
-    enum State: Equatable {
+    package enum State: Equatable {
         /// Nothing stored. Never signed in, or signed out cleanly.
         case notConnected
         /// The row names an account and there is no token for it. A fresh sign-in is the whole of the fix.
@@ -117,7 +117,7 @@ enum GoogleAccountRules {
     }
 
     /// The one place the state is decided.
-    static func state(
+    package static func state(
         for account: Account,
         credential: Credential,
         verification: Verification = .notAsked
@@ -141,7 +141,7 @@ enum GoogleAccountRules {
     /// The archive's two words survive for the two states they were true of. The rest say what is actually the case,
     /// because "Not connected" in front of somebody whose Keychain merely would not answer is a false statement with
     /// an expensive remedy attached.
-    static func status(for googleAccountState: State) -> String {
+    package static func status(for googleAccountState: State) -> String {
         switch googleAccountState {
         case .notConnected: return "Not connected"
         case .signedOut: return "Signed out"
@@ -154,12 +154,12 @@ enum GoogleAccountRules {
 
     /// What pressing the button will do. Named rather than inferred, so the pane does not have to re-derive it from
     /// the title it is about to draw.
-    enum Action: Equatable {
+    package enum Action: Equatable {
         case signIn
         case disconnect
     }
 
-    static func action(for googleAccountState: State) -> Action {
+    package static func action(for googleAccountState: State) -> Action {
         switch googleAccountState {
         case .notConnected, .signedOut, .expired: return .signIn
         case .unverified, .connected, .unreachable, .unreadable: return .disconnect
@@ -168,7 +168,7 @@ enum GoogleAccountRules {
 
     /// What the button offers. One button, whose meaning flips with the googleAccountState, rather than two with one always
     /// disabled.
-    static func buttonTitle(for googleAccountState: State, isSigningIn: Bool = false) -> String {
+    package static func buttonTitle(for googleAccountState: State, isSigningIn: Bool = false) -> String {
         if isSigningIn { return "Signing in..." }
         return action(for: googleAccountState) == .disconnect ? "Disconnect" : "Sign in with Google"
     }
@@ -178,7 +178,7 @@ enum GoogleAccountRules {
     /// **Off while a sign-in is running**, so a second browser window cannot be opened on top of the first, and off
     /// when this build has no credentials in it, which is a real googleAccountState: the client id and secret are injected at build
     /// time and a copy built without them cannot sign in at all. Disconnecting needs neither.
-    static func isButtonEnabled(for googleAccountState: State, hasGoogleCredentials: Bool, isSigningIn: Bool = false) -> Bool {
+    package static func isButtonEnabled(for googleAccountState: State, hasGoogleCredentials: Bool, isSigningIn: Bool = false) -> Bool {
         if isSigningIn { return false }
         return action(for: googleAccountState) == .disconnect || hasGoogleCredentials
     }
@@ -188,7 +188,7 @@ enum GoogleAccountRules {
     /// **Only where a calendar request could actually succeed.** Offering Create or Delete in a googleAccountState where every
     /// request is going to be refused is a button that can only fail, which is the same reason the row has always
     /// been withheld until there is an account to make one in.
-    static func showsCalendar(for googleAccountState: State) -> Bool {
+    package static func showsCalendar(for googleAccountState: State) -> Bool {
         switch googleAccountState {
         case .unverified, .connected, .unreachable: return true
         case .notConnected, .signedOut, .expired, .unreadable: return false
@@ -199,7 +199,7 @@ enum GoogleAccountRules {
     ///
     /// Says what pressing it will do, or what went wrong and whose problem it is. **Every googleAccountState that needs an action
     /// says which**, and the two that need none say nothing.
-    static func note(for googleAccountState: State, hasGoogleCredentials: Bool, verification: Verification = .notAsked) -> String? {
+    package static func note(for googleAccountState: State, hasGoogleCredentials: Bool, verification: Verification = .notAsked) -> String? {
         switch googleAccountState {
         case .connected, .unverified:
             return nil

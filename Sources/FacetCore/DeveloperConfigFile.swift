@@ -22,7 +22,7 @@ import Foundation
 /// its Google credentials from somewhere else entirely (`GoogleCredentials.resolve`), so the same shape here would
 /// silently drop a `client_id` and `client_secret` that a developer's file still carries. It merges into whatever is
 /// there instead, and knows about exactly one key.
-struct DeveloperConfigFile {
+package struct DeveloperConfigFile {
     /// The archive's name for it, and the one an existing dev machine's file already uses.
     static let pinKey = "PIN"
 

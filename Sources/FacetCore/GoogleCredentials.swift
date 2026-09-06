@@ -5,9 +5,9 @@ import Foundation
 /// **Resolved at the moment it is needed, not held from launch.** Three places are tried, override first, which is
 /// `docs/google-oauth-setup.md` Part 2 step 2: it lets a developer point at a second project without a release build,
 /// and gives somebody a way out if the bundled project is ever suspended.
-struct GoogleCredentials: Equatable {
-    let clientID: String
-    let clientSecret: String
+package struct GoogleCredentials: Equatable {
+    package let clientID: String
+    package let clientSecret: String
 
     /// `FACET_GOOGLE_CLIENT_JSON`, then `~/.config/facet/google-client.json`, then what was built in.
     ///
@@ -25,7 +25,7 @@ struct GoogleCredentials: Equatable {
     ///
     /// **It used to read two `Info.plist` keys here**, which no build step ever wrote, so the third source was dead
     /// and a distributed build could not sign in at all.
-    static func resolve(
+    package static func resolve(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
         bundled: GoogleCredentials? = .builtIn

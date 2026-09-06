@@ -17,7 +17,7 @@ import Foundation
 /// timer and there is nothing to decide: what is worth testing is that many calls become one, and that a cancel
 /// stops the one that was coming.
 @MainActor
-final class WriteDebounce {
+package final class WriteDebounce {
     /// How long the value has to stand still before it is sent.
     ///
     /// **Half a second, which is chosen against the stepper rather than picked for feel.** The fastest a held arrow
@@ -30,7 +30,7 @@ final class WriteDebounce {
 
     /// - Parameter interval: how long to wait. Defaults to the real one; a test passes something small so it does not
     ///   have to sit through half a second to find out whether one call or three arrive.
-    init(interval: TimeInterval = WriteDebounce.interval) {
+    package init(interval: TimeInterval = WriteDebounce.interval) {
         self.interval = interval
     }
 
@@ -41,7 +41,7 @@ final class WriteDebounce {
     ///
     /// The previous one is dropped rather than also sent: two writes to the same registers are not two facts, they
     /// are one value passed through on its way to where it stopped.
-    func schedule(_ write: @escaping @MainActor () -> Void) {
+    package func schedule(_ write: @escaping @MainActor () -> Void) {
         cancel()
         let timer = Timer(timeInterval: interval, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -57,7 +57,7 @@ final class WriteDebounce {
     }
 
     /// Drops a pending write without sending it. Safe to call when there is none.
-    func cancel() {
+    package func cancel() {
         timer?.invalidate()
         timer = nil
     }

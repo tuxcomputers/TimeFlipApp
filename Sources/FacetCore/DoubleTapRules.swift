@@ -6,17 +6,17 @@ import Foundation
 /// is what the hardware is actually running. Built from `double_tap_settings` it is what the app would like the
 /// hardware to be running. They have no reason to agree until something sends `0x16`, and `DeviceLogin` deliberately
 /// compares them nowhere.
-struct DoubleTapParameters: Equatable {
+package struct DoubleTapParameters: Equatable {
     /// `CLICK_THS`. How hard a knock has to be. Lower is more sensitive, which is what makes a cube fire on a bang
     /// through the desk while ignoring a finger.
-    let threshold: UInt8
+    package let threshold: UInt8
     /// `TIME_LIMIT`. How long a single knock may last and still count as one.
-    let limit: UInt8
+    package let limit: UInt8
     /// `TIME_LATENCY`. The dead time after the first knock, before the second is looked for.
-    let latency: UInt8
+    package let latency: UInt8
     /// `TIME_WINDOW`. How long the second knock has to arrive in. Zero is the archive's kill switch for the whole
     /// gesture (`docs/timeflip2-firmware-observations.md` finding 11), which is worth knowing because no command disables it.
-    let window: UInt8
+    package let window: UInt8
 
     /// The same registers with the second knock given no time to arrive in, which is the whole of how this app turns
     /// the gesture off.
@@ -38,17 +38,25 @@ struct DoubleTapParameters: Equatable {
     ///
     /// The names match the labels on the Device tab exactly, so a row and the window it came from can be compared
     /// without translating either.
-    var described: String {
+    package var described: String {
         "Threshold: \(threshold), Limit: \(limit), Latency: \(latency), Window: \(window)"
+    }
+
+    /// Memberwise, spelled out because Swift does not widen a synthesised one with its type.
+    package init(threshold: UInt8, limit: UInt8, latency: UInt8, window: UInt8) {
+        self.threshold = threshold
+        self.limit = limit
+        self.latency = latency
+        self.window = window
     }
 }
 
 /// Reading the cube's double-tap registers: the command that asks, and what the answer has to look like.
 ///
 /// A rule with no radio in it, like `DeviceLoginRules`: bytes go in, a value or `nil` comes out.
-enum DoubleTapRules {
+package enum DoubleTapRules {
     /// `0x17`, which the vendor spec answers in the command result characteristic.
-    static let read: UInt8 = 0x17
+    package static let read: UInt8 = 0x17
 
     /// `0x16`, which sets the same four registers `0x17` reports.
     static let write: UInt8 = 0x16
@@ -67,7 +75,7 @@ enum DoubleTapRules {
     /// that, a stale `17 3A 5A ...` being read back after a factory reset that answered nothing.
     ///
     /// The values sit at the odd indices, each one following the address it belongs to.
-    static func parameters(from data: Data?) -> DoubleTapParameters? {
+    package static func parameters(from data: Data?) -> DoubleTapParameters? {
         parameters(from: data, leadingWith: read)
     }
 
@@ -76,7 +84,7 @@ enum DoubleTapRules {
     /// **So the confirmation compares against what actually went out**, rather than against a copy passed alongside
     /// it that could have been worked out at a different moment. There is one place that knows this layout and it is
     /// `command(for:)`, directly above.
-    static func parameters(sentIn command: Data) -> DoubleTapParameters? {
+    package static func parameters(sentIn command: Data) -> DoubleTapParameters? {
         parameters(from: command, leadingWith: write)
     }
 
@@ -84,7 +92,7 @@ enum DoubleTapRules {
     ///
     /// **The same nine-byte shape the read answers with**, the vendor spec defining `0x16` and `0x17` as one layout
     /// with the command byte swapped -- which is what lets the confirmation below parse both with one parser.
-    static func command(for parameters: DoubleTapParameters) -> Data {
+    package static func command(for parameters: DoubleTapParameters) -> Data {
         Data([
             write,
             registers[0], parameters.threshold,
@@ -103,7 +111,7 @@ enum DoubleTapRules {
     ///
     /// The archive's `effectiveDoubleTapParameters`, massaged: same trick and same reason, and a free function of two
     /// arguments rather than a property reading two pieces of published state.
-    static func asSent(_ parameters: DoubleTapParameters, isEnabled: Bool) -> DoubleTapParameters {
+    package static func asSent(_ parameters: DoubleTapParameters, isEnabled: Bool) -> DoubleTapParameters {
         isEnabled ? parameters : parameters.withTheGestureOff
     }
 

@@ -17,22 +17,22 @@ import Foundation
 /// The defaults differ on purpose, because the columns mean different things: a name list starts at the beginning, and
 /// asking about time means asking what most of it went on. Anything else would be consistent and wrong -- a first click
 /// on Time that showed the smallest figure would take two clicks to answer the question it was clicked to answer.
-enum ReportSortRules {
-    enum Column: Equatable {
+package enum ReportSortRules {
+    package enum Column: Equatable {
         case category
         case time
     }
 
-    struct Order: Equatable {
-        var sortColumnState: Column
-        var isSortAscending: Bool
+    package struct Order: Equatable {
+        package var sortColumnState: Column
+        package var isSortAscending: Bool
 
         /// What the tab opens on: the biggest figure first, which is the question a report is opened to ask.
         ///
         /// The same answer `defaultIsSortAscending(for: .time)` gives, and deliberately not written twice: opening on one
         /// direction and clicking Time into another would make the heading's first click do nothing visible, which
         /// reads as a dead control.
-        static let initial = Order(sortColumnState: .time, isSortAscending: defaultIsSortAscending(for: .time))
+        package static let initial = Order(sortColumnState: .time, isSortAscending: defaultIsSortAscending(for: .time))
     }
 
     /// Where a column starts when it is first clicked.
@@ -48,7 +48,7 @@ enum ReportSortRules {
     }
 
     /// The order a click produces, given the order in force.
-    static func next(after current: Order, clicking sortColumnState: Column) -> Order {
+    package static func next(after current: Order, clicking sortColumnState: Column) -> Order {
         guard current.sortColumnState == sortColumnState else {
             return Order(sortColumnState: sortColumnState, isSortAscending: defaultIsSortAscending(for: sortColumnState))
         }
@@ -60,7 +60,7 @@ enum ReportSortRules {
     /// **Time ties break on the category order**, and the category order breaks on the id inside `CategoryOrder`, so
     /// the result is fully determined however many categories share a figure. Two rows swapping places between two
     /// draws of the same data would read as the list being unreliable.
-    static func sorted(_ totals: [CategoryTotal], by order: Order) -> [CategoryTotal] {
+    package static func sorted(_ totals: [CategoryTotal], by order: Order) -> [CategoryTotal] {
         totals.sorted { lhs, rhs in
             let ascending: Bool
             switch order.sortColumnState {
@@ -83,7 +83,7 @@ enum ReportSortRules {
     ///
     /// **Only the active column carries an arrow.** Two arrows would say the list is sorted by both, and a column with
     /// no arrow is the honest way to say "not this one, click to use it".
-    static func heading(_ title: String, sortColumnState: Column, order: Order) -> String {
+    package static func heading(_ title: String, sortColumnState: Column, order: Order) -> String {
         guard order.sortColumnState == sortColumnState else { return title }
         return order.isSortAscending ? "\(title) \u{25B2}" : "\(title) \u{25BC}"
     }

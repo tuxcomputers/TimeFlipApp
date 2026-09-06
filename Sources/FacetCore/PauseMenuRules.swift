@@ -12,12 +12,12 @@ import Foundation
 /// So the precedence here is `StatusItemClickRouter`'s, deliberately and in the same order: the app's own clock first,
 /// the cube only when there is no manual session to act on. A running manual session is never taken over by a cube
 /// that happens to be connected.
-enum PauseMenuRules {
+package enum PauseMenuRules {
     /// What choosing the item would actually do.
     ///
     /// Named rather than inferred from the title, so the handler does not have to work backwards from the word it is
     /// about to draw -- which is how a control comes to say one thing and do another.
-    enum Target: Equatable {
+    package enum Target: Equatable {
         /// The app's own clock, which is what the item has always done.
         case appClock
         /// The cube, which is what the right half of the status item has always done and this never did.
@@ -38,7 +38,7 @@ enum PauseMenuRules {
     ///     rather than after.
     ///   - isLimitReached: whether the category on show has spent its `daily_limit`, which is what makes the limit
     ///     hard rather than advisory. About the app's own clock only, as it is everywhere else.
-    static func target(
+    package static func target(
         timingState: TimingState,
         isCubeConnected: Bool,
         cubeLockState: CubeLockState,
@@ -75,7 +75,7 @@ enum PauseMenuRules {
     /// - Parameter cubePauseState: only consulted for `.cube`, and that matters: **a locked cube reports itself paused
     ///   whatever its pause byte says**, so this answer is only meaningful where the cube is not locked -- which is
     ///   exactly and only where `target` returns `.cube`.
-    static func title(
+    package static func title(
         for target: Target,
         timingState: TimingState,
         cubePauseState: CubePauseState = .unknown
@@ -93,7 +93,7 @@ enum PauseMenuRules {
     }
 
     /// Whether it can be chosen. Exactly "there is something for it to act on".
-    static func isEnabled(_ target: Target) -> Bool {
+    package static func isEnabled(_ target: Target) -> Bool {
         target != .nothing
     }
 }

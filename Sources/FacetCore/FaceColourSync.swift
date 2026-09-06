@@ -18,7 +18,7 @@ import Foundation
 /// than be dropped. The colour of each face is read at the moment its own command is built, not when the run started,
 /// so a queue waiting its turn cannot carry a stale colour.
 @MainActor
-final class FaceColourSync {
+package final class FaceColourSync {
     /// Sends one command and reports whether the cube took it. `BluetoothRadio.send`, handed in rather than held, so
     /// the whole sequence can be driven in a test with no radio -- `CubeLock`'s arrangement, for its reason.
     private let send: (Data, @escaping (Bool) -> Void) -> Void
@@ -76,7 +76,7 @@ final class FaceColourSync {
     /// because a transition is the one question a single read cannot answer.
     private var wasCubeConnected = false
 
-    init(
+    package init(
         send: @escaping (Data, @escaping (Bool) -> Void) -> Void,
         isCubeConnected: @escaping () -> Bool,
         faceColour: @escaping (Int) -> FaceColour,
@@ -108,7 +108,7 @@ final class FaceColourSync {
     /// **It also answers a request the cube made while the login was still talking**, which on this hardware is every
     /// request there has ever been. Nothing extra goes out for it: all twelve are going anyway, which is the whole of
     /// what the cube asked for.
-    func linkSettled() {
+    package func linkSettled() {
         isLinkSettled = true
         let isConnected = isCubeConnected()
         guard isConnected, !wasCubeConnected else {
@@ -134,7 +134,7 @@ final class FaceColourSync {
     /// **A face the cube does not have is not an error here**, it is manual mode: face 13 is the app's own, and the
     /// paths that assign a category reach both. Saying so out loud rather than silently skipping, since a colour that
     /// never went anywhere is otherwise indistinguishable from one that did.
-    func send(face: Int, because reason: String) {
+    package func send(face: Int, because reason: String) {
         guard FaceColourRules.faces.contains(face) else {
             debugLog?.record(.colour, "Face \(face) is not one the cube has, so there is no colour to send it")
             return
@@ -143,7 +143,7 @@ final class FaceColourSync {
     }
 
     /// Several faces, which is what recolouring or retiring a category changes.
-    func send(faces wanted: [Int], because reason: String) {
+    package func send(faces wanted: [Int], because reason: String) {
         guard isCubeConnected() else {
             // Not deferred and not remembered: the next link coming up sends all twelve anyway, so there is nothing
             // for this to leave behind. Said out loud, because an edit that lit nothing is worth a row.
@@ -160,7 +160,7 @@ final class FaceColourSync {
     /// `DeviceSystemStateRules.Sync.faceColoursRequired`).
     ///
     /// Collapsed rather than answered one for one. See `cooldownSeconds` for what that cost when it was not.
-    func cubeAskedForThem() {
+    package func cubeAskedForThem() {
         // **Asked before the login has finished its own questions**, which is when this cube always asks. Counted
         // rather than answered: sending now would write over an exchange already out (see `isLinkSettled`), and
         // `linkSettled` is a moment away and sends all twelve regardless.
@@ -194,7 +194,7 @@ final class FaceColourSync {
     /// the next, which is a dozen rows saying the cube is gone where one says it once. The cooldown is cleared with
     /// it: a new connection gets a fresh hearing, the cooldown being there to stop one connection's repeated asking
     /// from being re-answered rather than to gag a cube that comes back having really lost its colours.
-    func linkEnded() {
+    package func linkEnded() {
         if !queue.isEmpty {
             debugLog?.record(.colour, "The link went, so \(queue.count) face colours still to send are dropped")
             queue.removeAll()

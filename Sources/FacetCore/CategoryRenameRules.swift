@@ -10,8 +10,8 @@ import Foundation
 /// forwards -- a report covering last month will show the new name, not the one that was in use then. Nothing is lost
 /// and nothing needs backfilling, but it is not what somebody necessarily expects, so it is said before rather than
 /// discovered after.
-enum CategoryRenameRules {
-    enum Decision: Equatable {
+package enum CategoryRenameRules {
+    package enum Decision: Equatable {
         /// Nothing typed, or nothing changed. Not an error, and not worth a dialogue.
         case ignore
         /// The name is free. Confirm it, because of what a rename does to history.
@@ -37,14 +37,14 @@ enum CategoryRenameRules {
     /// What a dialogue about a rename can end in. **The order is the order the buttons are added**, which on this
     /// platform means the first is the default and sits rightmost -- see `choices(for:)`, where Cancel takes that
     /// place.
-    enum Choice: String, Equatable {
+    package enum Choice: String, Equatable {
         case rename
         /// The same answer as `rename`, under a title that says the name is already in use. A separate case so a
         /// button that means "yes, and I know what I am doing" cannot be built from the wording for one that does not.
         case renameAnyway
         case cancel
 
-        var buttonTitle: String {
+        package var buttonTitle: String {
             switch self {
             case .rename: return "Rename"
             case .renameAnyway: return "Rename anyway"
@@ -53,7 +53,7 @@ enum CategoryRenameRules {
         }
 
         /// Whether this answer writes anything.
-        var isRename: Bool { self != .cancel }
+        package var isRename: Bool { self != .cancel }
     }
 
     /// The buttons a decision offers, in the order they are drawn. Empty for the decisions that raise no dialogue.
@@ -68,7 +68,7 @@ enum CategoryRenameRules {
     ///
     /// **It is on every one of them**, including the dead end, where it is the only button: a dialogue that can only
     /// be agreed with is a dialogue that has taken the decision already.
-    static func choices(for decision: Decision) -> [Choice] {
+    package static func choices(for decision: Decision) -> [Choice] {
         switch decision {
         case .ignore: return []
         case .confirm: return [.cancel, .rename]
@@ -78,13 +78,13 @@ enum CategoryRenameRules {
     }
 
     /// Which choice a button at `index` is, given the buttons that were offered. `nil` for an index none occupies.
-    static func choice(forButtonIndex index: Int, offering choices: [Choice]) -> Choice? {
+    package static func choice(forButtonIndex index: Int, offering choices: [Choice]) -> Choice? {
         guard choices.indices.contains(index) else { return nil }
         return choices[index]
     }
 
     /// The heading of the dialogue. `nil` when there is none to raise.
-    static func title(for decision: Decision) -> String? {
+    package static func title(for decision: Decision) -> String? {
         switch decision {
         case .ignore: return nil
         case .confirm: return "Rename this category?"
@@ -102,7 +102,7 @@ enum CategoryRenameRules {
     /// **The history caveat rides along with the retired case rather than following it in a second dialogue**: both
     /// facts are about one decision, and stacking two alerts to agree to one rename is worse than one alert saying
     /// both. The previous app's reasoning, kept.
-    static func message(for decision: Decision, currentName: String) -> String? {
+    package static func message(for decision: Decision, currentName: String) -> String? {
         switch decision {
         case .ignore:
             return nil
@@ -171,7 +171,7 @@ enum CategoryRenameRules {
     ///   - current: the category being renamed.
     ///   - matching: asked for **every** category holding the normalised name, active one first (see
     ///     `CategoryStore.matching`).
-    static func decision(
+    package static func decision(
         rawName: String,
         current: CategoryRecord,
         matching: (String) -> [CategoryRecord]

@@ -6,12 +6,12 @@ import Foundation
 /// candidates, in a fixed order, and no third guess. What changes is that the verdict rule moves in beside them --
 /// choosing what to send and reading what comes back are the two halves of one exchange, and in the archive they sat
 /// in different files with the second one inlined in a 2,481-line delegate.
-enum DeviceLoginRules {
+package enum DeviceLoginRules {
     /// The vendor default, from `docs/TimeFlip2 BLE Protocol v4.3.md`: ASCII `000000`.
     ///
     /// Also where a cube goes back to when its batteries come out (measured 2026-08-11), which is why it stays a
     /// candidate for a cube this app has already met.
-    static let defaultPIN = "000000"
+    package static let defaultPIN = "000000"
 
     /// Six characters, which the protocol fixes: the password characteristic is six bytes wide.
     static let length = 6
@@ -28,7 +28,7 @@ enum DeviceLoginRules {
     /// took. `DevicePINSource.stored` puts them in order and `reconcile` ends the disagreement the next time a cube
     /// answers one. Every candidate costs a whole connect (see `BluetoothRadio`), which is why the list is
     /// deduplicated and why nothing speculative is ever added to it.
-    static func candidates(stored: [String]) -> [String] {
+    package static func candidates(stored: [String]) -> [String] {
         var seen: Set<String> = []
         return ([defaultPIN] + stored)
             .filter { isWellFormed($0) && seen.insert($0).inserted }
@@ -67,7 +67,7 @@ enum DeviceLoginRules {
 
     /// The command that sets a new PIN: `0x30`, followed by the six bytes of it, written to `TimeFlipUUIDs.command`.
     /// Section 4 of `docs/TimeFlip2 BLE Protocol v4.3.md`, and the same byte the archive sent.
-    static let setPIN: UInt8 = 0x30
+    package static let setPIN: UInt8 = 0x30
 
     /// The command that puts a cube back to how it left the factory: `0xFF`, written on its own to
     /// `TimeFlipUUIDs.command`. It erases everything the device holds -- face colours, task settings, its name and its
@@ -78,10 +78,10 @@ enum DeviceLoginRules {
     /// without writing a fresh one (`TimeFlipBLEDevice.factoryReset`). So the write being acknowledged is the whole of
     /// the evidence, which is finding 2 in `docs/timeflip2-firmware-observations.md` in its sharpest form: reading the
     /// result here would return somebody else's bytes and read as a confirmation.
-    static let factoryReset: UInt8 = 0xFF
+    package static let factoryReset: UInt8 = 0xFF
 
     /// What the cube said about the PIN.
-    enum Verdict: Equatable {
+    package enum Verdict: Equatable {
         case accepted
         case rejected
         /// Nothing usable came back. Not a rejection: a cube that did not answer has not refused anything, and
@@ -103,7 +103,7 @@ enum DeviceLoginRules {
     /// `docs/timeflip2-firmware-observations.md` is that this characteristic is often *not* updated and holds
     /// whatever the last command left in it, so a long or unexpected frame is a stale answer to somebody else's
     /// question. The login is a command that does update it, which is what makes reading it here legitimate at all.
-    static func verdict(for value: Data?) -> Verdict {
+    package static func verdict(for value: Data?) -> Verdict {
         guard let value, let code = value.first else { return .unreadable }
         switch code {
         case 0x02: return .accepted
@@ -118,7 +118,7 @@ enum DeviceLoginRules {
 /// **Five endings rather than "it didn't work"**, for the reason `ScanUnavailable` gives about empty lists: a wrong
 /// PIN, a cube that is not a TimeFlip, and a cube that went away are three different problems with three different
 /// things to do about them, and one message for all three sends everybody to look at the wrong one.
-enum DeviceLoginOutcome: Equatable {
+package enum DeviceLoginOutcome: Equatable {
     /// Connected, and the cube accepted a PIN.
     case loggedIn
     /// Connected, and neither candidate was accepted.
@@ -138,7 +138,7 @@ enum DeviceLoginOutcome: Equatable {
     /// It answered and then stopped, part way through the exchange.
     case timedOut
 
-    func message(for name: String) -> String {
+    package func message(for name: String) -> String {
         switch self {
         case .loggedIn: return "Connected to \(name)."
         case .wrongPIN: return "\(name) refused both PINs. Take its batteries out to reset it, then try again."
@@ -157,7 +157,7 @@ enum DeviceLoginOutcome: Equatable {
 /// proof is the cube coming back on the vendor PIN, a device still holding this app's PIN plainly not having been
 /// wiped. Collapsing "sent" into "done" is exactly the mistake that would let the app throw away a cube's name on the
 /// strength of a command that never landed.
-enum FactoryResetOutcome: Equatable {
+package enum FactoryResetOutcome: Equatable {
     /// The cube came back and let the app in on the vendor PIN. The wipe took.
     case confirmed
     /// The command went out and was acknowledged, and the cube never came back on the vendor PIN inside the window.
@@ -169,7 +169,7 @@ enum FactoryResetOutcome: Equatable {
     /// Nothing was sent: no cube was connected, or it would not take the command.
     case notSent
 
-    func message(for name: String) -> String {
+    package func message(for name: String) -> String {
         switch self {
         case .confirmed: return "\(name) was reset and is back to factory settings."
         case .notConfirmed: return "\(name) did not come back after the reset, so nothing has been changed. Flip it to wake it, then try again."

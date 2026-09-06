@@ -16,7 +16,7 @@ import Foundation
 /// path that starts timing already goes through -- so a new way to start the clock gets this for nothing rather than
 /// having to remember it exists.
 @MainActor
-final class DailyLimitWatch {
+package final class DailyLimitWatch {
     /// Once a second, which is what the menu bar already redraws at: a limit that took effect up to a minute late
     /// would be a hard limit in name only, and one measured against a figure the user cannot see ticking would be
     /// worse than that.
@@ -53,9 +53,9 @@ final class DailyLimitWatch {
     /// **What `ForcedPauseWatch` asks before it lifts anything.** Both types decide the same cube's pause state, and a
     /// hard limit has to win or it is not hard: a limit's pause lifted by assigning a category to the face would be a
     /// refusal with a way round it. Read rather than pushed, like everything else here.
-    var isLimitHoldingPause: Bool { enforcement.isLimitHoldingPause }
+    package var isLimitHoldingPause: Bool { enforcement.isLimitHoldingPause }
 
-    var isLimitReached: Bool {
+    package var isLimitReached: Bool {
         let reading = timing()
         return enforcement.isLimitReached(
             categoryID: reading.category?.id,
@@ -65,7 +65,7 @@ final class DailyLimitWatch {
         )
     }
 
-    init(
+    package init(
         timing: @escaping () -> TimingReadout.Reading,
         windowStart: @escaping (Date) -> Date,
         debugLog: DebugLog?,
@@ -78,7 +78,7 @@ final class DailyLimitWatch {
     }
 
     /// Starts watching, if there is a running clock to watch.
-    func start() {
+    package func start() {
         guard timer == nil else { return }
         // **`isCounting`, not `state == .running`, and the difference is the whole of whether this works with a cube.**
         // `state` is about *this app's* clock: `TimingReadout` answers `.idle` for a cube however busy it is, because
@@ -100,7 +100,7 @@ final class DailyLimitWatch {
     }
 
     /// Starts it again if it is not running, and does nothing if it is. What `onTimingChanged` calls.
-    func resumeIfStopped() {
+    package func resumeIfStopped() {
         guard timer == nil else { return }
         start()
     }

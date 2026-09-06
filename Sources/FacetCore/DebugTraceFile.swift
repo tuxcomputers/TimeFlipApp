@@ -17,8 +17,8 @@ import SQLite3
 /// **Every operation answers whether it worked, and says on the terminal why not.** A copy that did not happen looks
 /// exactly like one that did until somebody opens it, and a clear that did not happen leaves somebody sending in a
 /// trace they believe starts at the fault.
-struct DebugTraceFile {
-    let url: URL
+package struct DebugTraceFile {
+    package let url: URL
 
     /// The one the app is writing to, or would write to.
     ///
@@ -29,7 +29,7 @@ struct DebugTraceFile {
     ///
     /// `@MainActor` because `DebugLog` is: the URL can move when a folder turns out to be unwritable.
     @MainActor
-    static func inUse(by log: DebugLog?, directory: String) -> DebugTraceFile {
+    package static func inUse(by log: DebugLog?, directory: String) -> DebugTraceFile {
         if let url = log?.databaseURL { return DebugTraceFile(url: url) }
         return DebugTraceFile(
             url: DatabaseBootstrap.debugDatabaseURL(in: DebugTraceRules.directoryURL(from: directory))
@@ -37,7 +37,7 @@ struct DebugTraceFile {
     }
 
     /// Whether there is a file to act on at all. Nothing here is offered when there is not.
-    var exists: Bool {
+    package var exists: Bool {
         FileManager.default.fileExists(atPath: url.path)
     }
 
@@ -50,7 +50,7 @@ struct DebugTraceFile {
     ///
     /// **The destination is removed first if it exists**, because `VACUUM INTO` refuses to write over a file and the
     /// save panel has already had the conversation about replacing one.
-    func copy(to destination: URL) -> Bool {
+    package func copy(to destination: URL) -> Bool {
         if FileManager.default.fileExists(atPath: destination.path) {
             guard (try? FileManager.default.removeItem(at: destination)) != nil else {
                 report("the trace could not be copied: \(destination.path) is in the way")
@@ -98,7 +98,7 @@ struct DebugTraceFile {
     /// `MAX(debug_log_id)` followed by a poll for rows above it (`Tests/Scripted/lib.sh`), so ids that start again
     /// would put every later row underneath a baseline taken before the clear, and every wait would time out
     /// against an app that was answering perfectly well.
-    func clear() -> Bool {
+    package func clear() -> Bool {
         open { db in
             guard sqlite3_exec(db, "DELETE FROM debug_log;", nil, nil, nil) == SQLITE_OK else {
                 report("the trace could not be cleared: \(String(cString: sqlite3_errmsg(db)))")

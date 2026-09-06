@@ -7,15 +7,15 @@ import CoreGraphics
 /// One home rather than one each on the two views, because the derivation below needs all three of them and neither
 /// view owns the whole sum: the tab's padding is the pane's, the calendar's padding is the calendar's, and the cell
 /// size depends on both.
-enum ReportLayout {
+package enum ReportLayout {
     /// Room between the tab's edge and its content, on all four sides. The Categories and App tabs' number, so the
     /// tabs sit at the same rhythm -- the archive used 12 here, from a window that had three tabs and different
     /// margins.
-    static let tabPadding: CGFloat = 20
+    package static let tabPadding: CGFloat = 20
     /// The gap between the two calendars.
-    static let calendarSpacing: CGFloat = 12
+    package static let calendarSpacing: CGFloat = 12
     /// Inside a calendar's box, around the whole of it.
-    static let calendarPadding: CGFloat = 8
+    package static let calendarPadding: CGFloat = 8
 }
 
 /// Every size inside a Report tab calendar, derived from the width the tab has to spend.
@@ -28,13 +28,13 @@ enum ReportLayout {
 /// **The ratios are the archive's** (`ReportCalendarMetrics.swift`), and they in turn came from
 /// the fixed-size design it replaced: a 28pt cell carrying 12pt digits, a 13pt month title, 20pt arrows. So a window
 /// at its narrowest still looks like that layout rather than a differently-proportioned one.
-struct ReportCalendarMetrics: Equatable {
+package struct ReportCalendarMetrics: Equatable {
     /// The side of one day cell. Everything else is a ratio of this.
-    let cellSize: CGFloat
+    package let cellSize: CGFloat
 
     /// Never smaller than the fixed size the archive's design used, so a window narrower than expected shrinks
     /// nothing below what was already known to be legible -- the calendars simply stop filling it.
-    static let minimumCellSize: CGFloat = 28
+    package static let minimumCellSize: CGFloat = 28
 
     private enum Ratio {
         static let dayFont: CGFloat = 12.0 / 28.0
@@ -50,7 +50,7 @@ struct ReportCalendarMetrics: Equatable {
     /// Accounts for what sits between them and the window edges: the tab's own padding either side, the gap between
     /// the pair, and each calendar's internal padding. Rounded **down** so seven cells plus the padding can never come
     /// to more than the width they were fitted to and push the second calendar off the edge.
-    static func fitting(tabWidth: CGFloat) -> ReportCalendarMetrics {
+    package static func fitting(tabWidth: CGFloat) -> ReportCalendarMetrics {
         let betweenAndAround = (ReportLayout.tabPadding * 2) + ReportLayout.calendarSpacing
         let perCalendar = (tabWidth - betweenAndAround) / 2
         let gridWidth = perCalendar - (ReportLayout.calendarPadding * 2)
@@ -58,11 +58,16 @@ struct ReportCalendarMetrics: Equatable {
         return ReportCalendarMetrics(cellSize: max(minimumCellSize, cell))
     }
 
-    var gridWidth: CGFloat { cellSize * CGFloat(ReportCalendarGrid.daysPerWeek) }
-    var dayFontSize: CGFloat { (cellSize * Ratio.dayFont).rounded() }
-    var weekdayFontSize: CGFloat { (cellSize * Ratio.weekdayFont).rounded() }
-    var monthTitleFontSize: CGFloat { (cellSize * Ratio.monthTitleFont).rounded() }
-    var arrowSize: CGFloat { (cellSize * Ratio.arrow).rounded() }
-    var arrowFontSize: CGFloat { (cellSize * Ratio.arrowFont).rounded() }
-    var dayCornerRadius: CGFloat { (cellSize * Ratio.dayCorner).rounded() }
+    package var gridWidth: CGFloat { cellSize * CGFloat(ReportCalendarGrid.daysPerWeek) }
+    package var dayFontSize: CGFloat { (cellSize * Ratio.dayFont).rounded() }
+    package var weekdayFontSize: CGFloat { (cellSize * Ratio.weekdayFont).rounded() }
+    package var monthTitleFontSize: CGFloat { (cellSize * Ratio.monthTitleFont).rounded() }
+    package var arrowSize: CGFloat { (cellSize * Ratio.arrow).rounded() }
+    package var arrowFontSize: CGFloat { (cellSize * Ratio.arrowFont).rounded() }
+    package var dayCornerRadius: CGFloat { (cellSize * Ratio.dayCorner).rounded() }
+
+    /// Memberwise, spelled out because Swift does not widen a synthesised one with its type.
+    package init(cellSize: CGFloat) {
+        self.cellSize = cellSize
+    }
 }

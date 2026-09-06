@@ -29,7 +29,7 @@ import Foundation
 /// **Nothing is remembered about what the cube holds.** The comparisons are made against what the cube has just
 /// said, at the moment it says it, and the value written is read from the table when the command is built.
 @MainActor
-final class DeviceSettingsSync {
+package final class DeviceSettingsSync {
     /// One thing the cube can be told.
     enum Setting: Equatable {
         case autoPause
@@ -40,12 +40,27 @@ final class DeviceSettingsSync {
     }
 
     /// What the tables say the cube should be set to, read at the moment a command is built and never held.
-    struct Stored: Equatable {
+    package struct Stored: Equatable {
         var autoPauseMinutes: Int
         var ledBrightnessPercent: Int
         var ledBlinkSeconds: Int
         var doubleTap: DoubleTapParameters
         var isDoubleTapEnabled: Bool
+
+        /// Memberwise, spelled out because Swift does not widen a synthesised one with its type.
+        package init(
+            autoPauseMinutes: Int,
+            ledBrightnessPercent: Int,
+            ledBlinkSeconds: Int,
+            doubleTap: DoubleTapParameters,
+            isDoubleTapEnabled: Bool
+        ) {
+            self.autoPauseMinutes = autoPauseMinutes
+            self.ledBrightnessPercent = ledBrightnessPercent
+            self.ledBlinkSeconds = ledBlinkSeconds
+            self.doubleTap = doubleTap
+            self.isDoubleTapEnabled = isDoubleTapEnabled
+        }
 
         /// What the cube should be reporting for its double-tap registers, which is not the same as what is stored:
         /// disabling the gesture is faked by sending `window` 0, the hardware having no switch for it
@@ -86,7 +101,7 @@ final class DeviceSettingsSync {
     /// connection does not send the LED pair twice.
     private var wasCubeConnected = false
 
-    init(
+    package init(
         send: @escaping (Data, @escaping (Bool) -> Void) -> Void,
         isCubeConnected: @escaping () -> Bool,
         stored: @escaping () -> Stored,
@@ -105,7 +120,7 @@ final class DeviceSettingsSync {
     /// **The two LED values go out on every connection**, for the reason at the top: nothing can read them back, so
     /// there is no such thing as knowing whether the cube still has them. The other two are already on their way if
     /// the cube's own answers disagreed with the tables, those answers having arrived during the login.
-    func linkSettled() {
+    package func linkSettled() {
         isLinkSettled = true
         let isConnected = isCubeConnected()
         guard isConnected, !wasCubeConnected else {
@@ -128,7 +143,7 @@ final class DeviceSettingsSync {
     ///
     /// **Arrives on every login and after every command this app reads back**, so a disagreement is noticed at the
     /// first moment it can be. A cube that agrees costs nothing: the comparison is two integers.
-    func cubeReported(status: DeviceCommandRules.Status) {
+    package func cubeReported(status: DeviceCommandRules.Status) {
         let wanted = stored().autoPauseMinutes
         guard status.autoPauseMinutes != wanted else { return }
         queue(
@@ -142,7 +157,7 @@ final class DeviceSettingsSync {
     ///
     /// **Compared against what should be on it**, which is not what is stored: the gesture is disabled by sending
     /// `window` 0, so a cube with the gesture off should report the zeroed form rather than the values the tab shows.
-    func cubeReported(doubleTap reported: DoubleTapParameters) {
+    package func cubeReported(doubleTap reported: DoubleTapParameters) {
         let wanted = stored().doubleTapAsSent
         guard reported != wanted else { return }
         queue(.doubleTap, because: "the cube says its double tap is \(reported.described) and the table says \(wanted.described)")
@@ -154,7 +169,7 @@ final class DeviceSettingsSync {
     /// **Answered per setting, and only for the ones this app is the record of.** A cube asking for its task
     /// parameters is asking for something nothing in this app has ever set, and saying so is more honest than
     /// silence -- it is the one request here that cannot be answered at all.
-    func cubeAsked(for sync: DeviceSystemStateRules.CubeSyncState) {
+    package func cubeAsked(for sync: DeviceSystemStateRules.CubeSyncState) {
         guard let setting = Self.setting(for: sync) else {
             if sync == .taskParametersRequired {
                 debugLog?.record(
@@ -193,7 +208,7 @@ final class DeviceSettingsSync {
     /// the link goes is never completed, so `step` is never called back and a flag left true would make `run` return
     /// early for the rest of the launch. That is `FaceColourSync.linkEnded`'s hard-won note, and it applies here
     /// unchanged.
-    func linkEnded() {
+    package func linkEnded() {
         if !queue.isEmpty {
             debugLog?.record(.command, "The link went, so \(queue.count) setting(s) still to send are dropped")
             queue.removeAll()

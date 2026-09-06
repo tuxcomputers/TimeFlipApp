@@ -11,10 +11,10 @@ import Foundation
 /// caller happens to know about -- would drop every field it did not (`daily_reset_time` carries a
 /// `minute` beside its `hour`).
 @MainActor
-final class SettingStore {
+package final class SettingStore {
     private let connection: DatabaseConnection
 
-    init(connection: DatabaseConnection) {
+    package init(connection: DatabaseConnection) {
         self.connection = connection
     }
 
@@ -36,12 +36,12 @@ final class SettingStore {
     }
 
     /// One field of a setting, as a boolean: `flag("paired", field: "paired")`.
-    func flag(_ name: String, field: String) -> Bool? {
+    package func flag(_ name: String, field: String) -> Bool? {
         json(name)?[field] as? Bool
     }
 
     /// One field of a setting, as text: `string("db_type", field: "type")`.
-    func string(_ name: String, field: String) -> String? {
+    package func string(_ name: String, field: String) -> String? {
         json(name)?[field] as? String
     }
 
@@ -51,7 +51,7 @@ final class SettingStore {
     /// `nil` rather than a default for a missing row or a value that is not a number, so the caller can
     /// decide what absence means. What a sensible fallback is depends entirely on the setting, and it is
     /// never this type's to guess.
-    func integer(_ name: String, field: String) -> Int? {
+    package func integer(_ name: String, field: String) -> Int? {
         json(name)?[field] as? Int
     }
 
@@ -71,12 +71,12 @@ final class SettingStore {
     /// `false` for a missing row too. This does not insert: the rows are seeded by the DDL, so one that is not there
     /// is a database that has not been brought up to date rather than a setting waiting to be created, and inventing
     /// it here would hide that.
-    func write(_ name: String, field: String, _ value: Int) -> Bool {
+    package func write(_ name: String, field: String, _ value: Int) -> Bool {
         write(name, field: field, any: value) && integer(name, field: field) == value
     }
 
     /// The same, for a flag.
-    func write(_ name: String, field: String, _ value: Bool) -> Bool {
+    package func write(_ name: String, field: String, _ value: Bool) -> Bool {
         write(name, field: field, any: value) && flag(name, field: field) == value
     }
 
@@ -85,7 +85,7 @@ final class SettingStore {
     /// **Written as an empty string rather than removed** when it is being cleared, which is what signing out of
     /// Google does. `database/011_setting.sql` keeps `calendar_id`, `calendar_name` and `client_id` in the same row,
     /// so the key has to survive for the read-back to have something to confirm.
-    func write(_ name: String, field: String, _ value: String) -> Bool {
+    package func write(_ name: String, field: String, _ value: String) -> Bool {
         write(name, field: field, any: value) && string(name, field: field) == value
     }
 
@@ -101,7 +101,7 @@ final class SettingStore {
     /// `false` if any one of them did not take, and the read-back is per field rather than on the object: what makes
     /// the answer worth having is that it asked the table, and asking it about the object it was just handed would
     /// only prove `JSONSerialization` is deterministic.
-    func write(_ name: String, fields: [String: Value]) -> Bool {
+    package func write(_ name: String, fields: [String: Value]) -> Bool {
         guard var object = json(name) else { return false }
         for (field, value) in fields { object[field] = value.stored }
         guard store(object, as: name) else { return false }
@@ -119,7 +119,7 @@ final class SettingStore {
     /// **A case per type rather than `Any`**, so the read-back compares like with like. Through `Any` it could not:
     /// `JSONSerialization` hands both `true` and `1` back as an `NSNumber`, and those two compare equal -- so a row
     /// that came back holding `1` where a flag was asked for would read as confirmed.
-    enum Value: Equatable {
+    package enum Value: Equatable {
         case number(Int)
         case flag(Bool)
         case text(String)

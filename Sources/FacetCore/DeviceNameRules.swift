@@ -12,13 +12,13 @@ import Foundation
 /// **Massaged from the archive's `DeviceNameRules`.** The decisions are the same and survive inspection; what does not
 /// come with them is `matchesKnownDevice`, which arrived in the rebuild earlier as `DeviceScanRules` and belongs with
 /// the other question about the two names a cube carries.
-enum DeviceNameRules {
+package enum DeviceNameRules {
     /// The device's own ceiling, not a display choice.
     ///
     /// **The read-back is wider than the write**: `0x2A00` is a 20-byte characteristic, while `0x15` carries a single
     /// length byte and caps the name at 18. So a name arriving from elsewhere can be longer than anything this app is
     /// able to set, which is why nothing truncates what a cube reports.
-    static let maximumLength = 18
+    package static let maximumLength = 18
 
     /// Why the name will not open for editing, or `nil` when it will.
     ///
@@ -31,7 +31,7 @@ enum DeviceNameRules {
     /// guessed, so a cube that has not told this Mac what it is called leaves the row reading `Unknown`
     /// (`DeviceInfoRules.name`). Opening a field on that placeholder would offer `Unknown` as the name to keep, and a
     /// Return pressed over it would name a cube after the app's own way of saying it did not know.
-    static func renameRefusal(isCubePaired: Bool, isCubeConnected: Bool, deviceName: String?) -> RenameRefusal? {
+    package static func renameRefusal(isCubePaired: Bool, isCubeConnected: Bool, deviceName: String?) -> RenameRefusal? {
         guard isCubePaired else { return .notPaired }
         guard isCubeConnected else { return .notConnected }
         guard let deviceName, !deviceName.trimmingCharacters(in: .whitespaces).isEmpty else { return .nameUnknown }
@@ -52,7 +52,7 @@ enum DeviceNameRules {
     /// field this is unreachable, which is the point: it stands between the cube and a paste that outruns the
     /// truncation, or any later caller that does not come through this field at all. Quietly writing the first 18
     /// characters would name the device something nobody asked for.
-    static func renameDecision(typed: String, current: String?) -> DeviceRenameDecision {
+    package static func renameDecision(typed: String, current: String?) -> DeviceRenameDecision {
         let name = typed.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty, name != current?.trimmingCharacters(in: .whitespaces) else { return .ignore }
         guard name.allSatisfy(isWritable) else { return .refuse(.unwritableCharacters) }
@@ -85,7 +85,7 @@ enum DeviceNameRules {
     /// the device's. The stale reported name is the device offering no way to announce a name change, plus macOS
     /// caching what it last read, and those two cannot be separated from a Mac -- so it is described as something the
     /// app cannot change rather than pinned on the firmware alone.
-    static func renameLagNotice(newName: String, previousName: String?) -> String {
+    package static func renameLagNotice(newName: String, previousName: String?) -> String {
         let stillReported = previousName.map { "\"\($0)\"" } ?? "the old name"
         return """
         The TimeFlip is now called "\(newName)", and this app will go on calling it that. Elsewhere it will take a \
@@ -109,7 +109,7 @@ enum DeviceNameRules {
     }
 
     /// Why a name cannot be edited where it stands. The words are the pane's, the decision is here.
-    enum RenameRefusal: Equatable {
+    package enum RenameRefusal: Equatable {
         case notPaired
         case notConnected
         /// Paired and connected, but the cube has not said what it is called.
@@ -119,7 +119,7 @@ enum DeviceNameRules {
 
 /// What a submitted device name should do. There is no collision case, unlike a category rename: there is only ever
 /// one device, and the cube accepts any name that fits.
-enum DeviceRenameDecision: Equatable {
+package enum DeviceRenameDecision: Equatable {
     /// Nothing to write: the name is empty once tidied, or already what the device is called.
     case ignore
     case write(String)
@@ -128,7 +128,7 @@ enum DeviceRenameDecision: Equatable {
 }
 
 /// What to tell somebody whose name did not take, in the words they meet it in.
-enum DeviceNameProblem: Equatable {
+package enum DeviceNameProblem: Equatable {
     case tooLong(count: Int)
     case unwritableCharacters
     /// The name was acceptable and the cube did not take the command -- out of range mid-edit, or the session dropped
@@ -138,7 +138,7 @@ enum DeviceNameProblem: Equatable {
     /// Named so the two refusals point at the hardware and the write failure does not: one is "the cube cannot hold
     /// this", the other is "the cube did not answer", and somebody told the wrong one of those goes looking in the
     /// wrong place.
-    var title: String {
+    package var title: String {
         switch self {
         case .tooLong, .unwritableCharacters: return "The TimeFlip cannot store that name"
         case .writeFailed: return "The TimeFlip did not take the new name"
@@ -152,7 +152,7 @@ enum DeviceNameProblem: Equatable {
     /// protocol defines the name field as "18 symbols MAX. ASCII coding", and a name outside that cannot be sent to
     /// the device at all. Saying so is accurate, and it points anybody unhappy about it at the people who can change
     /// it.
-    var message: String {
+    package var message: String {
         switch self {
         case .tooLong(let count):
             return """

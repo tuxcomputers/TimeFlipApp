@@ -1,7 +1,7 @@
 import Foundation
 
 /// What a click on the status item should do.
-enum StatusItemClick: Equatable {
+package enum StatusItemClick: Equatable {
     /// The dropdown. Always reachable, in every timingState, because it is the only route to Quit.
     case showMenu
     /// Stop the **app's own** clock, or start it again -- the same toggle the dropdown's Pause item and the Timing
@@ -29,7 +29,7 @@ enum StatusItemClick: Equatable {
 /// clock running it is that clock, at once. What is dropped is what the archive needed extra timingState for -- there is no
 /// low-battery blink redirecting the left half to Settings here, and no separate `isCubePaired` to disagree with the
 /// connection.
-enum StatusItemClickRouter {
+package enum StatusItemClickRouter {
     /// - Parameters:
     ///   - isLeftSide: which half of the item was clicked. The caller works this out from the event, since only it
     ///     knows how wide the item currently is -- the width tracks the title, so it changes as the display does.
@@ -56,7 +56,7 @@ enum StatusItemClickRouter {
     ///     available throughout, for `ManualTimerRules`' reason -- a limit that trapped somebody into recording time
     ///     would be the opposite of what it is for.
     ///   - clickCount: the event's own, so the second click of a pair is what asks for the lock.
-    static func action(
+    package static func action(
         isLeftSide: Bool,
         timingState: TimingState,
         isCubeConnected: Bool = false,

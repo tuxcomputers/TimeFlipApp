@@ -15,15 +15,19 @@ import Foundation
 /// it. A drop clears the face, the lock and the pause at the radio (`BluetoothRadio`), so without the latch every drop
 /// would put `Connecting…` back over a line that is meant to keep the category and turn yellow -- which is the
 /// established behaviour and is what somebody who walked away from a working app comes back to.
-struct CubeFirstReading {
+package struct CubeFirstReading {
     /// Whether a complete reading has happened this launch. Nothing sets it back.
     private(set) var hasReadTheCube = false
+
+    /// Spelled out because Swift does not widen a synthesised memberwise initialiser with its type.
+    /// No parameters: the one property starts `false` and only `record` moves it.
+    package init() {}
 
     /// Offered the cube as it stands, once per draw. Latches on the first reading that has everything.
     ///
     /// **All four or nothing.** A face with no lock behind it is half an answer, and half an answer drawn is the item
     /// correcting itself in front of somebody.
-    mutating func record(
+    package mutating func record(
         isCubeConnected: Bool,
         cubeFace: Int?,
         cubePauseState: CubePauseState,
@@ -46,7 +50,7 @@ struct CubeFirstReading {
     /// looking". That is exactly the population this title is for, and it settles the two ends of the offer in one
     /// go -- `Rescan` leaves the launch still looking and so keeps the title, while `Time by Hand` sets
     /// `hasGivenUpOnCube` and so ends it on the same fact the Faces tab and the menu bar already read.
-    func isConnecting(isManualMode: Bool) -> Bool {
+    package func isConnecting(isManualMode: Bool) -> Bool {
         !isManualMode && !hasReadTheCube
     }
 }

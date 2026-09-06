@@ -6,7 +6,7 @@ import Foundation
 /// function of on/off rather than as the one constant this app happens to send today. Half a command is a worse thing
 /// to have written down than none: somebody reaching for "how do I unpause it" would otherwise find a `pauseOn` and
 /// have to go back to the spec to learn that the answer is `0x02` and not `0x00`.
-enum DeviceCommandRules {
+package enum DeviceCommandRules {
     /// Pause mode: `0x06 0x01` on, `0x06 0x02` off.
     ///
     /// **Pause stops the clock and leaves the cube awake.** The spec's own footnote: time counting is paused, but the
@@ -38,14 +38,14 @@ enum DeviceCommandRules {
     /// commands say so out loud, and the matrix in `docs/timeflip.md`. The app is the system of record for what a
     /// cube's LED is set to, and the cube asks for the value again when it has lost one (`0x0203`,
     /// `DeviceSystemStateRules.Sync.ledBrightnessRequired`).
-    static func ledBrightness(_ percent: Int) -> Data {
+    package static func ledBrightness(_ percent: Int) -> Data {
         Data([ledBrightnessCommand, UInt8(clamping: brightnessRange.clamped(percent))])
     }
 
     /// LED blink period (`0x0A 0xXX`): the gap between two consecutive flashes, in seconds.
     ///
     /// The same shape and the same caveat as `ledBrightness` above, down to having no read-back.
-    static func ledBlink(_ seconds: Int) -> Data {
+    package static func ledBlink(_ seconds: Int) -> Data {
         Data([ledBlinkCommand, UInt8(clamping: blinkRange.clamped(seconds))])
     }
 
@@ -64,7 +64,7 @@ enum DeviceCommandRules {
     ///
     /// **Unlike the LED pair, this one can be read back**: `0x10` carries the delay the cube is set to, and
     /// `readBack(for:)` compares that against what went out.
-    static func autoPause(_ minutes: Int) -> Data {
+    package static func autoPause(_ minutes: Int) -> Data {
         let wanted = UInt16(clamping: autoPauseRange.clamped(minutes))
         return Data([autoPauseCommand, UInt8(wanted >> 8), UInt8(wanted & 0xFF)])
     }
@@ -87,16 +87,16 @@ enum DeviceCommandRules {
     /// clamp on the way to storage -- four hours, past any working day this is for. What matters more than the number
     /// is that one place holds it: the field, the label above it and the bytes on the wire all come from here, so a
     /// control cannot accept something the command would then quietly change.
-    static let autoPauseRange = 0...240
+    package static let autoPauseRange = 0...240
 
     /// What `0x09` accepts: 1 to 100 %, the vendor spec's own range (Tab. 1).
     ///
     /// **There is no 0.** A cube cannot be told to put its LED out this way, so 0 is a value the firmware refuses
     /// rather than a way to turn the light off -- which is the opposite of auto-pause, where 0 is what disables it.
-    static let brightnessRange = 1...100
+    package static let brightnessRange = 1...100
 
     /// What `0x0A` accepts: 5 to 60 seconds between flashes, again the spec's range.
-    static let blinkRange = 5...60
+    package static let blinkRange = 5...60
 
     /// Renames the cube (`0x15 0xLL <name>`): the length in one byte, then the name in ASCII.
     ///
@@ -111,7 +111,7 @@ enum DeviceCommandRules {
     /// then quietly refuse.
     ///
     /// **Nothing reads it back**, which is the spec and a measurement rather than an omission: see `readBack(for:)`.
-    static func setName(_ name: String) -> Data? {
+    package static func setName(_ name: String) -> Data? {
         guard let ascii = name.data(using: .ascii), !ascii.isEmpty else { return nil }
         guard ascii.count <= DeviceNameRules.maximumLength else { return nil }
         return Data([nameCommand, UInt8(ascii.count)]) + ascii
@@ -128,7 +128,7 @@ enum DeviceCommandRules {
     /// **UTC, and the spec is explicit about it** ("in utc(0) format"), so this takes seconds since the epoch and no
     /// timezone enters into it. Which timezone a segment is *displayed* in is `timezone`'s question, decided when the
     /// row is written, and nothing to do with what the cube counts in.
-    static func setTime(_ secondsSinceEpoch: UInt64) -> Data {
+    package static func setTime(_ secondsSinceEpoch: UInt64) -> Data {
         var bytes: [UInt8] = [timeCommand]
         bytes += (0..<8).map { UInt8(truncatingIfNeeded: secondsSinceEpoch >> (8 * (7 - $0))) }
         return Data(bytes)
@@ -179,14 +179,14 @@ enum DeviceCommandRules {
     /// Neither command has an answer of its own beyond the write being acknowledged, and an acknowledgement says the
     /// cube heard rather than that it obeyed -- see the read-back rule in `CLAUDE.md`. The answer arrives on the
     /// command result as `0xXX 0xYY 0xZZ 0xZZ`: lock mode, pause mode, and the auto-pause delay in minutes.
-    static let status = Data([0x10])
+    package static let status = Data([0x10])
 
     /// What the cube says it is doing.
-    struct Status: Equatable {
-        let isLocked: Bool
-        let isPaused: Bool
+    package struct Status: Equatable {
+        package let isLocked: Bool
+        package let isPaused: Bool
         /// The auto-pause delay in minutes, `0` meaning disabled.
-        let autoPauseMinutes: Int
+        package let autoPauseMinutes: Int
     }
 
     /// The four bytes of a `0x10` answer, or `nil` when they are not one.
@@ -203,7 +203,7 @@ enum DeviceCommandRules {
     /// arrives on frequently holds the previous command's reply. What this can do is refuse bytes that are not a
     /// status at all -- both mode bytes have to be `0x01` or `0x02`, which is what a leftover login verdict (`02`
     /// alone) or a stale `0x17` answer fails.
-    static func status(from value: Data?) -> Status? {
+    package static func status(from value: Data?) -> Status? {
         guard let value, value.count >= 4, let locked = mode(value[0]), let paused = mode(value[1]) else { return nil }
         return Status(
             isLocked: locked,
@@ -225,11 +225,11 @@ enum DeviceCommandRules {
     ///
     /// Given to `DeviceLogin.send`, so the rule lives in one place instead of at each call site: a caller sends a
     /// command and is told whether the cube *is now in the state it asked for*, rather than whether the bytes landed.
-    struct ReadBack {
+    package struct ReadBack {
         /// The command that asks the question.
-        let request: Data
+        package let request: Data
         /// Whether the answer says the command took.
-        let took: (Data?) -> Bool
+        package let took: (Data?) -> Bool
         /// What the answer says, in words, or `nil` for an answer this cannot interpret.
         ///
         /// **So a refusal names what the cube is actually on**, rather than only that it is not on what was asked
@@ -241,7 +241,7 @@ enum DeviceCommandRules {
         /// command result frequently holds the previous command's reply (finding 2,
         /// `docs/timeflip2-firmware-observations.md`), and printing numbers out of somebody else's reply would be
         /// worse than printing none.
-        let described: (Data?) -> String?
+        package let described: (Data?) -> String?
 
         init(request: Data, took: @escaping (Data?) -> Bool, described: @escaping (Data?) -> String? = { _ in nil }) {
             self.request = request
@@ -255,7 +255,7 @@ enum DeviceCommandRules {
     /// **`nil` is an answer, not a gap.** LED brightness (`0x09`), blink interval (`0x0A`) and face colour (`0x11`)
     /// have no read command in the spec at all, so for those the write really is the only evidence there is, and the
     /// app is the system of record. See the matrix in `docs/timeflip.md`.
-    static func readBack(for command: Data) -> ReadBack? {
+    package static func readBack(for command: Data) -> ReadBack? {
         guard command.count >= 2 else { return nil }
         let wanted = command[1] == 0x01
         switch command[0] {

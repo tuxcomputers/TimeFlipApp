@@ -18,7 +18,7 @@ import Foundation
 /// Two is the smallest pool that gives that. Widening it only buys grace for a conversion that happens
 /// later than the close (a row stranded by a crash, say, swept up on the next launch), which is why this is
 /// a list rather than a pair of constants: adding 15 here and to the DDL is the whole change.
-enum ManualFace {
+package enum ManualFace {
     /// The highest face a cube can report. **Nothing above this ever comes from a device**, which is what makes
     /// the numbers above it the app's to use, and what lets anything tell one kind of segment from the other
     /// without a column saying which it is.
@@ -32,30 +32,30 @@ enum ManualFace {
     /// wall-clock figure written over that is this app overwriting a measurement with a guess. Asked in the two
     /// places that would do it -- `DeviceEventRecorder.closeOpenSegment` and `refreshOpenSegment` -- rather than
     /// left to each caller to remember.
-    static func isAppFace(_ face: Int) -> Bool {
+    package static func isAppFace(_ face: Int) -> Bool {
         face > highestDeviceFace
     }
 
     /// In rotation order. `device_face`'s `CHECK` in `003_device_event.sql` bounds what the table will hold,
     /// so growing this list means changing that too.
-    static let all = [13, 14]
+    package static let all = [13, 14]
 
     /// Where a session with no history starts.
-    static var first: Int { all[0] }
+    package static var first: Int { all[0] }
 
     /// The face a new segment goes on, given the face the last one used.
     ///
     /// `nil` means nothing has been timed yet. A face that is not one of ours means the last segment came
     /// from somewhere else entirely -- a cube's flip -- and manual mode starts its own run from the top
     /// rather than trying to continue a rotation it was not part of.
-    static func next(after face: Int?) -> Int {
+    package static func next(after face: Int?) -> Int {
         guard let face, let index = all.firstIndex(of: face) else { return first }
         return all[(index + 1) % all.count]
     }
 }
 
 /// What the timingState control is doing, as far as the Faces tab needs to draw it.
-enum TimingState: Equatable {
+package enum TimingState: Equatable {
     /// Nothing picked, so nothing is being timed.
     case idle
     /// Timing a category right now.
@@ -73,7 +73,7 @@ enum TimingState: Equatable {
 /// "am I still on the clock?"
 ///
 /// Carried over from the previous app, reasoning included, because the reasoning still holds.
-enum ManualTimerRules {
+package enum ManualTimerRules {
     static func timingState(categoryID: Int?, isRunning: Bool) -> TimingState {
         guard categoryID != nil else { return .idle }
         return isRunning ? .running : .paused
@@ -82,7 +82,7 @@ enum ManualTimerRules {
     /// The SF Symbol the control draws, and `nil` when there is nothing to draw. Idle shows nothing: an
     /// empty space is the honest picture of a session that has not started, and it is also the invitation
     /// to pick a category.
-    static func symbolName(for timingState: TimingState) -> String? {
+    package static func symbolName(for timingState: TimingState) -> String? {
         switch timingState {
         case .idle: return nil
         case .running: return "play.fill"
@@ -108,7 +108,7 @@ enum ManualTimerRules {
     /// right half turns into a no-op with it, and `togglePause` refuses with it, so the refusal cannot be
     /// implemented in one of the three and forgotten in the others. That is the exact fault the paragraph above
     /// records, and a limit is a second chance to make it.
-    static func isClickable(_ timingState: TimingState, isLimitReached: Bool = false) -> Bool {
+    package static func isClickable(_ timingState: TimingState, isLimitReached: Bool = false) -> Bool {
         guard timingState != .idle else { return false }
         return !(timingState == .paused && isLimitReached)
     }
@@ -138,7 +138,7 @@ enum ManualTimerRules {
     /// - Parameters:
     ///   - isCubePaired: `setting.paired.paired`, read now.
     ///   - hasGivenUpOnCube: whether this launch has been told to time by hand instead of waiting for its cube.
-    static func isManualMode(isCubePaired: Bool, hasGivenUpOnCube: Bool) -> Bool {
+    package static func isManualMode(isCubePaired: Bool, hasGivenUpOnCube: Bool) -> Bool {
         !isCubePaired || hasGivenUpOnCube
     }
 

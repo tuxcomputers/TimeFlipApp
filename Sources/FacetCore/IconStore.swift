@@ -1,12 +1,12 @@
 import Foundation
 
 /// One icon a category can be drawn with: the id stored against it, the artwork's filename, and a name for a human.
-struct IconRecord: Equatable {
-    let id: Int
+package struct IconRecord: Equatable {
+    package let id: Int
     /// The SVG's filename in `Resources/Icons`, e.g. `ic_admin`.
-    let fileName: String
+    package let fileName: String
     /// The filename made readable, e.g. `Admin`. See `IconStore.displayName`.
-    let name: String
+    package let name: String
 }
 
 /// The `icon` table: the artwork a category can be given.
@@ -16,10 +16,10 @@ struct IconRecord: Equatable {
 /// the only thing that asks is a picker somebody opened, and a read that costs nothing needs no exception written
 /// next to it.
 @MainActor
-final class IconStore {
+package final class IconStore {
     private let connection: DatabaseConnection
 
-    init(connection: DatabaseConnection) {
+    package init(connection: DatabaseConnection) {
         self.connection = connection
     }
 
@@ -28,7 +28,7 @@ final class IconStore {
     /// Id 0 is left out: it is the *None* sentinel rather than a bundled asset, so there is nothing to draw in a
     /// cell for it. Clearing an icon is done by re-clicking the one already chosen -- see
     /// `CategoryEditRules.iconSelection`, which is what makes a grid with no None cell able to unset one.
-    func all() -> [IconRecord] {
+    package func all() -> [IconRecord] {
         var icons: [IconRecord] = []
         connection.forEachRow("SELECT icon_id, icon_name FROM icon WHERE icon_id >= 1 ORDER BY icon_id;") { row in
             let fileName = row.string(1) ?? ""
@@ -39,7 +39,7 @@ final class IconStore {
 
     /// `ic_deep_work` as `Deep Work`: the filename is what the table holds and what the bundle is searched by, and it
     /// is not a thing to show anybody. Copied from the previous app, which had the same two names for one icon.
-    static func displayName(for fileName: String) -> String {
+    package static func displayName(for fileName: String) -> String {
         let trimmed = fileName.replacingOccurrences(of: "ic_", with: "")
         return trimmed
             .split(separator: "_")

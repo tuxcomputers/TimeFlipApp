@@ -9,7 +9,7 @@ import Foundation
 ///
 /// `eventNumber` is the reporter's own counter and is **not** an identity on its own: see
 /// `DeviceEventRules.decision`.
-struct DeviceEventSegment: Equatable {
+package struct DeviceEventSegment: Equatable {
     /// The reporter's counter for this event. `Int` rather than `UInt32`, which is the width on the wire:
     /// every `UInt32` fits, and the comparisons below stay ordinary signed arithmetic with no trap.
     let eventNumber: Int
@@ -64,7 +64,7 @@ struct DeviceEventMark: Equatable {
 enum DeviceEventRules {
 
     /// What recording a segment amounts to.
-    enum Decision: Equatable {
+    package enum Decision: Equatable {
         /// This exact segment is already on record, so its row is brought up to date in place. `finalised`
         /// is false only while it is still the newest thing on record: the open segment being re-sent with a
         /// larger duration is the normal case here.

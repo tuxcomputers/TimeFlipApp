@@ -12,7 +12,7 @@ import Foundation
 /// between the two roughly every two seconds -- one value every 11 seconds of connected time. It notifies on change
 /// and only on change, so a level that cannot make its mind up between two adjacent percentages produces a
 /// notification every time it wavers.
-enum BatteryRules {
+package enum BatteryRules {
     /// What the cube is allowed to say, from `docs/TimeFlip2 BLE Protocol v4.3.md`: a percentage, 1 to 100.
     ///
     /// Anything else is discarded rather than shown. A byte outside this is not a battery level, and the one thing
@@ -38,10 +38,10 @@ enum BatteryRules {
     ///
     /// **Here rather than in `AppSettingsRules`**, where it was while the row was on the App tab: this type already
     /// owns every other number the threshold is judged by, and `latched` takes the threshold itself.
-    static let warningRange = 1 ... 20
-    static let warningSuffix = "%"
+    package static let warningRange = 1 ... 20
+    package static let warningSuffix = "%"
     /// The seeded `low_battery_level`.
-    static let defaultWarningPercent = 10
+    package static let defaultWarningPercent = 10
 
     /// How far above the warning level the charge has to climb before the warning is taken back.
     ///
@@ -64,7 +64,7 @@ enum BatteryRules {
     ///   - shown: the figure currently on show, or `nil` if none has arrived yet on this connection.
     ///   - reading: the percentage the cube has just reported.
     /// - Returns: the figure to show now. `shown` unchanged when the reading is absorbed or is not a level at all.
-    static func shown(_ shown: Int?, reading: Int) -> Int? {
+    package static func shown(_ shown: Int?, reading: Int) -> Int? {
         guard reportedRange.contains(reading) else { return shown }
         // The first reading of a connection is simply the answer: there is nothing yet for it to flap against.
         guard let shown else { return reading }

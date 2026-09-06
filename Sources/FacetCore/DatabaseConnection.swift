@@ -12,7 +12,7 @@ import SQLite3
 ///
 /// `DebugLog` keeps its own connection deliberately, and writes through it -- see the reasoning there.
 @MainActor
-final class DatabaseConnection {
+package final class DatabaseConnection {
     /// The handle, in its own object so it closes when the connection goes away: a `@MainActor` class's
     /// `deinit` cannot touch its own non-Sendable properties.
     private final class Handle {
@@ -25,7 +25,7 @@ final class DatabaseConnection {
 
     private let handle = Handle()
 
-    init(databaseURL: URL) {
+    package init(databaseURL: URL) {
         var db: OpaquePointer?
         // Read/write, but not `CREATE`: the file is brought into being and brought up to the schema by
         // `DatabaseBootstrap`, before this is opened. A connection that could create it would quietly

@@ -17,7 +17,7 @@ import Foundation
 /// **`@MainActor`, as `DevicePairingRecorder` is**: everything here logs, and `DebugLog.record` is main-actor
 /// isolated. The callers are the radio's callbacks and the launch sequence, both of which are already there.
 @MainActor
-struct DevicePINSource {
+package struct DevicePINSource {
     var keychainLookUp: () -> DevicePINStore.Lookup = { DevicePINStore.lookUp() }
     var keychainSave: (String) -> Bool = { DevicePINStore.save(pin: $0) }
     /// The file, used only as the fallback above.
@@ -29,7 +29,7 @@ struct DevicePINSource {
     /// **Read at the moment they are needed and never held**, which is the first rule in `CLAUDE.md` applied to the
     /// two stores that are not the database: a launch that reads them once would present a PIN a later rotation had
     /// already replaced.
-    func stored() -> [String] {
+    package func stored() -> [String] {
         DevicePINRules.readOrder(configFile: configFile.pin(), keychain: keychainPIN())
     }
 
@@ -43,7 +43,7 @@ struct DevicePINSource {
     /// fallback: the PIN is on the cube either way, and the only question is whether this app can still name it.
     /// `reconcile` is what puts that right on a later launch.
     @discardableResult
-    func record(_ pin: String) -> Recorded {
+    package func record(_ pin: String) -> Recorded {
         var written: Set<DevicePINRules.Destination> = []
         for destination in DevicePINRules.destinations where write(pin, to: destination) {
             written.insert(destination)
@@ -73,7 +73,7 @@ struct DevicePINSource {
     /// took, and promoting the wrong one would overwrite the app's only record of the right one. So this takes the
     /// PIN a login was accepted on, and acts only when it is the file's.
     @discardableResult
-    func reconcile(accepted: String) -> Reconciled {
+    package func reconcile(accepted: String) -> Reconciled {
         let decision = DevicePINRules.reconciliation(
             accepted: accepted, configFile: configFile.pin(), keychain: keychainPIN()
         )
@@ -112,7 +112,7 @@ struct DevicePINSource {
     /// **Called once, at launch**, which is where the state it looks for comes from: the file is written by a failed
     /// Keychain write and read by the next launch.
     @discardableResult
-    func settleAtLaunch() -> LaunchOutcome {
+    package func settleAtLaunch() -> LaunchOutcome {
         switch DevicePINRules.launchAction(configFile: configFile.pin(), keychain: keychainPIN()) {
         case .nothing:
             return .nothingToSettle
@@ -132,7 +132,7 @@ struct DevicePINSource {
     }
 
     /// What a launch made of the two stores.
-    enum LaunchOutcome: Equatable {
+    package enum LaunchOutcome: Equatable {
         case nothingToSettle
         /// A release build took the file's copy away, the Keychain holding the same value.
         case clearedARedundantCopy
@@ -163,12 +163,12 @@ struct DevicePINSource {
     }
 
     /// Where a PIN ended up.
-    struct Recorded: Equatable {
+    package struct Recorded: Equatable {
         var destinations: Set<DevicePINRules.Destination>
 
         /// Whether anything at all holds it. `false` is the one state this app cannot recover from on its own, and
         /// the caller says so to the user rather than only to the log.
-        var isRecorded: Bool { !destinations.isEmpty }
+        package var isRecorded: Bool { !destinations.isEmpty }
 
         /// Whether the file is holding it *instead of* the Keychain, which is the fallback in use.
         var isFallback: Bool { !destinations.contains(.keychain) && destinations.contains(.configFile) }
@@ -182,10 +182,25 @@ struct DevicePINSource {
     }
 
     /// What a reconciliation actually did.
-    struct Reconciled: Equatable {
+    package struct Reconciled: Equatable {
         var promoted: Bool
         var clearedConfigFile: Bool
 
-        static let nothingHappened = Reconciled(promoted: false, clearedConfigFile: false)
+        package static let nothingHappened = Reconciled(promoted: false, clearedConfigFile: false)
+    }
+
+    /// Memberwise, spelled out because Swift does not widen a synthesised one with its type.
+    ///
+    /// The two closures are `@escaping`: they are stored, not called and dropped.
+    package init(
+        keychainLookUp: @escaping () -> DevicePINStore.Lookup = { DevicePINStore.lookUp() },
+        keychainSave: @escaping (String) -> Bool = { DevicePINStore.save(pin: $0) },
+        configFile: DeveloperConfigFile = .atStandardPath,
+        debugLog: DebugLog? = nil
+    ) {
+        self.keychainLookUp = keychainLookUp
+        self.keychainSave = keychainSave
+        self.configFile = configFile
+        self.debugLog = debugLog
     }
 }

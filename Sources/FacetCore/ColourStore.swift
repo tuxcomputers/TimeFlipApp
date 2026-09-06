@@ -2,13 +2,13 @@ import Foundation
 
 /// One colour a category can be drawn in: the id stored against it, its name, the colour itself, and whether an icon
 /// on top of it has to be drawn white.
-struct ColourRecord: Equatable {
-    let id: Int
+package struct ColourRecord: Equatable {
+    package let id: Int
     /// The name from the table, e.g. `Navy`. Shown beside the swatch, since a square of colour is not a thing
     /// somebody can say out loud or search for.
-    let name: String
+    package let name: String
     /// The row's `device_hex`, parsed. Not optional: a row without a usable hex is not offered at all (see `all()`).
-    let colour: Colour
+    package let colour: Colour
     /// `true` for colours dark enough to swallow a black glyph, straight from the row's `white_lines`.
     let usesWhiteLines: Bool
 }
@@ -19,10 +19,10 @@ struct ColourRecord: Equatable {
 /// written by the app, and fixed for the life of a launch. Read per ask anyway, for the same reason -- the only thing
 /// that asks is a picker somebody has just opened, and a read that costs nothing needs no exception written next to it.
 @MainActor
-final class ColourStore {
+package final class ColourStore {
     private let connection: DatabaseConnection
 
-    init(connection: DatabaseConnection) {
+    package init(connection: DatabaseConnection) {
         self.connection = connection
     }
 
@@ -41,7 +41,7 @@ final class ColourStore {
     ///
     /// Clearing a colour is done by re-clicking the one already chosen -- see `CategoryEditRules.colourSelection`,
     /// which is what lets a list with no None row still unset one.
-    func all() -> [ColourRecord] {
+    package func all() -> [ColourRecord] {
         var colours: [ColourRecord] = []
         connection.forEachRow(
             "SELECT colour_id, colour_name, device_hex, white_lines FROM colour WHERE colour_id >= 1 ORDER BY colour_id;"

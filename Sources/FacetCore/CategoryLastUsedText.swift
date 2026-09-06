@@ -4,9 +4,9 @@ import Foundation
 ///
 /// **Copied from the previous app as it stands**, reasoning included, because every part of it is a decision rather
 /// than a formatting detail.
-enum CategoryLastUsedText {
+package enum CategoryLastUsedText {
     /// The column's caption, in the header row rather than repeated down every cell.
-    static let columnTitle = "Last used"
+    package static let columnTitle = "Last used"
 
     /// Shown when a retired category has no recorded time at all. Deliberately not blank: an empty cell reads as
     /// "this has not loaded" or "something is broken", where the interesting fact is that there is genuinely nothing
@@ -19,7 +19,7 @@ enum CategoryLastUsedText {
     /// Active rows get nothing. The date is a fact about a retired row, and an active category is one being used now,
     /// so the column would be noise on every row that matters day to day. That is also why the caption appears above
     /// the Inactive list only: captioning the Active one would label a column that is empty by definition.
-    static func label(isCategoryActive: Bool, lastUsed: Date?, formatter: DateFormatter = defaultFormatter) -> String? {
+    package static func label(isCategoryActive: Bool, lastUsed: Date?, formatter: DateFormatter = defaultFormatter) -> String? {
         guard !isCategoryActive else { return nil }
         guard let lastUsed else { return neverUsed }
         return formatter.string(from: lastUsed)

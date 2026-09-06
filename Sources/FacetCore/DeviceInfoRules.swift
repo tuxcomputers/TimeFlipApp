@@ -6,14 +6,23 @@ import Foundation
 /// actually come back: a cube may answer three of them and not the fourth, and a read that failed is a different thing
 /// from a cube that answered with nothing. `nil` means "this one did not arrive", which is what stops it being written
 /// over a value an earlier connection did get (`DevicePairingRecorder.recordInfo`).
-struct DeviceInfo: Equatable {
-    var manufacturer: String?
-    var model: String?
-    var hardware: String?
-    var firmware: String?
+package struct DeviceInfo: Equatable {
+    package var manufacturer: String?
+    package var model: String?
+    package var hardware: String?
+    package var firmware: String?
 
     /// Nothing was read at all: a cube with no Device Information service, or one that refused every read.
-    var isEmpty: Bool { manufacturer == nil && model == nil && hardware == nil && firmware == nil }
+    package var isEmpty: Bool { manufacturer == nil && model == nil && hardware == nil && firmware == nil }
+
+    /// Memberwise, spelled out because Swift does not widen a synthesised one with its type.
+    package init(manufacturer: String? = nil, model: String? = nil,
+                 hardware: String? = nil, firmware: String? = nil) {
+        self.manufacturer = manufacturer
+        self.model = model
+        self.hardware = hardware
+        self.firmware = firmware
+    }
 }
 
 /// What the Device tab's Info panel says, given what the app knows about a cube.
@@ -32,13 +41,13 @@ struct DeviceInfo: Equatable {
 /// - **Manual mode.** The app is timing from its own faces and is not reaching for a cube at all. The archive says
 ///   why this cannot read as "Disconnected": that is true of the cube and no answer at all to why the app is plainly
 ///   still recording time.
-enum DeviceInfoRules {
+package enum DeviceInfoRules {
     /// What the Name row shows.
     ///
     /// The name outlives a great deal -- it survives Forget Device, because forgetting does not un-rename a cube --
     /// but it is only *shown* while there is a pairing for it to belong to. A remembered name against no pairing
     /// would read as a device the app has, and the app has none.
-    static func name(isCubePaired: Bool, deviceName: String?) -> String {
+    package static func name(isCubePaired: Bool, deviceName: String?) -> String {
         guard isCubePaired else { return "Not paired" }
         let name = (deviceName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         // Paired and unnamed is a real state, not a fault: the name is read from the cube on connect and never
@@ -60,7 +69,7 @@ enum DeviceInfoRules {
     ///
     /// **So there is no `isManualMode` parameter either.** It would be `!isCubePaired` with a second name on it,
     /// which is the fault `docs/state-reference.md` exists to keep out of new branches.
-    static func connection(isCubePaired: Bool, isCubeConnected: Bool) -> String {
+    package static func connection(isCubePaired: Bool, isCubeConnected: Bool) -> String {
         guard isCubePaired else { return "Manual mode, no device" }
         return isCubeConnected ? "Connected" : "Disconnected"
     }
@@ -70,7 +79,7 @@ enum DeviceInfoRules {
     /// **No cube at all is a different answer from a cube that cannot be heard from**, which is the archive's line
     /// and the reason this is not simply blank. A percentage only ever comes off a live reading: the level is not
     /// stored anywhere, deliberately, since a remembered one is a number that was true at some point nobody can name.
-    static func battery(isCubePaired: Bool, isCubeConnected: Bool, batteryPercent: Int?) -> String {
+    package static func battery(isCubePaired: Bool, isCubeConnected: Bool, batteryPercent: Int?) -> String {
         guard isCubePaired else { return "Not paired" }
         guard isCubeConnected, let batteryPercent else { return "Unknown" }
         return "\(batteryPercent)%"
@@ -82,7 +91,7 @@ enum DeviceInfoRules {
     /// stored now, and stored means they outlive the connection that read them -- so an app with no device would
     /// otherwise go on reporting a manufacturer and a firmware version for a cube it no longer has, which is a
     /// stronger claim than any of the other rows are allowed to make.
-    static func detail(isCubePaired: Bool, reported: String?) -> String {
+    package static func detail(isCubePaired: Bool, reported: String?) -> String {
         guard isCubePaired else { return "Not paired" }
         let value = (reported ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return value.isEmpty ? "Unknown" : value
@@ -100,7 +109,7 @@ enum DeviceInfoRules {
     ///
     /// `nil` rather than `""` for an empty answer, so "the cube did not say" stays distinguishable all the way to
     /// `DevicePairingRecorder`, which must not write a blank over a value an earlier connection did read.
-    static func reported(_ data: Data?) -> String? {
+    package static func reported(_ data: Data?) -> String? {
         guard let data, let text = String(data: data, encoding: .utf8) else { return nil }
         let value = text
             .trimmingCharacters(in: CharacterSet(charactersIn: "\0"))

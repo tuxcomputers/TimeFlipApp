@@ -9,7 +9,7 @@ import Foundation
 /// **The decisions are here and the storage is not** (`DevicePINStore`, `DevicePINSource`), which is the split every
 /// rules type in this app keeps: what should happen can be tested with no Keychain, no file and no cube, and all
 /// three of those are things `swift test` does not have.
-enum DevicePINRules {
+package enum DevicePINRules {
     /// Whether a cube that let the app in on `accepted` should be given a PIN of its own.
     ///
     /// **The vendor default and nothing else.** A cube on any other PIN is on one this app put there and wrote down,
@@ -21,7 +21,7 @@ enum DevicePINRules {
     /// sets. That question had a right answer only while the target was a fixed constant: the target is a fresh
     /// random PIN each time, so "is it already on the target" would be false for ever and rotate a perfectly good
     /// cube on every connect.
-    static func rotates(from accepted: String) -> Bool {
+    package static func rotates(from accepted: String) -> Bool {
         accepted == DeviceLoginRules.defaultPIN
     }
 
@@ -32,14 +32,14 @@ enum DevicePINRules {
     ///
     /// **Never the vendor default**, however the digits fall: rotating a cube from `000000` to `000000` is a command
     /// and a confirming login spent to change nothing, and it would leave the cube exactly as exposed as it was.
-    static func target() -> String {
+    package static func target() -> String {
         var generator = SystemRandomNumberGenerator()
         return target(using: &generator)
     }
 
     /// The same, against a generator a test can hand in, so "six digits and never the default" is checkable rather
     /// than asserted about a value nobody can predict.
-    static func target<G: RandomNumberGenerator>(using generator: inout G) -> String {
+    package static func target<G: RandomNumberGenerator>(using generator: inout G) -> String {
         var pin = randomPIN(using: &generator)
         // **A loop rather than one draw**, for the one draw in a million that comes up as the vendor default. It
         // cannot spin for long, there being 999,999 other answers.

@@ -5,7 +5,7 @@ import Foundation
 /// Pure, the way `BatteryRules` is pure: what a byte off the radio means, and what a face comes out looking like,
 /// with no view, no database and no peripheral in sight. The reads that turn a face into a category happen at the
 /// point of use (see `TimingReadout.read`); what arrives here is the answer, not the question.
-enum DeviceFaceRules {
+package enum DeviceFaceRules {
     /// The faces a cube reports.
     ///
     /// The ceiling is `ManualFace.highestDeviceFace` rather than a `12` written again, because it is the same fact
@@ -28,7 +28,7 @@ enum DeviceFaceRules {
     /// **Whether the numbering is the app's numbering is not settled on hardware.** Only two of the twelve have ever
     /// been seen, so that the cube's `02` is `face_id` 2 is the archive's assumption carried forward rather than a
     /// measurement. Flipping through every side with the log on is what would settle it.
-    static func face(from value: Data?) -> Int? {
+    package static func face(from value: Data?) -> Int? {
         guard let byte = value?.first else { return nil }
         let face = Int(byte)
         return reported.contains(face) ? face : nil
@@ -41,7 +41,7 @@ enum DeviceFaceRules {
     /// answered this question three different ways on purpose -- an icon falls back to the ordinary label colour so it
     /// stays legible, the LED falls back to dark because that is off on the hardware, and the drawn body falls back to
     /// white -- and this is that one, copied with its reasoning.
-    static func bodyColour(for category: CategoryRecord?) -> Colour {
+    package static func bodyColour(for category: CategoryRecord?) -> Colour {
         category?.colour ?? .white
     }
 
@@ -55,7 +55,7 @@ enum DeviceFaceRules {
     /// The device's outer outline is **not** this colour. It stays black whatever the face is lit in, so the shape
     /// still reads against the window behind it -- which is why the artwork authors its outline separately from its
     /// inner lines (see `ic_facet.svg`).
-    static func lineColour(for category: CategoryRecord?) -> Colour {
+    package static func lineColour(for category: CategoryRecord?) -> Colour {
         (category?.usesWhiteLines ?? false) ? .white : .black
     }
 }

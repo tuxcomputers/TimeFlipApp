@@ -14,7 +14,7 @@ import Foundation
 /// setting it up, which is rarely, so it sits at the end where a setup tab belongs.
 ///
 /// It matched the order the work was done in as well: timing by hand across every tab first, the device after.
-enum SettingsTab: String, CaseIterable {
+package enum SettingsTab: String, CaseIterable {
     /// Which category each face is timing, and the clock for the one in use.
     case faces
     /// The activities time is recorded against.
@@ -27,9 +27,9 @@ enum SettingsTab: String, CaseIterable {
     case device
 
     /// The tab's visible label.
-    var title: String { rawValue.capitalized }
+    package var title: String { rawValue.capitalized }
 
     /// The accessibility identifier of the tab's pane, which is how a script confirms it is looking
     /// at the right one. Kebab-case, matching every other identifier in the app.
-    var paneIdentifier: String { "settings-pane-\(rawValue)" }
+    package var paneIdentifier: String { "settings-pane-\(rawValue)" }
 }

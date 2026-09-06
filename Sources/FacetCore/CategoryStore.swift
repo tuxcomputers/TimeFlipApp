@@ -2,23 +2,23 @@ import Foundation
 
 /// A category as something showing it needs it: the name, the icon and colour it is drawn with, and
 /// whether it is still in use.
-struct CategoryRecord: Equatable {
-    let id: Int
-    let name: String
+package struct CategoryRecord: Equatable {
+    package let id: Int
+    package let name: String
     /// The artwork's filename, or `nil` for the None icon (`icon_id` 0) -- a sentinel row rather than a
     /// bundled asset, so there is nothing to draw.
-    let iconName: String?
+    package let iconName: String?
     /// The row stored against the category, `0` being the seeded *None*.
     ///
     /// Carried as well as the colour itself because the two answer different questions: `colour` is what to draw, and
     /// this is *which* palette entry it is -- which is what the picker needs to tick and what re-picking clears. The
     /// icon column needs no equivalent, its filename being both at once.
-    let colourID: Int
+    package let colourID: Int
     /// `nil` for the None colour (`colour_id` 0), which has no hex of its own.
-    let colour: Colour?
+    package let colour: Colour?
     /// From the colour's own row: `true` for colours dark enough to swallow a black glyph, so the icon
     /// on top of them is drawn white instead.
-    let usesWhiteLines: Bool
+    package let usesWhiteLines: Bool
 
     /// The budget for this category's tracked time in one day, in minutes. `0` disables it, which is what every
     /// category starts with.
@@ -27,10 +27,10 @@ struct CategoryRecord: Equatable {
     /// app sent the cube when a category was spent, neither of which this app has rebuilt. Editable ahead of that
     /// deliberately: the column belongs on the tab with the rest of what a category is, and a value already set is
     /// what the enforcement will find when it arrives.
-    let dailyLimitMinutes: Int
+    package let dailyLimitMinutes: Int
     /// `false` once retired: the row stays so historical `time_entry` rows keep resolving, but it drops
     /// out of the lists a category can be picked from.
-    let isCategoryActive: Bool
+    package let isCategoryActive: Bool
 }
 
 extension CategoryRecord {
@@ -90,10 +90,10 @@ enum CategoryOrder {
 /// took, and never work around a refusal: the unique index on an active name is the last thing standing
 /// between a typo and two identical categories, so a caller that meant to insert has to hear "no".
 @MainActor
-final class CategoryStore {
+package final class CategoryStore {
     private let connection: DatabaseConnection
 
-    init(connection: DatabaseConnection) {
+    package init(connection: DatabaseConnection) {
         self.connection = connection
     }
 
@@ -112,7 +112,7 @@ final class CategoryStore {
     /// rule sqlite cannot express: numeric names ahead of text, `localizedStandardCompare` for the rest
     /// (`COLLATE NOCASE` folds ASCII only, and would put an accented name after `Z` and "Task 10" before
     /// "Task 2"), and an id tiebreak.
-    func activeCategories() -> [CategoryRecord] {
+    package func activeCategories() -> [CategoryRecord] {
         read(where: "c.active = 1 AND c.category_id >= 1", order: "c.category_id")
             .sorted(by: CategoryRecord.displayOrder)
     }
@@ -122,7 +122,7 @@ final class CategoryStore {
     /// Kept rather than deleted, which is what this list is a view of: a retired row stays so every `time_entry`
     /// recorded against it still resolves, and it drops out of the lists a category can be picked from. Id 0 is
     /// excluded for the same reason as above -- *Unassigned* is a placeholder, not a category anybody retired.
-    func inactiveCategories() -> [CategoryRecord] {
+    package func inactiveCategories() -> [CategoryRecord] {
         read(where: "c.active = 0 AND c.category_id >= 1", order: "c.category_id")
             .sorted(by: CategoryRecord.displayOrder)
     }
@@ -136,7 +136,7 @@ final class CategoryStore {
     /// Every match rather than the first, because how many there are changes the answer (see
     /// `CategoryCreateRules`). At most one can be active, and the ordering here is what lets the rules
     /// decide from `matches.first` alone.
-    func matching(name: String) -> [CategoryRecord] {
+    package func matching(name: String) -> [CategoryRecord] {
         guard !name.isEmpty else { return [] }
         return read(
             where: "c.category_name = ? COLLATE NOCASE",
@@ -150,7 +150,7 @@ final class CategoryStore {
     /// Retired ones included on purpose: this answers "what is this row", and the caller that asked -- a
     /// face holding a category, a session timing one -- needs the answer even if the category has since
     /// been retired out of the pickable list.
-    func category(id: Int) -> CategoryRecord? {
+    package func category(id: Int) -> CategoryRecord? {
         read(where: "c.category_id = \(id)", order: "c.category_id").first
     }
 
@@ -198,7 +198,7 @@ final class CategoryStore {
     /// The insert is unguarded, so `UN1_category` -- the unique index over active names -- is what
     /// refuses a duplicate. That is deliberate: the check in `CategoryCreateRules` and the index say the
     /// same thing, and if they ever disagree the index is the one that is right.
-    func insert(name: String) -> Int? {
+    package func insert(name: String) -> Int? {
         guard !name.isEmpty else { return nil }
         guard connection.execute(
             "INSERT INTO category (category_name, icon_id, colour_id) VALUES (?, 0, 0);",
@@ -230,7 +230,7 @@ final class CategoryStore {
     /// **`category_id >= 1`, so the *Unassigned* sentinel cannot be retired.** It is what a face points at when it
     /// holds nothing, so retiring it would take the empty answer out of the list every face needs to be able to fall
     /// back to, and the row would still be sitting under every face that pointed at it.
-    func setActive(id: Int, _ isCategoryActive: Bool) -> Bool {
+    package func setActive(id: Int, _ isCategoryActive: Bool) -> Bool {
         // The row count as well as the step, so a category that is not there reads as refused rather than as
         // done. A name collision is refused by the index and fails the step; a missing id changes nothing and
         // would otherwise pass.
@@ -246,7 +246,7 @@ final class CategoryStore {
     ///
     /// **`category_id >= 1`, so the *Unassigned* sentinel keeps its blank look.** A face holding nothing is drawn from
     /// that row, so artwork on it would put a picture on every empty face at once.
-    func setIcon(id: Int, iconID: Int) -> Bool {
+    package func setIcon(id: Int, iconID: Int) -> Bool {
         connection.execute(
             "UPDATE category SET icon_id = \(iconID) WHERE category_id = \(id) AND category_id >= 1;"
         ) && connection.changes > 0
@@ -264,7 +264,7 @@ final class CategoryStore {
     ///
     /// Refused by `UN1_category` when an active category already holds the name. The caller asks first, for a message
     /// that can say *which* one is in the way, and the index still has the last word.
-    func setName(id: Int, name: String) -> Bool {
+    package func setName(id: Int, name: String) -> Bool {
         guard !name.isEmpty else { return false }
         return connection.execute(
             "UPDATE category SET category_name = ? WHERE category_id = \(id) AND category_id >= 1;",
@@ -279,7 +279,7 @@ final class CategoryStore {
     ///
     /// **`category_id >= 1`, so the *Unassigned* sentinel keeps its blank look**, for the reason `setIcon` gives: it
     /// is what an empty face is drawn from, and on a cube it is what an empty face would light its LED with.
-    func setColour(id: Int, colourID: Int) -> Bool {
+    package func setColour(id: Int, colourID: Int) -> Bool {
         connection.execute(
             "UPDATE category SET colour_id = \(colourID) WHERE category_id = \(id) AND category_id >= 1;"
         ) && connection.changes > 0
@@ -294,7 +294,7 @@ final class CategoryStore {
     /// activity -- and a hard limit reaching it would pause the cube for not being used. **All five writers here guard
     /// themselves this way**, as the previous app's five did: the sentinel is a row the app depends on being exactly
     /// what the seed made it, and a guard on only the writers somebody thought of is a guard with a way round it.
-    func setDailyLimit(id: Int, minutes: Int) -> Bool {
+    package func setDailyLimit(id: Int, minutes: Int) -> Bool {
         connection.execute(
             "UPDATE category SET daily_limit = \(minutes) WHERE category_id = \(id) AND category_id >= 1;"
         ) && connection.changes > 0

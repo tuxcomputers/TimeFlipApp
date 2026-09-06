@@ -10,14 +10,14 @@ import Foundation
 ///
 /// The truth is `0x10`, and nothing else answers it: no history frame carries a lock bit and `device_event` has no
 /// column for one.
-enum CubeLockState: Equatable {
+package enum CubeLockState: Equatable {
     /// Nobody has asked, or the cube would not answer.
     case unknown
     case locked
     case unlocked
 
     /// From the cube's own `0x10` answer, which is absent until it has been read.
-    init(reported: Bool?) {
+    package init(reported: Bool?) {
         switch reported {
         case .some(true): self = .locked
         case .some(false): self = .unlocked
@@ -43,13 +43,13 @@ enum CubeLockState: Equatable {
 /// The trap the type cannot fix: **a locked cube reports itself paused whatever its pause byte says**
 /// (`DeviceCommandRules` encodes it as `isPaused: locked ? true : paused`), so a pause confirmed after a lock proves
 /// nothing and pause is confirmed first.
-enum CubePauseState: Equatable {
+package enum CubePauseState: Equatable {
     /// Nobody has asked, or nothing has come back yet.
     case unknown
     case paused
     case running
 
-    init(reported: Bool?) {
+    package init(reported: Bool?) {
         switch reported {
         case .some(true): self = .paused
         case .some(false): self = .running
