@@ -167,6 +167,21 @@ needs to reach `tuxcomputers/TimeFlipApp` as an account with access.
 **`appdata.sqlite` is a symlink and which database it points at changes.** `scripts/switch-database.sh`
 moves it between `production` and `test`. Never assume which one is live: read the link.
 
+**No environment variable names the data directory here, and none is standard.** Measured 2026-09-07:
+`XDG_DATA_HOME`, `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `XDG_CACHE_HOME` are all **unset**, and the
+only location variables in the environment are `HOME` and `TMPDIR`. macOS has no equivalent of the XDG
+variables; the answer comes from `FileManager.urls(for: .applicationSupportDirectory, ...)`, which is
+what `DatabaseBootstrap`, `InstanceLock` and `DeveloperConfigFile` all call, and which corelibs already
+resolves to `~/.local/share/Facet` on Linux.
+
+The app reads exactly **one** environment variable, `FACET_GOOGLE_CLIENT_JSON`, and reads it as an
+*override* with a bundled fallback behind it (`GoogleCredentials.resolve`).
+
+**Untested here, and the reason not to make an environment variable the primary source of a path:** a
+`.app` launched from the Finder or the Dock is started by `launchd` and does not inherit variables
+exported from a shell profile, so a variable that works under `scripts/run.sh` in a terminal would be
+absent on a double-click. Worth confirming before anything depends on it either way.
+
 ### Bluetooth and the cube
 
 | | |
