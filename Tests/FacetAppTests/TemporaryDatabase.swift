@@ -18,15 +18,23 @@ struct TemporaryDatabase {
     /// The one real copy of the DDL, located from this file's own path so no test depends on
     /// bundling or on the working directory a runner happens to use.
     ///
-    /// Deliberately the real path rather than the `database/` symlink at the repository root: the
-    /// symlink exists for the short paths humans and scripts use, and a test that went through it
-    /// would fail confusingly if it were ever removed, rather than saying the schema is missing.
+    /// **`database/` is the real directory and `Sources/FacetApp/Resources/Database` is the symlink**,
+    /// which is the opposite of how it used to be, and this points at the real one for a reason that is
+    /// not tidiness. `FileManager.contentsOfDirectory(at:)` returns an **empty array** for a symlinked
+    /// directory on Linux where it follows the link on Darwin (measured 2026-09-06,
+    /// `docs/linux-port.md`), and `DatabaseBootstrap` enumerates whatever it is handed. So a test that
+    /// went through the symlink would get a database with no tables, on Linux only, reported as a
+    /// database that was created successfully.
+    ///
+    /// The schema lives at `database/` because both platforms need it and neither owns it; the symlink
+    /// under `Sources/` exists only because SwiftPM requires a target's resources to sit inside the
+    /// target, and SwiftPM does follow it when bundling.
     static var ddlDirectory: URL {
         URL(fileURLWithPath: #filePath)          // .../Tests/FacetAppTests/TemporaryDatabase.swift
             .deletingLastPathComponent()        // .../Tests/FacetAppTests
             .deletingLastPathComponent()        // .../Tests
             .deletingLastPathComponent()        // repository root
-            .appendingPathComponent("Sources/FacetApp/Resources/Database", isDirectory: true)
+            .appendingPathComponent("database", isDirectory: true)
     }
 
     init() {

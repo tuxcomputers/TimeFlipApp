@@ -31,6 +31,7 @@ enum DatabaseBootstrap {
     enum Failure: Error, CustomStringConvertible {
         case ddlDirectoryNotFound
         case ddlDirectoryUnreadable(URL, String)
+        case ddlDirectoryEmpty(URL)
         case cannotCreateContainer(URL, String)
         case cannotOpenDatabase(URL, String)
         case fileUnreadable(String)
@@ -42,6 +43,9 @@ enum DatabaseBootstrap {
                 return "could not locate the bundled Database directory (Resources/Database)"
             case let .ddlDirectoryUnreadable(url, message):
                 return "could not read the Database directory at \(url.path): \(message)"
+            case let .ddlDirectoryEmpty(url):
+                return "the Database directory at \(url.path) holds no numbered .sql files, "
+                    + "so there is no schema to apply"
             case let .cannotCreateContainer(url, message):
                 return "could not create \(url.path): \(message)"
             case let .cannotOpenDatabase(url, message):
@@ -145,15 +149,29 @@ enum DatabaseBootstrap {
         // Filename order is load-bearing: the seeds carry real foreign keys, so parent tables have
         // to exist and be populated before children reference them (006_project before
         // 007_category, and so on). It is why the files are numbered rather than named.
+        // **Resolved before it is enumerated, and the reason is measured rather than defensive.**
+        // `contentsOfDirectory(at:)` returns an empty array for a symlinked directory on Linux where it
+        // follows the link on Darwin (2026-09-06, `docs/linux-port.md`). Resources under `Sources/` are
+        // reached through exactly such a symlink, `database/` being the real directory, so without this
+        // the schema silently does not exist on one platform.
+        let resolved = ddl.resolvingSymlinksInPath()
         let files: [URL]
         do {
             files = try FileManager.default
-                .contentsOfDirectory(at: ddl, includingPropertiesForKeys: nil)
+                .contentsOfDirectory(at: resolved, includingPropertiesForKeys: nil)
                 .filter { $0.pathExtension == "sql" }
                 .filter { numbered.contains(ddlNumber(of: $0)) }
                 .sorted { $0.lastPathComponent < $1.lastPathComponent }
         } catch {
-            throw Failure.ddlDirectoryUnreadable(ddl, error.localizedDescription)
+            throw Failure.ddlDirectoryUnreadable(resolved, error.localizedDescription)
+        }
+        // **A directory that yields no files is never a correct outcome**, on any platform. Without
+        // this the run applies nothing, returns `filesApplied: []` and `createdDatabase: true`, and
+        // hands back a database with no tables described as one that was created -- which is how the
+        // Linux symlink behaviour above went unnoticed until every setting read came back nil with
+        // nothing anywhere saying why.
+        guard !files.isEmpty else {
+            throw Failure.ddlDirectoryEmpty(resolved)
         }
 
         let container = url.deletingLastPathComponent()

@@ -152,8 +152,15 @@ Darwin follows the link. Measured 2026-09-06, same directory, same process:
 | **through a symlink** | **0** | 15 | 15 |
 | the real path | 15 | 15 | 15 |
 
-**`database/` at the root of this repository is a symlink** to `Sources/FacetApp/Resources/Database`.
-Anything on Linux that hands that path to `DatabaseBootstrap` gets no DDL at all.
+`database/` at the root of this repository **used to be** the symlink, pointing into
+`Sources/FacetApp/Resources/Database`. **Fixed 2026-09-06 by flipping it**: `database/` is now the real
+directory and the path under `Sources/` is the symlink, because the schema is shared and neither platform
+owns it -- the only reason it ever lived inside the macOS target is that SwiftPM requires a target's
+resources to sit inside the target, and SwiftPM does follow the link when bundling (verified on Linux;
+the macOS build is what the next scripted run confirms).
+
+`TemporaryDatabase.ddlDirectory` moved to `database/` in the same change, so **no runtime code path
+traverses a symlink at all** now. Only SwiftPM's resource bundling does, at build time.
 
 And the second fault is what turns a wrong answer into a silent one. `DatabaseBootstrap.ensureDatabase`
 filters the listing and applies what survives; **an empty listing applies nothing and returns
@@ -161,10 +168,36 @@ successfully** -- `createdDatabase: true`, `filesApplied: []`, no error thrown. 
 with no tables, reported as a database that was created. That is how this was found: every setting read
 came back `nil` and nothing anywhere said why.
 
-**The empty-listing half is arguably wrong on macOS too**, and is worth fixing there rather than only
-guarding on Linux. A DDL directory that yields no files is never a correct outcome, and `CLAUDE.md`
-already has the rule this breaks: nothing fails silently. The Linux symlink behaviour is what exposed
-it, not what caused it.
+**Both halves are fixed** (2026-09-06). `DatabaseBootstrap.ensureDatabase` resolves symlinks before it
+enumerates, and throws a new `Failure.ddlDirectoryEmpty` rather than returning success on an empty
+listing. The second is a fix on macOS as much as Linux: a DDL directory yielding no files is never a
+correct outcome, and `CLAUDE.md` already carries the rule it broke -- nothing fails silently. The Linux
+symlink behaviour exposed it rather than causing it.
+
+Verified against the exact failure case: with the DDL reachable only through a symlink, the 21 migrated
+`CubeLockTests` pass, where before the same arrangement produced a database with no tables and reported
+it as created.
+
+## Found: a real module split needs ~500 access-level edits
+
+**There is not one `public` declaration in `Sources/`.** Everything is `internal`, which is correct and
+invisible while it is a single module, and is the whole cost of making it two.
+
+| | |
+|---|---|
+| Types the AppKit half names from the portable half | 103 |
+| Member declarations inside portable files, an upper bound on the `public` edits | ~511 |
+| `public` keywords today | **0** |
+
+**This is why a `FacetCore` target cannot be produced from the Linux machine.** There is no AppKit here,
+so `FacetApp` cannot be compiled at all, and the split would mean hundreds of unverifiable access
+changes landing as a wall of errors on the Mac. The same applies to each of the three decouplings below:
+all of them touch files that only build on macOS.
+
+**The cheaper route to the same outcome is `#if canImport(AppKit)`** around the 41 platform files. On
+Linux they compile to nothing; on macOS the condition is always true, so the change is *provably* a
+no-op there and is safe to make without a Mac. No access levels move. A true module split stays
+available later, done where a compiler can check it -- and may turn out not to be needed.
 
 ## Found: the layer boundaries are better than the file count suggests
 
@@ -190,17 +223,17 @@ Roughly in dependency order. Nothing here is started.
 1. ~~**Settle the `@MainActor` question.**~~ Done. It came first because it decides how the
    test target is structured, and doing the extraction first would mean restructuring it twice.
    **Answered 2026-09-06: swift-testing.** What is left is doing it to the other 59 files.
-2. **Extract `FacetCore`** as its own target, with `#if canImport(AppKit)` at the seams. Verifiable on
-   macOS, which is the platform that can be tested today. Includes moving `AppSettingsPane.Change` out of
+2. **Separate the platform half from the portable half.** Two routes, and the choice is open: wrap the
+   41 platform files in `#if canImport(AppKit)`, which is a no-op on macOS and can be done from Linux;
+   or a real `FacetCore` target, which is cleaner and needs ~500 access-level edits made at a Mac. Includes moving `AppSettingsPane.Change` out of
    the pane and giving the six `NSColor` files a colour type of their own.
 3. **Platform-aware data directory.** `~/Library/Application Support/Facet` is a literal in four source
    files -- `DebugTraceRules.swift:24`, `DatabaseBootstrap`, `InstanceLock`, `DeveloperConfigFile` -- in
    10 test files, and, awkwardly, **in the seeded `debug` row of `database/011_setting.sql`**. The DDL one
    is the difficult case: it is a database value rather than code, and the database is the source of truth.
 4. **The three Foundation gaps** above.
-5. **Make `DatabaseBootstrap` refuse an empty DDL listing** rather than reporting success, and resolve
-   symlinks before enumerating. Both halves of the finding above. The first is a macOS fix as much as a
-   Linux one.
+5. ~~**Make `DatabaseBootstrap` refuse an empty DDL listing**, and resolve symlinks before
+   enumerating.~~ Done 2026-09-06, along with flipping `database/` to be the real directory.
 6. **Migrate the test suite to swift-testing**, checking every `tearDown` by hand for the `deinit`
    isolation trap. Mechanical for the assertions, not for the lifecycle.
 7. **`Security` to libsecret.** Two files, `DevicePINStore` and `GoogleTokenStore`, both already behind a
