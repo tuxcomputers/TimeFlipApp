@@ -57,7 +57,10 @@ package enum GoogleTokenStore {
         /// `errSecItemNotFound`: nothing is stored. Signing in is the whole of the fix.
         case missing
         /// Any other status. The item may be sitting there perfectly well; this process could not read it.
-        case unavailable(OSStatus)
+        /// `Int32` rather than `OSStatus`: the same type on Darwin, where `OSStatus` is a typealias for it,
+        /// and a type that exists everywhere. What the number means is a Keychain matter, and a port that
+        /// replaces the Keychain replaces the numbers with it.
+        case unavailable(Int32)
     }
 
     /// Asks the Keychain, and says which of the three answers came back.

@@ -67,7 +67,10 @@ package enum DevicePINStore {
         /// `errSecItemNotFound`: nothing is stored, which is what a cube nobody has paired yet looks like.
         case missing
         /// Any other status. The item may be sitting there perfectly well; this process could not read it.
-        case unavailable(OSStatus)
+        /// `Int32` rather than `OSStatus`: the same type on Darwin, where `OSStatus` is a typealias for it,
+        /// and a type that exists everywhere. What the number means is a Keychain matter, and a port that
+        /// replaces the Keychain replaces the numbers with it.
+        case unavailable(Int32)
     }
 
     static func lookUp() -> Lookup {
