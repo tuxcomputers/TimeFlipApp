@@ -42,7 +42,7 @@ enum ScanUnavailable: Equatable {
 /// coherent if connecting never touches it. The two names the filter needs are read from the table when a scan starts,
 /// at the point of use, and not held between scans.
 @MainActor
-final class BluetoothRadio: NSObject {
+final class BluetoothRadio: NSObject, CubeRadio {
     /// Called as the list changes, already ordered. The whole list rather than each arrival, so the tab redraws from
     /// one answer instead of accumulating its own copy.
     var onDevicesChanged: (([ScannedDevice]) -> Void)?

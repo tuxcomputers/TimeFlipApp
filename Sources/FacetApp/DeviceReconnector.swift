@@ -27,7 +27,7 @@ import Foundation
 /// arrives here is its single answer. See `DeviceLoginRules.reconnectCandidates` for which PINs may be presented.
 @MainActor
 final class DeviceReconnector {
-    private let radio: BluetoothRadio
+    private let radio: CubeRadio
     private let settings: SettingStore
     private let debugLog: DebugLog?
 
@@ -96,7 +96,7 @@ final class DeviceReconnector {
     var onQuitRequested: (() -> Void)?
 
     init(
-        radio: BluetoothRadio,
+        radio: CubeRadio,
         settings: SettingStore,
         debugLog: DebugLog?,
         storedPINs: @escaping () -> [String],
