@@ -336,6 +336,21 @@ Roughly in dependency order. Nothing here is started.
    `FileManager.default.urls(for: .applicationSupportDirectory, ...)`, which corelibs already resolves to
    `~/.local/share/Facet`. They need no change at all, only prose that stops naming the macOS path as
    though it were the only one. The grep that produced the four could not tell a literal from a comment.
+
+   **Decided 2026-09-07: Linux keeps `~/.local/share/Facet`**, which is what corelibs returns on its own,
+   so the resolver needs no `#if os(Linux)` and there is no second location to keep in step. It is also
+   the XDG-correct home for a database, `~/.config` being for configuration.
+
+   **The seed cannot detect the platform and does not need to.** SQL has no way to ask, and
+   `011_setting.sql` is applied both by the app through the SQLite C API and by the `sqlite3` CLI
+   (`scripts/switch-database.sh:151`, `Tests/Scripted/run.sh:119`), so CLI-only dot-commands are out: the
+   one file has to parse under both. The platform answer already exists one layer down in
+   `applicationSupportDirectory`. So the row seeds a platform-neutral value that `DebugTraceRules`
+   expands where the file is opened, which is what it already does with the leading `~`, extended to
+   cover the part of the path that differs. Storing a resolved absolute path instead would work now that
+   the database is not shared between the machines, and `switch-database.sh:153` is the precedent for an
+   applicator correcting a row the DDL could not know, but it means teaching two applicators rather than
+   none and storing a derived value.
 4. **The three Foundation gaps** above.
 5. ~~**Make `DatabaseBootstrap` refuse an empty DDL listing**, and resolve symlinks before
    enumerating.~~ Done 2026-09-06, along with flipping `database/` to be the real directory.
