@@ -1,6 +1,6 @@
 # The Linux port
 
-[← Back to README](../README.md) · [BlueZ notes →](linux-bluez-port-notes.md) · [FacetCore split →](facetcore-split.md)
+[← Back to README](../README.md) · [BlueZ notes →](linux-bluez-port-notes.md) · [FacetCore split →](facetcore-split.md) · [The two systems →](systems-info.md)
 
 **The living status of running Facet on Linux.** What has been established, what is left to do, and what
 is still an open question. Every claim here is either marked as measured -- with the date and the machine

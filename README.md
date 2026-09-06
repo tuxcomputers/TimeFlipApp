@@ -33,6 +33,7 @@ from the using end.
 - **[Database Design](docs/database-design.md)** - the local SQLite schema
 - **[Features Under Development](docs/TODO-features-under-development.md)** - the longer-form notes behind individual features
 - **[The Linux port](docs/linux-port.md)** - what has been proved to work on Linux, what is left, and what is still an open question
+- **[The two systems](docs/systems-info.md)** - measured facts each of the Mac and the Linux box needs about the other
 - **[State Reference](docs/state-reference.md)** - the one name every state in the app goes by
 - **[Scripted checks](Tests/Scripted/README.md)** - the suite that drives the real app against a real device
 

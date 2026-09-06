@@ -1,6 +1,6 @@
 # Splitting FacetCore out, on a Mac
 
-[← Back to README](../README.md) · [Linux port status →](linux-port.md)
+[← Back to README](../README.md) · [Linux port status →](linux-port.md) · [The two systems →](systems-info.md)
 
 **Instructions for work that cannot be done from the Linux machine.** There is no AppKit there, so
 `FacetApp` cannot be compiled at all, and this change is mostly a conversation with the compiler. Read
