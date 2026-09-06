@@ -13,4 +13,9 @@ __pycache__/
 
 # Written by scripts/generate-credentials.sh from the Google console download. Never committed:
 # a release build and a developer build point at different projects, and this repo stays publishable.
-/Sources/FacetCore/Resources/google-client.json
+#
+# By name rather than by path, and that is the point: this was an anchored path until the FacetCore
+# split moved the file, and the moment it moved the old location stopped being ignored with a real
+# client_secret still sitting in it. A pattern that cannot be outrun by moving the file is the one
+# worth having for a secret.
+google-client.json
