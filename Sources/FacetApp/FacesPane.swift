@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// The Faces tab's layout in manual mode: a wide left column for the thing being timed, and a narrow
 /// right column for the categories to pick from.

@@ -5,7 +5,7 @@
 # tries an environment variable and `~/.config/facet/google-client.json` first, and both of those are files
 # on one machine. What this writes is the third source, the one that travels with the binary.
 #
-# It copies the download to `Sources/FacetApp/Resources/google-client.json`, which is gitignored, so neither
+# It copies the download to `Sources/FacetCore/Resources/google-client.json`, which is gitignored, so neither
 # value is ever committed. Not because either is confidential -- under a Desktop OAuth client the "secret"
 # is not a secret, and PKCE is what actually protects the exchange (see `GoogleOAuthRules.pkce`) -- but so a
 # release build and a developer build can point at different projects without editing code, and so the
@@ -40,14 +40,14 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-OUT="Sources/FacetApp/Resources/google-client.json"
+OUT="Sources/FacetCore/Resources/google-client.json"
 CHECK=0
 [ "${1:-}" = "--check" ] && CHECK=1
 
 # Copies SwiftPM has already made into the resource bundle.
 #
 # **SwiftPM does not prune a resource that has gone from the source directory** (measured 2026-08-30:
-# delete it, `swift build`, and the copy under `.build/.../FacetApp_FacetApp.bundle/` is still there).
+# delete it, `swift build`, and the copy under `.build/.../FacetCore_FacetCore.bundle/` is still there).
 # Removing the source alone would therefore leave a build still carrying credentials the developer has
 # just taken away -- and swift-bundler builds the `.app` from those same products. Adding credentials
 # needs no such help: a new file in a processed directory is picked up on the next build.
@@ -56,7 +56,7 @@ prune_built_copies() {
     while IFS= read -r stale; do
         rm -f "$stale"
         found=1
-    done < <(find .build -name "google-client.json" -path "*FacetApp*" 2>/dev/null)
+    done < <(find .build -name "google-client.json" -path "*FacetCore*" 2>/dev/null)
     [ "$found" = "1" ] && echo "  also removed the copies SwiftPM had already put in .build"
     return 0
 }

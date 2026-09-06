@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// The dialog that says the cube could not be found, and asks whether to look again.
 ///

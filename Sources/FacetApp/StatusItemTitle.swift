@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// What the status item spells out: the pieces, in the order they are drawn, decided apart from the drawing.
 ///

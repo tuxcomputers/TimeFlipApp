@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 extension Colour {
     /// The colour as AppKit draws it, in sRGB explicitly rather than in whatever the calibrated default is.

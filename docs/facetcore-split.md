@@ -14,7 +14,7 @@ do not.
 ## Before starting
 
 ```sh
-swift build && swift test          # must be green, 1632 tests
+swift build && swift test          # must be green, 1718 tests
 git status                          # must be clean
 git switch -c <your-branch>         # off feature/linuxPort
 ```
@@ -130,9 +130,18 @@ TimeEntryRules.swift                TimeEntryStore.swift                Timezone
 TimingReadout.swift                 WriteDebounce.swift
 ```
 
-The 33 that stay are the platform layer: the panes and views, `BluetoothRadio`, `DeviceLogin`,
+**`StatusItemTitle` is on that list and does not move.** Its colours are semantic AppKit ones and have to
+resolve as they draw; `linux-port.md` has the detail. The list was computed from import lines, which say
+what a file needed once -- `CollapsibleSection` and `FaceColourSync` were carrying an `import AppKit`
+neither still used.
+
+What actually moved, on 2026-09-06, was **86 files**: those 83, minus `StatusItemTitle`, plus `Colour`,
+`AppSettingsChange` and `CubeRadio` from stage 1, plus `GoogleCredentials`, which had to come out of
+`GoogleOAuthClient.swift` for the same reason `AppSettingsPane.Change` came out of the pane.
+
+The 35 that stay are the platform layer: the panes and views, `BluetoothRadio`, `DeviceLogin`,
 `BLETrace`, `TimeFlipUUIDs`, `MenuBarController`, `MainMenu`, `ActivityIcon`, `GoogleOAuthClient`,
-`QuitSequence`, and `main.swift`.
+`QuitSequence`, `StatusItemTitle`, `ColourDrawing`, and `main.swift`.
 
 ---
 
@@ -140,12 +149,20 @@ The 33 that stay are the platform layer: the panes and views, `BluetoothRadio`, 
 
 This is the bulk of the work and it is mechanical. **Do not pre-emptively edit anything.**
 
+**The grep this file first carried matched nothing, and here is the one that works.** An `internal`
+declaration in another module is not visible-and-refused, it is not visible at all, so the compiler says
+`cannot find` rather than `is internal`:
+
 ```sh
-swift build 2>&1 | grep -E "is internal and cannot be referenced|initializer is inaccessible" | sort -u
+swift build 2>&1 \
+  | grep -oE "cannot find (type )?'[A-Za-z_][A-Za-z0-9_]*'" \
+  | grep -oE "'[^']*'" | tr -d "'" | sort -u
 ```
 
-Fix what it names, rebuild, repeat until the list is empty. Expect on the order of a hundred types and
-several hundred members, from a codebase that currently contains **zero** explicit access modifiers.
+Fix what it names, rebuild, repeat until the list is empty. **94 types, measured** (`linux-port.md`),
+from a codebase that contains **zero** explicit access modifiers. The member count is not knowable up
+front: until a type is visible the compiler cannot say which of its members are wanted, so members
+surface as the types are widened.
 
 ### Use `package`, not `public`
 
@@ -191,6 +208,11 @@ Carry the two `exclude:` entries for `CLAUDE.md` and `ER-diagram.md` across to t
 **The icons stay with `FacetApp`.** `ActivityIcon` is AppKit and does not move, so `Resources/Icons` and
 `AppIcon.icns` stay where they are. `FacetApp` keeps its own `resources:` declaration for them.
 
+**`google-client.json` does move**, which this file did not anticipate. `GoogleCredentials.builtIn`
+reads it through `Bundle.module` and that type belongs in the core, so the file goes to
+`Sources/FacetCore/Resources/`. It is gitignored rather than tracked, so it is moved with `mv` and not
+`git mv`, and `.gitignore` and `scripts/generate-credentials.sh` both name the path.
+
 ---
 
 ## Stage 5: the test target
@@ -215,7 +237,7 @@ it interacts with the swift-testing migration (`linux-port.md`, to-do item 6). D
 
 ```sh
 swift build                 # both targets
-swift test                  # 1632 tests, all green
+swift test                  # 1718 tests, all green
 scripts/run.sh              # the app actually launches and pairs
 ```
 
@@ -230,7 +252,7 @@ Commit the stamp it writes. CI reads `Tests/Scripted/last-run.md` and will refus
 ### What good looks like
 
 - `swift build` clean, no warnings introduced
-- 1632 tests green, none skipped
+- 1718 tests green, none skipped
 - 32 scripted checks passed, 0 failed, 0 short
 - `git diff --stat` dominated by renames, with real edits confined to `Package.swift`, the access
   modifiers, and the three stage-1 decouplings

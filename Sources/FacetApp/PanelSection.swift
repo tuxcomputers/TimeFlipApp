@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// A section of a Settings tab that folds away on its own tinted panel: a disclosure triangle and a heading, with
 /// whatever the section holds under them.

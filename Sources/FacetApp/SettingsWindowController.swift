@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// The Settings window: one tab per `SettingsTab`, each pane empty.
 ///

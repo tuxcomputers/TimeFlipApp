@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// A row that folds open to more rows underneath it, drawn as a row of the panel it sits in rather than as a panel of
 /// its own.

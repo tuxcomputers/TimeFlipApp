@@ -17,22 +17,41 @@ let package = Package(
         )
     ],
     targets: [
+        // The half that does not know what a window is: the stores, the rules, the database and the
+        // device protocol. It links no UI framework, which is the property worth protecting -- adding
+        // an `import AppKit` to a file in here stops compiling on Linux, and the compiler says so at
+        // the point somebody does it rather than at the port.
+        .target(
+            name: "FacetCore",
+            path: "Sources/FacetCore",
+            exclude: [
+                // Documentation living beside the schema it describes, not something to ship inside
+                // the app. `Resources/Database` is a symlink to `database/` at the repository root,
+                // which is the real directory: the schema is shared and neither platform owns it,
+                // and SwiftPM requires a target's resources to sit inside the target.
+                "Resources/Database/CLAUDE.md",
+                "Resources/Database/ER-diagram.md"
+            ],
+            resources: [
+                // The DDL travels with `DatabaseBootstrap`, which reads it through `Bundle.module`.
+                // That accessor is per-target, so leaving the schema behind in FacetApp would have it
+                // resolve to a bundle the DDL is not in.
+                .process("Resources")
+            ]
+        ),
         .executableTarget(
             name: "FacetApp",
+            dependencies: ["FacetCore"],
             path: "Sources/FacetApp",
             exclude: [
                 // Carried across with the icon itself: Swift Bundler copies AppIcon.icns into the
                 // bundle from Bundler.toml, so processing it here as well would ship two copies.
                 // (The archived package excluded it for exactly this reason.)
-                "Resources/AppIcon.icns",
-                // Documentation living beside the schema it describes, not something to ship inside
-                // the app. `database/` at the repository root is a symlink to this directory, which
-                // is why the docs are here at all: one set of files, reachable by the short path
-                // every script and doc already uses.
-                "Resources/Database/CLAUDE.md",
-                "Resources/Database/ER-diagram.md"
+                "Resources/AppIcon.icns"
             ],
             resources: [
+                // The icons `ActivityIcon` draws and the Google client `GoogleOAuthClient` reads.
+                // Both are read by files that stay on this side, so they stay with them.
                 .process("Resources")
             ],
             linkerSettings: [
@@ -43,7 +62,7 @@ let package = Package(
         ),
         .testTarget(
             name: "FacetAppTests",
-            dependencies: ["FacetApp"]
+            dependencies: ["FacetApp", "FacetCore"]
         )
     ]
 )

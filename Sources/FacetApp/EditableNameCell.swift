@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// A name that becomes a field when it is clicked, and goes back to being a name when the edit ends.
 ///

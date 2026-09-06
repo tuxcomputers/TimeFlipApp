@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// The Timing column: what is being timed, whether the clock is running, and for how long.
 ///

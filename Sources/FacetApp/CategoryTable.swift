@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// The Categories tab's list: a caption row naming the columns, then one row per category, on the tinted panel its
 /// section draws around both this and the heading.

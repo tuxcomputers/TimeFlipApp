@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// The Device tab: what the app knows about a cube, the way to go and find one, and the settings that live on one.
 ///

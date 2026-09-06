@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// The palette a category's colour is picked from, shown in a popover under its swatch.
 ///

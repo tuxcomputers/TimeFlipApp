@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// The App tab: how the app itself behaves, as opposed to what it is timing.
 ///

@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// A row of a Settings list: the height every row on every tab keeps, and the label-and-value shape two of the
 /// three tabs draw.

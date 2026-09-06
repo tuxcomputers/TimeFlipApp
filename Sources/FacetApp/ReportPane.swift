@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// The Report tab: a date range across the top, and what each category recorded over it underneath.
 ///

@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// One category on the Report tab: a heading line carrying its icon, its name and its total, with the stretches that
 /// make up that total folded away behind it.

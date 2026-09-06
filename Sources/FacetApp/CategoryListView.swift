@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// The list of categories, drawn the way the previous app drew it: one row each, a colour swatch holding
 /// the icon, the name beside it, hairlines between rows, all on a rounded panel.

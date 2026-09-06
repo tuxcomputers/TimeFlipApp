@@ -1,4 +1,4 @@
-import AppKit
+import Foundation
 
 /// Telling the cube what colour to light each face.
 ///

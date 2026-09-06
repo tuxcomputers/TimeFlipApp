@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// The Categories tab's Inactive list: the categories that have been retired, with the name and when each last
 /// recorded time.

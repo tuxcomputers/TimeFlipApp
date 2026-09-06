@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// The status item and its dropdown. Owns the AppKit; decides nothing (see `StatusItemClickRouter` for the
 /// clicks, `StatusItemTitle` for what the item says, and `TimingReadout` for what is being timed).

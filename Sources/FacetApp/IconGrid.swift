@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// The grid of icons a category's artwork is picked from, shown in a popover under its icon.
 ///

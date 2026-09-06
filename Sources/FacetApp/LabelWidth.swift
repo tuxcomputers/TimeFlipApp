@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// Stops a label widening the window it is drawn in.
 ///

@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// Loads a category's artwork from the bundled SVGs in `Resources/Icons`.
 ///

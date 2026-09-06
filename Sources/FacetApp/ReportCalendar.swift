@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// A month calendar for the Report tab, drawn here rather than taken from the system.
 ///

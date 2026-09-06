@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// Creating a category: a Create button that becomes a name field and a Save button, and goes back to
 /// being a button when it is done.

@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// The application menu bar: an app menu and an Edit menu, installed once at launch.
 ///

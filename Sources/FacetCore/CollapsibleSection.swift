@@ -1,4 +1,4 @@
-import AppKit
+import Foundation
 
 /// A section of a Settings tab that folds away.
 ///

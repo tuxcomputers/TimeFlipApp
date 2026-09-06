@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// What the picked range came to, per category: the icon on its colour, the name, the time on the right, and the
 /// stretches behind that time folded away underneath ([ReportCategoryGroup]).

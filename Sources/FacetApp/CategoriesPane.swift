@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// The Categories tab: the categories themselves, as opposed to which of them is being timed.
 ///

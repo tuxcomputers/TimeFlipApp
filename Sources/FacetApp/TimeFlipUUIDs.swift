@@ -1,4 +1,5 @@
 import CoreBluetooth
+import FacetCore
 
 /// The vendor's UUIDs, from `docs/TimeFlip2 BLE Protocol v4.3.md`.
 ///

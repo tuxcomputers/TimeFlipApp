@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 import Foundation
 
 // Startup, in order: prove this is the only instance, bring the database up, then the menu bar. Each

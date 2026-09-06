@@ -1,4 +1,5 @@
 import CoreBluetooth
+import FacetCore
 import Foundation
 
 /// Every byte this app sends the cube and every byte it gets back, as a `debug_log` row.

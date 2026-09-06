@@ -1,4 +1,5 @@
 import CoreBluetooth
+import FacetCore
 import Foundation
 
 /// Why a scan is not running, in the words the tab shows.

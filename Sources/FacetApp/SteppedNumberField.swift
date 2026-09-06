@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// A number in a box, a suffix naming its unit, and a pair of arrows: the previous app's control for every typeable
 /// value in this window, and the shape its daily-limit column expects.

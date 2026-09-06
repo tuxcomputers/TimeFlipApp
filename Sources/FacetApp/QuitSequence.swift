@@ -1,4 +1,5 @@
 import AppKit
+import FacetCore
 
 /// What the app does on its way out.
 ///
