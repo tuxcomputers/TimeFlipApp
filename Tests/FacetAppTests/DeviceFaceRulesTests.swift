@@ -1,6 +1,4 @@
-@testable import FacetApp
 @testable import FacetCore
-import AppKit
 import XCTest
 
 /// Covers what a value on the `faces` characteristic means, and what colours a face is drawn in.

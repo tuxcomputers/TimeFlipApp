@@ -708,14 +708,18 @@ to-do item 12 rather than a piece of work in it.
 
 | | |
 |---|---|
-| `swift test` | **cannot run today.** Measured again after the install: 178 errors, 176 of them `no such module SQLite3`, plus the driver's own `error: fatalError`. No test is discovered |
+| `swift test` | **Runs. 540 tests, 0 failures, 36.6s** (2026-09-07). That is 36 of the 102 test files; the rest are excluded by name in `Package.swift`, 48 for needing a platform type and 17 for being `@MainActor` XCTestCases |
 | `Tests/Scripted/` | **cannot run today**: no app binary to drive, and toolkit accessibility is off. The `sqlite3` half of that is fixed as of 2026-09-07 |
 | `swift build --target FacetCore` | fails, and the whole of why is below |
 
-**`swift test` stops in the same place `swift build --target FacetCore` does**, which is worth knowing
-before reading anything into it: SwiftPM builds `FacetCore` first as a dependency of the test target, so
-the run dies on `SQLite3` and never reaches `FacetApp` at all. **The AppKit wall is behind the SQLite3
-one and has not been seen from this box yet**, so nothing measured here says anything about it.
+**What the 540 are and are not.** They are the rules, the stores, the database layer and the device
+protocol -- the half of the app that does not know what a window is -- exercised against real
+bootstrapped databases on this machine. They are not the UI, the radio or Google sign-in, none of which
+compiles here yet. The figure to compare them against is 1725, the whole suite on the Mac.
+
+**`swift build` still fails on Linux and that is correct**: the executable product is AppKit, so
+building *everything* cannot work until item 11. `swift test` succeeds because the package no longer
+declares that target on this platform at all.
 
 **Nothing checks that `sqlite3` is on `PATH` before calling it**, which is worth knowing for the next
 fresh machine rather than this one: no script in `Tests/Scripted/` or `scripts/` tests for it, so

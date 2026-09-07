@@ -1,5 +1,11 @@
 #if canImport(CoreGraphics)
 import CoreGraphics
+#else
+// **`CGFloat` comes from Foundation here.** corelibs defines it -- the same 8-byte double it
+// is on Darwin -- so this file needs the type rather than a stand-in for it. A typealias of
+// our own compiled, and then made `CGFloat` ambiguous in any module importing both this one
+// and Foundation, which is every test file.
+import Foundation
 #endif
 
 /// What sits *around* the grids, which is the only part of the Report tab that is a fixed number: everything inside a

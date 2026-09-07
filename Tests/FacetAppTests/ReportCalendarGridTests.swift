@@ -1,4 +1,3 @@
-@testable import FacetApp
 @testable import FacetCore
 import XCTest
 

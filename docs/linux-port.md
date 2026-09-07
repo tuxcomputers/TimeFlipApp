@@ -20,6 +20,7 @@ moving is a finding that will be measured twice.
 | Does the app's core compile on Linux? | **Yes -- `FacetCore` entire**, 89 files, 0 errors, 0 warnings, from a deleted `.build` in 13s | 2026-09-07, Linux |
 | Does the logic behave? | **Yes**, 432 tests pass | 2026-09-06 |
 | Can the whole test suite run? | **Under XCTest no**, `@MainActor` blocks ~60%. **Under swift-testing yes** | 2026-09-06 |
+| Does any of the suite run on Linux? | **Yes. `swift test` passes 540 of 1725 tests**, 36 files, in 37s. The other 1185 are excluded by name in `Package.swift` and come back as items 6, 9, 10 and 11 land | 2026-09-07, Linux |
 | Is there a UI? | Not started, and the toolkit is undecided | -- |
 | Is there a `FacetCore` target? | **Yes.** 86 files, no AppKit, and `FacetApp` builds on it. 589 access-level edits | 2026-09-07, Mac |
 | ~~What is left before Linux can try the core?~~ | **Nothing. All four are done**: `SQLite3` has a modulemap target, `CoreGraphics` a `package typealias`, `Security` the login keyring through `secret-tool`, `CryptoKit` a written SHA-256 | 2026-09-07, Linux |
@@ -415,6 +416,28 @@ Roughly in dependency order. Nothing here is started.
    enumerating.~~ Done 2026-09-06, along with flipping `database/` to be the real directory.
 6. **Migrate the test suite to swift-testing**, checking every `tearDown` by hand for the `deinit`
    isolation trap. Mechanical for the assertions, not for the lifecycle.
+
+   **Under way, and the structure it needed is done (2026-09-07, Linux).** `swift test` runs on Linux
+   now and passes **540 tests across 36 files in 37 seconds** -- more than the spike's 432, and against
+   the real target rather than a scratch package. What made that possible was not the migration but
+   getting the package to build tests at all on Linux:
+
+   - `FacetApp` is no longer in the package on Linux, and neither is the executable product. `swift test`
+     builds *every* target rather than only what the tests depend on, so a declared AppKit executable
+     killed every run.
+   - The test target's dependencies are chosen by the host rather than carrying `.when(platforms:)`.
+     **SwiftPM resolves a dependency by name before it applies the condition**, so merely *naming*
+     `FacetApp` from the test target made it hunt for sources that are not there and fail the manifest.
+   - `Package.swift` carries two lists of test files to exclude on Linux, with the reason attached to
+     each: **48 platform-bound** (AppKit, CoreBluetooth or a `FacetApp` type) and **17 `@MainActor`
+     XCTestCases**. The second list is this item's work queue, 333 tests, and it shrinks as they migrate.
+     An isolated *helper* is not affected and is not listed -- only an XCTestCase subclass aborts a run.
+   - 36 files stopped importing `FacetApp`, and one carried a vestigial `import AppKit`
+     (`DeviceFaceRulesTests`). Neither was needed; the Linux build is what proved it, since a file that
+     compiles without a module needs nothing from it on either platform.
+
+   So the remaining work is the migration proper: 17 portable `@MainActor` files first, being the ones
+   that only need the framework swapped, then the platform-bound 48 as their platforms arrive.
 7. ~~**`Security` to libsecret.**~~ **Done 2026-09-07, Linux, and not via libsecret.** Both stores
    branch at compile time inside their own four functions, as this item said they would, so no call site
    changed and the Darwin bodies are untouched.
