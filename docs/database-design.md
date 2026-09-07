@@ -50,6 +50,8 @@ Constraints:
 
 Reference table of IANA time zones. Every date/time table references it by id (see the "local time + timezone" design principle) instead of repeating the identifier string on every row. The app resolves the current zone's id via get-or-create (`TimezoneStore.currentID()`). It is numbered `002` so it precedes every table that references it (foreign keys are enforced).
 
+**Editing this file edits the debug database's schema too.** `database/500_timezone.sql` is a symlink to it, so `debug.sqlite` is created from these same statements — see [the debug database's `timezone`](#timezone-database500_timezonesql-a-symlink-to-002_timezonesql) for why it needs its own table and why the two sets of rows may never be joined. A column added here appears in both, which is the point; anything that should reach only one of them cannot go in this file at all, and would mean giving `500` a real file back.
+
 | Column          | Type    | Description                                                        |
 |-----------------|---------|--------------------------------------------------------------------|
 | `timezone_id`   | INTEGER | Row identifier, primary key, autoincrementing.                     |
@@ -329,11 +331,15 @@ Practically, that means going out of range does **not** write to `paired`. To as
 
 **Its DDL lives in the same `database/` directory, numbered from 500.** Below 500 is the app's schema; 500 and above is this one's. One directory holds both because `Package.swift` processes `Resources` and SwiftPM flattens what it processes, so a real subdirectory would be folded back in and applied to whichever database asked first. `DatabaseBootstrap.firstDebugDDLNumber` is where the line is drawn, and the gap between `011` and `500` is room for both schemas to grow without either renumbering the other.
 
-### `timezone` (`database/500_timezone.sql`)
+### `timezone` (`database/500_timezone.sql`, a symlink to `002_timezone.sql`)
 
-The same table as the app's, and a deliberate second copy of it. `debug_log.logged_at` is local time and needs its zone, and a foreign key cannot cross database files — so this file carries its own.
+The same table as the app's, deliberately created a second time in the debug database. `debug_log.logged_at` is local time and needs its zone, and a foreign key cannot cross database files — so this file carries its own.
 
-**The two fill independently, so the same zone can hold a different id in each.** Nothing may join across the files, and nothing needs to: the point of the copy is that a submitted `debug.sqlite` is readable on its own, without the app's database beside it.
+**It is one file, not two copies.** `500_timezone.sql` is a relative symlink to `002_timezone.sql`, so the definition cannot drift between the databases: there is nowhere for a column added to one to be missing from the other. It used to be a duplicate, and the only thing that differed was the second comment line. The numbering rule still decides which database the file belongs to, and it decides it from the *name* — `DatabaseBootstrap` reads `500` off the symlink and applies it to `debug.sqlite`, having never looked at what it points at.
+
+**What may never be joined is the data, and that is unchanged by the link.** The two tables fill independently, so the same zone can hold a different id in each; nothing may join across the files, and nothing needs to. The point of the second table is that a submitted `debug.sqlite` is readable on its own, without the app's database beside it. Sharing the definition and sharing the rows are different things, and only the first is being done here.
+
+**The link is relative and its target sits in the same directory, which is what makes it survive the build.** SwiftPM copies it into the resource bundle as a link rather than following it, and `.process` flattens everything to the bundle root, so `002_timezone.sql` lands beside it and the link resolves. Measured on Linux 2026-09-07, from both the source directory and the built bundle: 13 `.sql` files present, the debug database coming up with `debug_log` and `timezone` and the seeded `Unknown` row at id 0.
 
 ### `debug_log` (`database/501_debug_log.sql`)
 

@@ -107,8 +107,14 @@ and don't count it when reasoning about the schema.
   `Resources` and SwiftPM flattens what it processes, so a real subdirectory would be folded back in and
   applied to whichever database asked first. `DatabaseBootstrap.firstDebugDDLNumber` is where the line is
   drawn, and the gap from `011` to `500` is room for both schemas to grow without either renumbering the
-  other. A table needed by both is written twice, once in each range -- `timezone` is the only one, and
-  `docs/database-design.md` says why the two copies may never be joined.
+  other. A table needed by both is defined **once and symlinked into the other range** -- `timezone` is the
+  only one, `500_timezone.sql` is a relative symlink to `002_timezone.sql`, and
+  `docs/database-design.md` says why the two *tables* may never be joined even though the file is now one.
+  **The link is relative and points at a file in the same directory, and it has to stay that way**:
+  SwiftPM copies it into the bundle as a link rather than following it, and `.process` flattens
+  everything to the bundle root, so the target sits beside it and resolves. An absolute link, or one
+  reaching into a subdirectory, would arrive dangling.
+  A second table wanted by both databases follows the same pattern rather than being typed twice.
 - DDL files are named `<NNN>_<tablename>.sql` and applied in ascending filename order (see
   `DatabaseBootstrap.ensureDatabase`). Foreign keys are **enforced** (`PRAGMA foreign_keys = ON`), so a
   table must be numbered **after every table it references** — a parent is created and seeded before
