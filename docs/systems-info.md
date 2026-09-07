@@ -336,7 +336,7 @@ remembering.
 | `python3-pyatspi` | 2.46.1 | importable as `pyatspi` |
 | `bash` | **5.2.21(1)** | `/usr/bin/bash`, and `SHELL=/bin/bash` |
 | `git` | 2.43.0 | `/usr/bin/git` |
-| `gh` | 2.45.0 | `/usr/bin/gh` (**installed 2026-09-07**; the Mac is on 2.100.0). **Logged into no host** |
+| `gh` | 2.45.0 | `/usr/bin/gh` (**installed 2026-09-07**; the Mac is on 2.100.0). Logged in as `tuxcomputers` |
 | `jq` | 1.7.1 | `/usr/bin/jq` (**installed 2026-09-07**; reports itself as `jq-1.7`) |
 | `secret-tool` | 0.21.4 | `/usr/bin/secret-tool`, from `libsecret-tools` (**installed 2026-09-07**) |
 | `curl` | 8.5.0 | `/usr/bin/curl` |
@@ -398,16 +398,29 @@ and `XDG_CACHE_HOME` are all unset. So corelibs' `applicationSupportDirectory` f
 `$HOME/.local/share`, which is where `/home/harry/.local/share/Facet` above comes from, and the
 platform-aware answer in to-do item 3 needs no variable to be set to be right.
 
-**This box cannot push, and the reason is that nothing here can authenticate.** Measured 2026-09-07,
-after `gh` was installed: `gh auth status` answers **You are not logged into any GitHub hosts**, there is
-no credential helper configured at any scope (`git config --list --show-origin | grep credential` is
-empty), there are no keys in `~/.ssh`, and `GH_TOKEN` and `GITHUB_TOKEN` are both unset. Anonymous
-HTTPS works for reading -- `git ls-remote` and `git fetch` both succeed, the repository being public --
-so this box can follow the Mac and cannot publish to it.
+**This box can push, as of 2026-09-07**, and it took two commands after `gh` was installed:
 
-**`gh auth login` is the outstanding step, and `CLAUDE.md` says which account it has to be.** Push
-access to `tuxcomputers/TimeFlipApp` is what matters, not merely being logged in, and `git`'s credential
-helper delegates to `gh auth git-credential` once there is a login for it to delegate to.
+```sh
+gh auth login --hostname github.com --git-protocol https --web   # the tuxcomputers account
+gh auth setup-git                                                # writes the helper into ~/.gitconfig
+```
+
+| | |
+|---|---|
+| Account | `tuxcomputers`, active, matching the org this repo belongs to |
+| Token scopes | `gist`, `read:org`, `repo` -- `repo` is the one that carries the push |
+| Where the token lives | **the login keyring**, service `gh:github.com`, account `tuxcomputers` |
+| Credential helper | `credential.https://github.com.helper=!/usr/bin/gh auth git-credential`, in `~/.gitconfig` |
+| Verified by | pushing two commits and reading them back with `gh api repos/tuxcomputers/TimeFlipApp/commits/<sha>` |
+
+**It had none of that until then**, and the failure is worth knowing by sight because it names neither
+gh nor a permission: `git push` answers `fatal: could not read Username for 'https://github.com': No
+such device or address`. That is git finding no helper and no terminal to prompt at, not a rejected
+credential -- a `403` would be the other thing, which is what `CLAUDE.md` describes for an account
+without access.
+
+**No SSH key is involved and none is wanted here**, matching the Mac's reasoning: the remote is HTTPS on
+purpose, so authentication follows the active `gh` account rather than whichever key the agent offers.
 
 ### There is a keychain here, and the Secret Service is already running
 
@@ -443,6 +456,11 @@ The second is worth weighing precisely because of item 10. `org.freedesktop.secr
 but they are one set of D-Bus mechanics, and `scripts/linux-ble-probe.py` already demonstrates all of it
 against BlueZ. **Nothing is decided here**; this records that the choice exists and that neither route
 is blocked.
+
+**The keyring is already holding a real credential for this repository**, which is the strongest thing
+that can be said for the D-Bus route short of building it: `gh auth login` put its token there rather
+than in a file, `secret-tool search --all service gh:github.com` reads it back, and `git push` has been
+driven from it. So the store works, unprompted, for a background process on this desktop.
 
 **Untested, and it matters before either route is built**: what happens when the keyring is *locked*.
 `DevicePINStore` and `GoogleTokenStore` both answer `unavailable(Int32)` for a Keychain that will not

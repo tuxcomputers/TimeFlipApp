@@ -403,10 +403,13 @@ pushed**, and a commit deliberately held back is worth saying out loud rather th
 host to discover.
 
 **Where a host cannot push, that is a blocker to clear rather than a step to drop.** The section below
-says which account needs the privileges. The Linux box has no credential configured at all as of
-2026-09-07 -- no `gh` login, no helper, no keys -- so `gh auth login` is its outstanding setup, and until
-it is done a commit made there has to be reported as local so somebody knows it is not visible from the
-Mac.
+says which account needs the privileges. Both hosts can push as of 2026-09-07, the Linux box having had
+no credential at all until it was given one -- `gh auth login` then `gh auth setup-git`, on the
+`tuxcomputers` account, with the token kept in that machine's login keyring. Its failure mode before
+that named neither gh nor a permission (`fatal: could not read Username for 'https://github.com'`),
+which is worth recognising: that is no credential helper at all, where a `403` is the wrong account. A
+commit that genuinely cannot be pushed gets reported as local, so nobody assumes the other host can see
+it.
 
 ## Working with the git remote (push, PR, etc.)
 
