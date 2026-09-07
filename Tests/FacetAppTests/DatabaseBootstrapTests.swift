@@ -110,7 +110,12 @@ final class DatabaseBootstrapTests: XCTestCase {
         try bootstrap()
         try DatabaseBootstrap.ensureDebugDatabase(at: debugURL, ddlDirectory: ddlDirectory)
 
-        XCTAssertEqual(tableNames(in: debugURL), ["debug_log", "timezone"], "the trace's file, and only it")
+        XCTAssertEqual(
+            tableNames(in: debugURL),
+            ["debug_log", "timezone", "timezone_alias"],
+            "the trace's file, and only it -- `timezone_alias` is here because `debug_log.timezone_id` "
+                + "resolves through `timezone_lookup`, which is that table unioned with `timezone`"
+        )
         XCTAssertFalse(tableNames(in: databaseURL).contains("debug_log"), "the app's file keeps no trace table")
         XCTAssertTrue(tableNames(in: databaseURL).contains("time_entry"), "precondition: the app's schema is there")
     }

@@ -2,9 +2,20 @@ import Foundation
 
 /// The `timezone` table: the id every stored date and time hangs its zone on.
 ///
-/// Get-or-create, because the table is seeded with one row (`Unknown`, id 0) and fills up as the machine
-/// visits zones. That makes it the one reference-shaped table that is **not** covered by the
-/// reference-table exception in `CLAUDE.md`: the app writes to it.
+/// **Seeded with every zone tzdb knows, at ids that are the same in every Facet database.** 447 zones plus
+/// the `Unknown` sentinel at 0, written out in `002_timezone.sql`, so `timezone_id 116` is
+/// `America/Havana` in this machine's database, in the next machine's, and in the debug file beside it.
+/// Before that they were handed out in visit order, which made an id mean whatever the file it sat in
+/// happened to have seen first -- two databases on one Mac disagreed about what id 1 meant.
+///
+/// **Reads go through `timezone_lookup`, never the table**, because that view carries the 151 legacy names
+/// as well (`Cuba`, `US/Pacific`, `Asia/Calcutta`) and answers each with the id of the zone that replaced
+/// it. A machine set to a legacy name is not a hypothetical: measured 2026-09-07, `TZ=Cuba` makes
+/// `TimeZone.current.identifier` answer `Cuba` verbatim, and nothing in Foundation canonicalises it.
+///
+/// It is still **not** covered by the reference-table exception in `CLAUDE.md`, and by a narrower margin
+/// than before: the app writes a row only for a zone the seed does not know, which is a tzdb release
+/// newer than `002_timezone.sql`.
 ///
 /// Read at the point of use like everything else. The previous app resolved this once at startup and held
 /// it, reasoning that the identifier only changes if the machine physically moves between zones, which is
@@ -26,20 +37,44 @@ package final class TimezoneStore {
         id(for: TimeZone.current.identifier)
     }
 
-    /// The id for a named IANA zone (`Australia/Sydney`), creating the row if it is not there yet.
+    /// The id for a named IANA zone (`Australia/Sydney`), or for any legacy name that resolves to one
+    /// (`Cuba`), creating the row only for a zone the seed has never heard of.
     func id(for name: String) -> Int {
-        // Guarded insert rather than `INSERT OR IGNORE`, which would consume an AUTOINCREMENT id for the
-        // row it then discards, and the same shape the DDL's own seeds use.
+        if let seeded = lookup(name) { return seeded }
+
+        // **A name the seed does not carry, which means a tzdb release newer than `002_timezone.sql`.**
+        // Recorded rather than dropped: filing it under `Unknown` would lose which zone the time was
+        // taken in, and that is the one thing the column exists to say. `AUTOINCREMENT` is what makes
+        // this safe now that the seeded ids are fixed -- the row lands above the whole seeded block
+        // (448 and up), so it cannot take an id that a later release of the seed then claims for a
+        // different zone. **A row up there is the signal to add the zone to the DDL**, and until
+        // somebody does, that id means this zone on this machine only.
+        //
+        // Guarded insert rather than `INSERT OR IGNORE`, which would consume an id for the row it then
+        // discards, and the same shape the DDL's own seeds use.
         connection.execute(
             "INSERT INTO timezone (timezone_name) SELECT ?1 "
                 + "WHERE NOT EXISTS (SELECT 1 FROM timezone WHERE timezone_name = ?1);",
             bind: [name]
         )
 
+        return lookup(name) ?? 0
+    }
+
+    /// What `timezone_lookup` answers for a name, or `nil` if it answers nothing.
+    ///
+    /// The view is `timezone` and `timezone_alias` unioned, so one query covers both a canonical name and
+    /// a legacy one, and the answer for either is the canonical row's id. It is read-only, which is the
+    /// half that matters here: the resolution rule lives in the database, where a scripted check reads it
+    /// with the same query the app does.
+    private func lookup(_ name: String) -> Int? {
         var found: Int?
-        connection.forEachRow("SELECT timezone_id FROM timezone WHERE timezone_name = ?;", bind: [name]) { row in
+        connection.forEachRow(
+            "SELECT timezone_id FROM timezone_lookup WHERE timezone_name = ?;",
+            bind: [name]
+        ) { row in
             found = Int(row.int(0))
         }
-        return found ?? 0
+        return found
     }
 }

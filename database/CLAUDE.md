@@ -114,7 +114,21 @@ and don't count it when reasoning about the schema.
   SwiftPM copies it into the bundle as a link rather than following it, and `.process` flattens
   everything to the bundle root, so the target sits beside it and resolves. An absolute link, or one
   reaching into a subdirectory, would arrive dangling.
-  A second table wanted by both databases follows the same pattern rather than being typed twice.
+  A second table wanted by both databases follows the same pattern rather than being typed twice --
+  `502_timezone_alias.sql` and `503_timezone_lookup.sql` are the next two, links to `012` and `013`.
+- **A view is a file like any other**, named for the view it creates (`013_timezone_lookup.sql`) and
+  numbered after every table it selects from, since a view over a missing table cannot be created.
+- **A fully seeded table sets its own ids and they are never renumbered.** `timezone` is the case:
+  447 zones at fixed ids, so a `timezone_id` means the same zone in every database this app has ever
+  written. A zone a later tzdb release adds is **appended above the block**, never slotted into
+  alphabetical order to keep the file tidy -- the order the ids were first assigned in is history, and
+  renumbering would change what every stored id means without anything failing. The same goes for
+  `icon`, `colour` and `event_type`, which have always been written this way.
+- **Legacy IANA names are not rows in `timezone`.** They are rows in `timezone_alias` pointing at the
+  zone that replaced them, and the app resolves any name through the `timezone_lookup` view. An alias
+  given its own `timezone_id` could be referenced by `device_event.timezone_id` and satisfy the
+  foreign key, which would be two ids for one zone -- `docs/database-design.md` says why that shape was
+  refused.
 - DDL files are named `<NNN>_<tablename>.sql` and applied in ascending filename order (see
   `DatabaseBootstrap.ensureDatabase`). Foreign keys are **enforced** (`PRAGMA foreign_keys = ON`), so a
   table must be numbered **after every table it references** — a parent is created and seeded before

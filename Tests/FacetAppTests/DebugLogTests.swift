@@ -105,12 +105,21 @@ final class DebugLogTests: XCTestCase, @unchecked Sendable {
         let timezoneID = try XCTUnwrap(rows().first?.timezoneID)
         XCTAssertNotEqual(timezoneID, 0, "0 is the Unknown sentinel, and this machine has a real zone")
         XCTAssertEqual(
-            // **The trace's own `timezone` table, not the app's.** The two files each carry one and each fills it
-            // independently, so the same zone can be a different id in each -- which is why nothing may join across
-            // them, and why a row in a submitted `debug.sqlite` is readable without the app's database beside it.
-            database.debugString("SELECT timezone_name FROM timezone WHERE timezone_id = \(timezoneID);"),
-            TimeZone.current.identifier,
-            "the zone row should be got-or-created for the machine's current zone"
+            // **Resolved through `timezone_lookup`, not compared to the identifier itself.** The two are not
+            // always the same string: a machine set to a legacy name answers `TZ=Cuba` as `Cuba`, and the
+            // seeded row it resolves to is `America/Havana` -- and `UTC`, which a CI runner is quite likely
+            // to be in, is a legacy name for `Etc/UTC`. Comparing the stored name to
+            // `TimeZone.current.identifier` would fail on both while the app was behaving correctly.
+            //
+            // **The trace's own tables, not the app's.** Each file carries its own `timezone`, and nothing
+            // may join across them, so a row in a submitted `debug.sqlite` is readable without the app's
+            // database beside it. What the seeded ids changed is only that the two files now agree about
+            // what a given id means; they are still two tables and still filled separately.
+            String(timezoneID),
+            database.debugString(
+                "SELECT timezone_id FROM timezone_lookup WHERE timezone_name = '\(TimeZone.current.identifier)';"
+            ),
+            "the row should carry the id this database resolves the machine's current zone to"
         )
     }
 

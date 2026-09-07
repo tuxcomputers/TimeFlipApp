@@ -528,6 +528,54 @@ without access.
 **No SSH key is involved and none is wanted here**, matching the Mac's reasoning: the remote is HTTPS on
 purpose, so authentication follows the active `gh` account rather than whichever key the agent offers.
 
+### Timezone and locale
+
+**Measured 2026-09-07.** This should have been written down when question 11 was deleted and was not:
+the answer went into the question asked back to the Mac instead of into this section, which is the one
+place it belongs. Corrected here.
+
+| | |
+|---|---|
+| Zone | `Australia/Brisbane`, `AEST`, `+1000` |
+| DST | **Observes none** |
+| `LANG` | `en_AU.UTF-8` |
+| `LANGUAGE` | `en_AU:en` |
+| `LC_*` | All inherited from `LANG`; none set individually |
+| Clock | `systemd-timesyncd` active, synchronised |
+
+`timedatectl`, `locale`.
+
+**The same zone as the Mac**, which measured `Australia/Brisbane` for itself on the same day. So the
+hazard both question 11 and the Mac's question 1 were circling -- two machines in different zones
+writing local times into one shared schema -- is not live between these two today, and is not fixed
+either. Nothing in the app pins a zone; moving either machine would make it real with nothing failing.
+
+### What `TimeZone.current.identifier` answers, and it is not always canonical
+
+**Measured 2026-09-07 with a standalone Foundation program, Swift 6.2:**
+
+| `TZ` | `TimeZone.current.identifier` | In `knownTimeZoneIdentifiers` | Offset used |
+|---|---|---|---|
+| unset | `Australia/Brisbane` | yes | +10:00 |
+| `Australia/Brisbane` | `Australia/Brisbane` | yes | +10:00 |
+| `Cuba` | **`Cuba`** | **no** | -04:00 |
+| `US/Pacific` | **`US/Pacific`** | **no** | -07:00 |
+| `AEST` | `Australia/Brisbane` | yes | +10:00 |
+| `nonsense/zone` | `Australia/Brisbane` | yes | +10:00 |
+
+**A legacy IANA name is handed through verbatim and nothing canonicalises it.** `Cuba` is a `backward`
+link to `America/Havana` and Foundation neither rewrites it nor rejects it -- it resolves the zone
+correctly and reports the name it was given. `knownTimeZoneIdentifiers` is the only discriminator
+available: a name it does not contain is an alias. **This is why `timezone` is seeded and read through
+`timezone_lookup`** rather than filled by get-or-create, and it is a measurement rather than a worry.
+
+**An unusable `TZ` falls back silently to the system zone**, which is worth knowing because it means a
+wrong `TZ` in a test harness produces plausible times rather than an error.
+
+**`TZ=AEST` is rejected here**, and that bears on something the Mac could not explain: its
+`test.sqlite` holds `AEST` as a `timezone_name`, written at runtime from an identifier that answered an
+abbreviation. Whatever produced it, corelibs on this box is not it. Asked as question 4 below.
+
 ### There is a keychain here, and the Secret Service is already running
 
 | | |
@@ -745,5 +793,31 @@ matters and a command that answers it, so the answer is a measurement rather tha
 the question from here in the same change.** Do not answer inline and do not tick it off in place. When
 this heading has nothing under it, the Linux box has everything it needs.
 
-**Empty as of 2026-09-07.** Questions 1 and 3 were answered into *System information about the Mac*
-above, in the change that removed them, so the Linux box has everything it has asked for.
+### 4. Does Darwin accept a `TZ` that Linux refuses, and is that where `AEST` came from?
+
+**Why:** the Mac recorded `AEST` sitting in `test.sqlite` as a `timezone_name` and could not establish
+what made `TimeZone.current.identifier` answer an abbreviation. Corelibs on Linux does **not**: `TZ=AEST`
+falls back to the system zone (table above). If Darwin echoes it instead, that is the mechanism, and it
+matters now rather than as trivia -- `timezone` is seeded with the 447 real zone names, so a
+`TimeZone.current.identifier` of `AEST` misses the seed *and* the alias table and lands as a runtime row
+above id 447, which is the one case the seeding does not cover.
+
+```sh
+cat > /tmp/tzprobe.swift <<'SWIFT'
+import Foundation
+let id = TimeZone.current.identifier
+print("\(ProcessInfo.processInfo.environment["TZ"] ?? "<unset>") -> \(id) "
+    + "canonical=\(TimeZone.knownTimeZoneIdentifiers.contains(id)) "
+    + "offset=\(TimeZone.current.secondsFromGMT())")
+SWIFT
+swiftc -o /tmp/tzprobe /tmp/tzprobe.swift
+/tmp/tzprobe; TZ=AEST /tmp/tzprobe; TZ=Cuba /tmp/tzprobe; TZ=nonsense/zone /tmp/tzprobe
+```
+
+Wanted: what Darwin answers for `TZ=AEST` and for `TZ=Cuba`, and -- if `AEST` comes back verbatim --
+whether anything on that machine sets `TZ` (a launch agent, `scripts/run.sh`, a test harness), since
+something did.
+
+Questions 1 and 3 were answered into *System information about the Mac* above and removed on
+2026-09-07. Number 2 was withdrawn rather than answered, the owner having settled it by practice, and
+its number stays unused.

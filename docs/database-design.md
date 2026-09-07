@@ -48,22 +48,32 @@ Constraints:
 
 ### `timezone` (`database/002_timezone.sql`)
 
-Reference table of IANA time zones. Every date/time table references it by id (see the "local time + timezone" design principle) instead of repeating the identifier string on every row. The app resolves the current zone's id via get-or-create (`TimezoneStore.currentID()`). It is numbered `002` so it precedes every table that references it (foreign keys are enforced).
+Reference table of IANA time zones. Every date/time table references it by id (see the "local time + timezone" design principle) instead of repeating the identifier string on every row. The app resolves the current zone's id through the `timezone_lookup` view (`TimezoneStore.currentID()`). It is numbered `002` so it precedes every table that references it (foreign keys are enforced).
+
+**Seeded with every zone, at ids that are the same in every Facet database.** 447 zones from tzdb **2026c**, in alphabetical order at ids `1`-`447`, plus the `Unknown` sentinel at `0`. So `timezone_id 116` is `America/Havana` here, on the next machine, and in the `debug.sqlite` beside it. Before this the rows were created in visit order, which made an id mean whatever the file it sat in had happened to see first: measured 2026-09-07 on the Mac, `timezone_id 1` was `Australia/Brisbane` in `production.sqlite` and `AEST` in `test.sqlite`.
+
+**The ids are fixed and are never renumbered.** A zone added by a later tzdb release is appended above the block rather than slotted into alphabetical order, because renumbering would silently change what every stored `timezone_id` means. Alphabetical order is how the first 447 were assigned, not a property the table maintains.
+
+Legacy names (`Cuba`, `US/Pacific`) are **not** in this table: they live in [`timezone_alias`](#timezone_alias-database012_timezone_aliassql) and are resolved through [`timezone_lookup`](#timezone_lookup-database013_timezone_lookupsql-a-view), both documented at their numbered position below.
 
 **Editing this file edits the debug database's schema too.** `database/500_timezone.sql` is a symlink to it, so `debug.sqlite` is created from these same statements — see [the debug database's `timezone`](#timezone-database500_timezonesql-a-symlink-to-002_timezonesql) for why it needs its own table and why the two sets of rows may never be joined. A column added here appears in both, which is the point; anything that should reach only one of them cannot go in this file at all, and would mean giving `500` a real file back.
 
 | Column          | Type    | Description                                                        |
 |-----------------|---------|--------------------------------------------------------------------|
-| `timezone_id`   | INTEGER | Row identifier, primary key, autoincrementing.                     |
+| `timezone_id`   | INTEGER | Row identifier, primary key. **Set explicitly by every seed row**; `AUTOINCREMENT` remains so that a zone the seed does not know lands *above* the seeded block (448 and up) rather than in a gap a later release would claim. |
 | `timezone_name` | TEXT    | IANA time zone identifier (e.g. `Australia/Sydney`). `NOT NULL`, `UNIQUE`. |
 | `display_name`  | TEXT    | Optional human-friendly label for a picker (e.g. `Sydney`). Nullable. |
-| `active`     | INTEGER | `1` if the zone should be offered in a picker, `0` to hide it (e.g. a deprecated IANA alias). `NOT NULL`, defaults to `1`. |
+| `active`     | INTEGER | `1` if the zone should be offered in a picker, `0` to hide it. `NOT NULL`, defaults to `1`. **Every seeded zone is `1`**, including the non-geographic ones (`Etc/*`, `Factory`, `EST5EDT`); whether a picker should offer those is a decision for whoever builds the picker, and setting them `0` costs nothing then because the ids stay either way. Legacy names are not hidden here -- they are not in this table at all, see `timezone_alias`. |
 
 Constraints:
-- `timezone_name` is `NOT NULL` and `UNIQUE` (`UN1_timezone`), so get-or-create can look a zone up by identifier and never store it twice.
+- `timezone_name` is `NOT NULL` and `UNIQUE` (`UN1_timezone`), so a zone can be looked up by identifier and never stored twice. **This index is also what makes the static seeding safe against a database that predates it**: applying the seeds to a file whose ids were assigned at runtime fails on the first zone already present by name, loudly, rather than skipping a guarded insert and leaving that file's id meaning something no other file agrees with.
 - `active` is constrained to `0`/`1` (SQLite has no native boolean type) and defaults to `1`.
 
-Seeded with a single sentinel row — `timezone_id 0`, `timezone_name`/`display_name` `Unknown` — which is the value every referencing `timezone_id` column defaults to, so a row can satisfy its foreign key before a real zone has been resolved (and `TimezoneStore` falls back to `0` on a lookup failure). Real zones are otherwise populated at runtime from the OS's known identifiers (`TimeZone.knownTimeZoneIdentifiers` / the current zone), not hand-written. Deliberately has **no** UTC-offset column: an offset varies with DST within the same zone, so storing a fixed one would be misleading — the offset is derived from the IANA identifier at read time instead.
+The `Unknown` sentinel at `timezone_id 0` is the value every referencing `timezone_id` column defaults to, so a row can satisfy its foreign key before a real zone has been resolved, and `TimezoneStore` falls back to it when the lookup answers nothing. `display_name` is left null for the seeded zones: the identifier is what a reader can trust, and a label per zone would be 447 pieces of curation nobody has asked for yet.
+
+The app still writes this table in one case, so it is **not** a reference table under the `CLAUDE.md` exception: a name the seed has never heard of, which means a tzdb release newer than the seed. `TimezoneStore.id(for:)` records it rather than filing the row under `Unknown`, and a row above `447` is the signal to add that zone to this file.
+
+Deliberately has **no** UTC-offset column: an offset varies with DST within the same zone, so storing a fixed one would be misleading — the offset is derived from the IANA identifier at read time instead.
 
 ### `device_event` (`database/003_device_event.sql`)
 
@@ -325,6 +335,39 @@ Connection is **gated by pairing**: an app that isn't paired has no device to be
 
 Practically, that means going out of range does **not** write to `paired`. To ask "does this need pairing?" read `paired`; to ask "can the app reach it right now?" read `connection.connected`.
 
+### `timezone_alias` (`database/012_timezone_alias.sql`)
+
+**The 151 legacy IANA names, each against the `timezone` row that replaced it.** `Cuba` → `America/Havana`, `US/Pacific` → `America/Los_Angeles`, `Asia/Calcutta` → `Asia/Kolkata`, and the rest of tzdb's `backward` links, from the same 2026c release the zones came from.
+
+It exists because **a machine can genuinely be set to one of these**, and Foundation hands the name straight through without canonicalising it: measured on Linux 2026-09-07, `TZ=Cuba` makes `TimeZone.current.identifier` answer `Cuba`, and `TimeZone.knownTimeZoneIdentifiers` does not contain it. Without this table that machine's rows would be filed under a second id meaning Havana-by-another-name, which is the two-answers problem the first rule in `CLAUDE.md` is about.
+
+| Column                | Type    | Description                                                        |
+|-----------------------|---------|--------------------------------------------------------------------|
+| `timezone_alias_id`   | INTEGER | Row identifier, primary key. Set explicitly by every seed row; no `AUTOINCREMENT`, nothing writes this table at runtime. |
+| `timezone_alias_name` | TEXT    | The legacy IANA name (e.g. `Cuba`). `NOT NULL`, `UNIQUE` (`UN1_timezone_alias`). |
+| `timezone_id`         | INTEGER | References `timezone(timezone_id)` — the zone this name resolves to. `NOT NULL DEFAULT 0`, per the convention for every `timezone_id` column, though every seeded row supplies a real id. |
+
+**A separate table rather than a column on `timezone`, deliberately.** An alias row in `timezone` would own a `timezone_id` of its own, and `device_event.timezone_id` could point at it and satisfy the foreign key — two ids for one zone, and nothing would fail. Here the legacy names have no ids at all, so the only thing a foreign key can name is a real zone.
+
+Numbered `012` rather than `003` so it follows `timezone` without renumbering the nine files between them; the numbering rule only requires a table to come after everything it references.
+
+### `timezone_lookup` (`database/013_timezone_lookup.sql`, a view)
+
+**Every name a zone answers to, canonical and legacy alike, against the one id it resolves to.** `timezone` unioned with `timezone_alias`, 599 rows over the 448 zones.
+
+```sql
+CREATE VIEW IF NOT EXISTS timezone_lookup AS
+SELECT timezone_name, timezone_id FROM timezone
+UNION ALL
+SELECT timezone_alias_name AS timezone_name, timezone_id FROM timezone_alias;
+```
+
+**This is what the app reads, and the table is not.** `TimezoneStore.id(for:)` queries the view, so `Cuba` and `America/Havana` both answer `116` and neither the store nor any caller has to know which kind of name it was handed. The resolution rule lives in the database, which means a scripted check can ask the question with the same SQL the app uses.
+
+The other direction — id to name, for display — reads `timezone` directly, because the view has one row per *name* and would answer a canonical row and each of its aliases. Resolving a name and naming an id are different questions and take different objects.
+
+Being a view it is read-only, which is only viable because the tables under it are seeded: there is nothing for the app to insert through it. The one write that remains (a zone newer than the seed) goes to `timezone` directly.
+
 ## The debug database (`debug.sqlite`)
 
 **A separate file, in the same directory as `production.sqlite` and `test.sqlite`.** It is what somebody sends in when they turn the `debug` setting on, so it holds the trace and nothing else: no `time_entry`, no `category`, no Google account. It also keeps the log out of the file the app is writing — anything reading `debug_log` locked `appdata.sqlite` against the app, and a confirmed pairing was lost to exactly that on 2026-08-22 (see `DatabaseConnection`'s busy timeout, which is the other half of the answer).
@@ -340,6 +383,12 @@ The same table as the app's, deliberately created a second time in the debug dat
 **What may never be joined is the data, and that is unchanged by the link.** The two tables fill independently, so the same zone can hold a different id in each; nothing may join across the files, and nothing needs to. The point of the second table is that a submitted `debug.sqlite` is readable on its own, without the app's database beside it. Sharing the definition and sharing the rows are different things, and only the first is being done here.
 
 **The link is relative and its target sits in the same directory, which is what makes it survive the build.** SwiftPM copies it into the resource bundle as a link rather than following it, and `.process` flattens everything to the bundle root, so `002_timezone.sql` lands beside it and the link resolves. Measured on Linux 2026-09-07, from both the source directory and the built bundle: 13 `.sql` files present, the debug database coming up with `debug_log` and `timezone` and the seeded `Unknown` row at id 0.
+
+### `timezone_alias` and `timezone_lookup` (`502`/`503`, symlinks to `012`/`013`)
+
+The same two objects as the app's, symlinked in exactly as `500_timezone.sql` is, because `DebugLog` resolves its zone through the view like everything else. `debug.sqlite` therefore holds `timezone`, `timezone_alias` and the `timezone_lookup` view alongside `debug_log`, and a submitted trace resolves `Cuba` on its own without the app's database beside it.
+
+They are numbered after `501_debug_log.sql` rather than before it, which reads oddly and is correct: the numbering rule only requires a table to follow what it *references*, and both follow `500`. Putting them at `501`/`502` would have meant renumbering `debug_log` and every reference to it for no gain.
 
 ### `debug_log` (`database/501_debug_log.sql`)
 
