@@ -1,4 +1,6 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#endif
 import Foundation
 
 /// The parts of Google sign-in that are decisions rather than input and output.
@@ -48,7 +50,16 @@ package enum GoogleOAuthRules {
             bytes[index] = UInt8.random(in: .min ... .max, using: &generator)
         }
         let verifier = base64URL(Data(bytes))
-        let challenge = base64URL(Data(SHA256.hash(data: Data(verifier.utf8))))
+        // **CryptoKit where there is one, `PortableSHA256` where there is not.** Darwin keeps Apple's
+        // implementation rather than being switched to ours for tidiness: this line is what a working
+        // sign-in depends on, and there is nothing to gain on that platform. `PortableSHA256` says why it
+        // exists and what it is not for, and its tests assert the two agree.
+        #if canImport(CryptoKit)
+        let digest = Data(SHA256.hash(data: Data(verifier.utf8)))
+        #else
+        let digest = Data(PortableSHA256.hash(Data(verifier.utf8)))
+        #endif
+        let challenge = base64URL(digest)
         return PKCE(verifier: verifier, challenge: challenge)
     }
 
