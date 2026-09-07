@@ -135,16 +135,33 @@ three rows above a launch landed in.
 **What does reach the data is the zone**, through `TimeZone.current.identifier`, which
 `TimezoneStore.currentID` and `DebugLog` each resolve per write and store as a `timezone_id`.
 
-**And the two databases on this machine already disagree about what that id means.** Measured
-2026-09-07 18:03: `timezone_id 1` is `Australia/Brisbane` in `production.sqlite`, carrying 124
-`device_event` rows, and **`AEST`** in `test.sqlite`, carrying 3. `AEST` is not an IANA identifier and
-the string appears nowhere in the tree, so it was written at runtime by `TimezoneStore.id(for:)` from a
-`TimeZone.current.identifier` that answered an abbreviation. **What made it answer that has not been
-established**, and the running app has no `TZ` in its environment now.
+**A `timezone_id` means the same zone in every database on this machine, and until this afternoon it did
+not.** Measured 2026-09-07 18:03, before the change: `timezone_id 1` was `Australia/Brisbane` in
+`production.sqlite`, carrying 124 `device_event` rows, and **`AEST`** in `test.sqlite`, carrying 3.
+`AEST` is not an IANA identifier and the string appears nowhere in the tree, so `TimezoneStore.id(for:)`
+had written it from a `TimeZone.current.identifier` that answered an abbreviation. What made it answer
+that was never established, and no running app has had `TZ` in its environment since.
 
-So a `timezone_id` means whatever the row in that particular database file says. That is the shared-table
-problem question 1 was pointing at, and it does not need two machines to bite: it is already true of two
-files in one directory here.
+**Migrated here 2026-09-07 18:56, onto the seeded table `27411cc` brought in.** The old ids were assigned
+in the order this machine happened to visit zones, so every child row had to be remapped by name rather
+than kept: `1` became `297` across 124 `device_event` rows, 53 `time_entry` rows on each of its two zone
+columns, and 9,734 `debug_log` rows. `production.sqlite` and `debug.sqlite` were migrated in place, each
+backed up first into `backup/` and each checked by re-reading the zone **name** behind every row and
+requiring it unchanged; `test.sqlite` was rebuilt from the DDL instead, which `database/CLAUDE.md` says
+is what test gets. All three now hold 448 zones and 151 aliases with the `timezone_lookup` view,
+`PRAGMA foreign_key_check` is clean on each, and no `AEST` row survives anywhere.
+
+**Re-running the DDL would not have done it**, which is worth writing down because it looks like it
+should: the seed guards are `WHERE NOT EXISTS (... timezone_id = N)`, so the old row squatting on id 1
+makes the seed skip `Africa/Abidjan` and then collide on `UN1_timezone` when it reaches Brisbane's own
+id, leaving a half-seeded table and no error anybody would see.
+
+**So a database copied between the two machines carries zone ids that mean the same thing on arrival**,
+which is what question 1 was pointing at, the seed being in the shared DDL rather than in either app. A
+zone the seed has never heard of is now visible rather than silent, too: `TimezoneStore.id(for:)`
+resolves through the view and inserts a miss **above** the seeded block, so an id of 448 or more is the
+signal to add that zone to `002_timezone.sql` rather than a low id that means something else everywhere
+else.
 
 ### Toolchain
 
