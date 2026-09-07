@@ -58,7 +58,20 @@ package final class TimezoneStore {
             bind: [name]
         )
 
-        return lookup(name) ?? 0
+        // **Read back off the table, not the view.** The row just written is in `timezone` by
+        // definition, and this is the write's own read-back rather than another name resolution -- so it
+        // asks the question it means. It also keeps the one path that reaches this far from depending on
+        // the view twice: `forEachRow` returns silently on a query it cannot prepare, so a database
+        // somehow missing `timezone_lookup` would otherwise file every row under `Unknown` and say
+        // nothing about it.
+        var written: Int?
+        connection.forEachRow(
+            "SELECT timezone_id FROM timezone WHERE timezone_name = ?;",
+            bind: [name]
+        ) { row in
+            written = Int(row.int(0))
+        }
+        return written ?? 0
     }
 
     /// What `timezone_lookup` answers for a name, or `nil` if it answers nothing.
