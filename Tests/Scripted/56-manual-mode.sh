@@ -383,13 +383,20 @@ if wait_for "$since" "%Scan started%" 30 >/dev/null; then
 else
     fail "the radio did not come up -- is Bluetooth still off? 99-quit cannot wipe the cube without it"
 fi
-sleep 11
 
 # ---------------------------------------------------------------------------- putting the cube back
 #
 # The forget above is a check, and the scan just now was the radio proving itself, so this script ends with nothing
 # paired and `57-cube-pause` starts from a cube. The scan is waited out first: pressing Scan while one is running
 # stops it, and `pair_a_cube` presses it.
+#
+# **Waited out on the radio's own row rather than on a number.** This was `sleep 11`, a second past a scan window of
+# ten seconds. The window is `BluetoothRadio.timeoutSeconds` and is fifteen as of 0f78510, so run 170 (2026-09-07)
+# reached here with the scan still listening: `pair_a_cube` pressed Stop rather than Scan, waited its full minute for
+# a `Scan started` nothing was going to write, and stopped the run blaming a radio that was working. The timeout
+# writes its own row, so waiting for that is exact and does not go stale the next time the constant moves.
+wait_for "$since" "%Scan timed out%" 30 >/dev/null \
+    || step "the scan has not reported itself finished; pair_a_cube will wait it out"
 
 restore_the_pairing
 

@@ -404,6 +404,23 @@ pair_a_cube() {
         sleep 1
     fi
 
+    # **A scan already listening is waited out, not pressed into.** The Scan button is the one button either way:
+    # pressing it during a scan stops that scan instead of starting one, so the wait below then sits out its whole
+    # minute for a `Scan started` row nothing is going to write, and answers with the radio. That is a diagnosis
+    # pointing away from the fault for the second time in this function -- run 170 (2026-09-07) stopped here, because
+    # `56-manual-mode` runs a scan to prove the radio came back and the window it leaves behind outlasted the sleep
+    # that was meant to cover it.
+    case "$(element device-scan)" in
+        *"Stop Scan"*)
+            step "a scan is already running; waiting for it to end before starting one"
+            if ! wait_for "$(mark)" "%Scan timed out%" 25 >/dev/null; then
+                PAIR_REASON="a scan was already running and had not ended 25s later, so this could not start one of its own"
+                PAIR_STATUS=1
+                return 1
+            fi
+            ;;
+    esac
+
     local since row
     since=$(mark)
     press device-scan
@@ -419,11 +436,14 @@ pair_a_cube() {
     fi
 
     step "listening for advertisements..."
-    if ! wait_for "$since" "%: peripheral %" 13 >/dev/null; then
+    # Bounded just past the scan's own window (`BluetoothRadio.timeoutSeconds`, fifteen seconds), for the reason
+    # `50-device-scan` carries: waiting less than the radio listens calls a scan empty while it is still running, and
+    # waiting longer waits for something nothing is looking for any more.
+    if ! wait_for "$since" "%: peripheral %" 18 >/dev/null; then
         # The scan is stopped on the way out: leaving the radio listening behind a script that has given up is what
         # the timeout exists to prevent, and this path is reached before it fires.
         press device-scan
-        PAIR_REASON="the scan ran its full 10 seconds and no TimeFlip answered it -- is the cube awake?"
+        PAIR_REASON="the scan ran its full 15 seconds and no TimeFlip answered it -- is the cube awake?"
         PAIR_STATUS=1
         return 1
     fi

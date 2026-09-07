@@ -540,6 +540,16 @@ line and the pipeline's exit code is never read.
   `git show HEAD -- Sources/ | grep -E '^-.*record\(\.'` lists exactly the strings a commit removed; every one of
   them is a pattern to hunt.
 
+- **A `sleep` sized against a constant in `Sources/` goes stale silently, and the wait after it then reports the
+  wrong thing.** `BluetoothRadio.timeoutSeconds` went from ten seconds to fifteen on 2026-09-07, and the two waits
+  bounded on it in `50-device-scan` were moved with it. What was missed was a bare `sleep 11` in `56-manual-mode`,
+  there to let a scan expire before `pair_a_cube` presses Scan again -- and Scan is a toggle, so pressing it during a
+  scan *stops* one. Run 170 stopped with 581 checks passed and nothing failed, saying "the radio never answered in
+  60s -- is the macOS Bluetooth permission prompt waiting?" about a radio that was working, eleven scripts short.
+  **Wait for the row the app writes** (`%Scan timed out%`) rather than sleeping out the window: a constant that moves
+  cannot take a sleep with it. So when a commit changes a timing constant, grep `Tests/Scripted/` for `sleep` as well
+  as for the constant's name.
+
 - **The suite's own polling can make the app's writes fail.** The database is `journal_mode=delete`, so a reader
   locks the file against writers, and `wait_for` polls `debug_log` every 100ms for the whole of a run. Any app
   connection without `sqlite3_busy_timeout` drops its write instantly rather than waiting. On 2026-08-22 that lost a

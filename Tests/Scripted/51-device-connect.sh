@@ -82,8 +82,10 @@ if ! wait_for "$since" "%Scan started%" 60 >/dev/null; then
 fi
 
 step "listening for advertisements..."
-if ! wait_for "$since" "%: peripheral %" 13 >/dev/null; then
-    fail "the scan ran its full 10 seconds and no TimeFlip answered it -- is the cube awake?"
+# Bounded just past the scan's own window (`BluetoothRadio.timeoutSeconds`, fifteen seconds), so a timeout here is a
+# real absence rather than this script giving up while the radio is still listening.
+if ! wait_for "$since" "%: peripheral %" 18 >/dev/null; then
+    fail "the scan ran its full 15 seconds and no TimeFlip answered it -- is the cube awake?"
     press device-scan
     finish
     exit 1

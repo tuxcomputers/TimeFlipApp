@@ -88,8 +88,8 @@ expect_log "the radio actually starts listening" "$since" "%Scan started%" 20
 
 step "waiting for the cube to answer the launch scan..."
 # **The remembered identifier is what may cut the window short, and nothing else is.** Any other cube is collected and
-# the scan runs its ten seconds out, because a device that is not the one this app remembers cannot be known to be its
-# own until it has taken the PIN. So this row is the ordinary case going fast, and its absence would be a reconnect
+# the scan runs its fifteen seconds out, because a device that is not the one this app remembers cannot be known to be
+# its own until it has taken the PIN. So this row is the ordinary case going fast, and its absence would be a reconnect
 # that still arrives, several seconds later.
 expect_log "the cube turns up and the scan is done with it" "$since" "%the remembered device turned up%" 20
 # **An order, worked out before anything is connected to.** Trying each device as it advertised put a connect, a scan
