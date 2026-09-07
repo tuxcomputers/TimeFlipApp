@@ -1,4 +1,6 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 
 /// What sits *around* the grids, which is the only part of the Report tab that is a fixed number: everything inside a
 /// calendar is derived from the width left over, so these are what the derivation subtracts before dividing the rest

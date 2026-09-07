@@ -1,4 +1,6 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 
 /// **What a Settings tab looks like, in one place.** Every tab that draws a panel of rows measures itself from
 /// here, so the three of them are one look drawn three times rather than three looks that happen to resemble each
