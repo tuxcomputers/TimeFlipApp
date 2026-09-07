@@ -20,7 +20,7 @@ moving is a finding that will be measured twice.
 | Does the app's core compile on Linux? | **Yes -- `FacetCore` entire**, 89 files, 0 errors, 0 warnings, from a deleted `.build` in 13s | 2026-09-07, Linux |
 | Does the logic behave? | **Yes**, 432 tests pass | 2026-09-06 |
 | Can the whole test suite run? | **Under XCTest no**, `@MainActor` blocks ~60%. **Under swift-testing yes** | 2026-09-06 |
-| Does any of the suite run on Linux? | **Yes. `swift test` passes 873 of 1725 tests** across 52 suites in 47s -- 540 under XCTest in 1.9s, 333 under swift-testing in 45s. The other 852 need AppKit, CoreBluetooth or a `FacetApp` type, and come back with items 9, 10 and 11 | 2026-09-07, Linux |
+| Does any of the suite run on Linux? | **Yes. `swift test` passes 878 of 1730 tests** across 53 suites in 47s -- 540 under XCTest, 338 under swift-testing. The rest need AppKit, CoreBluetooth or a `FacetApp` type, and come back with items 10 and 11 | 2026-09-07, Linux |
 | Is there a UI? | Not started, and the toolkit is undecided | -- |
 | Is there a `FacetCore` target? | **Yes.** 86 files, no AppKit, and `FacetApp` builds on it. 589 access-level edits | 2026-09-07, Mac |
 | ~~What is left before Linux can try the core?~~ | **Nothing. All four are done**: `SQLite3` has a modulemap target, `CoreGraphics` a `package typealias`, `Security` the login keyring through `secret-tool`, `CryptoKit` a written SHA-256 | 2026-09-07, Linux |
@@ -531,9 +531,37 @@ Roughly in dependency order. Nothing here is started.
    the Mac's `swift test` covers the code Linux depends on, including a case asserting the two
    implementations agree at every length from 0 to 200. Verified against published vectors, `sha256sum`
    over 201 inputs, and `hashlib` at the twelve lengths where the padding changes shape.
-9. **`Network` to a plain socket listener.** One file, `GoogleOAuthClient`, using `NWListener`,
-   `NWConnection` and `NWParameters` for the OAuth loopback redirect. Three types rather than the one
-   this item used to name, though still one file and one job.
+9. ~~**`Network` to a plain socket listener.**~~ **Done 2026-09-07, Linux.** `GoogleLoopbackListener`
+   moved out of `GoogleOAuthClient` into `FacetCore` and now has two halves behind one interface:
+   `Network` where there is `Network`, Berkeley sockets where there is not.
+
+   **The Darwin half moved across unchanged**, deliberately. It is the path a real sign-in has used, and
+   there was nothing to gain on that platform by rewriting it in sockets for the sake of having one
+   implementation -- the same reasoning as items 7 and 8.
+
+   What made the file portable enough to live in the core was taking the listener *out* of
+   `GoogleOAuthClient`, whose whole remaining tie to AppKit is **one default argument**:
+   `NSWorkspace.shared.open`, for putting a URL in front of a browser. That file stays on the platform
+   side and now says so at the top. A Linux equivalent is `xdg-open` through `Process`, and it belongs
+   with whatever starts a sign-in rather than here.
+
+   Three things the socket half had to get right, none of which the `Network` version shows:
+
+   - **`poll` with a timeout rather than a bare `accept`.** Closing a descriptor that another thread is
+     blocked in `accept` on does not reliably wake it on Linux, so the loop asks whether anything is
+     waiting and checks between asks whether it has been told to stop.
+   - **`bigEndian` rather than `htons`**, which is a C macro Swift cannot call. Same for the loopback
+     address, written as `0x7f00_0001` byte-swapped.
+   - **`SO_REUSEADDR`**, which is what `NWParameters.allowLocalEndpointReuse` asks for on the other side:
+     a port left in `TIME_WAIT` by the previous sign-in must not refuse this one.
+
+   **Both halves are covered by the same five tests** (`GoogleLoopbackListenerTests`), which drive
+   whichever one they got over a real loopback connection the way a browser would: a port is assigned and
+   two listeners get different ones, a code arrives and the browser is left looking at the right page, a
+   refusal arrives as `denied`, a `/favicon.ico` request and a mismatched state leave the listener still
+   waiting, and `cancel` settles whoever is waiting. That last-but-one is the case that actually broke a
+   sign-in once. Mutation-checked rather than assumed: the code assertion was pointed at a wrong value
+   and the test failed, so it is really talking to a socket.
 10. **The BlueZ backend in Swift.** Roughly 600-1000 lines behind the interface `BluetoothRadio` already
    presents. `scripts/linux-ble-probe.py` is the working reference for every D-Bus call it needs.
 11. **The UI**, once the toolkit is decided.
