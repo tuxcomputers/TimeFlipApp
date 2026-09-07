@@ -20,7 +20,7 @@ moving is a finding that will be measured twice.
 | Does the app's core compile on Linux? | **Yes -- `FacetCore` entire**, 89 files, 0 errors, 0 warnings, from a deleted `.build` in 13s | 2026-09-07, Linux |
 | Does the logic behave? | **Yes**, 432 tests pass | 2026-09-06 |
 | Can the whole test suite run? | **Under XCTest no**, `@MainActor` blocks ~60%. **Under swift-testing yes** | 2026-09-06 |
-| Does any of the suite run on Linux? | **Yes. `swift test` passes 878 of 1730 tests** across 53 suites in 47s -- 540 under XCTest, 338 under swift-testing. The rest need AppKit, CoreBluetooth or a `FacetApp` type, and come back with items 10 and 11 | 2026-09-07, Linux |
+| Does any of the suite run on Linux? | **Yes. `swift test` passes 884 of 1736 tests** across 54 suites in 47s -- 540 under XCTest, 344 under swift-testing. The rest need AppKit, CoreBluetooth or a `FacetApp` type, and come back with items 10 and 11 | 2026-09-07, Linux |
 | Is there a UI? | Not started, and the toolkit is undecided | -- |
 | Is there a `FacetCore` target? | **Yes.** 86 files, no AppKit, and `FacetApp` builds on it. 589 access-level edits | 2026-09-07, Mac |
 | ~~What is left before Linux can try the core?~~ | **Nothing. All four are done**: `SQLite3` has a modulemap target, `CoreGraphics` a `package typealias`, `Security` the login keyring through `secret-tool`, `CryptoKit` a written SHA-256 | 2026-09-07, Linux |
@@ -563,7 +563,36 @@ Roughly in dependency order. Nothing here is started.
    sign-in once. Mutation-checked rather than assumed: the code assertion was pointed at a wrong value
    and the test failed, so it is really talking to a socket.
 10. **The BlueZ backend in Swift.** Roughly 600-1000 lines behind the interface `BluetoothRadio` already
-   presents. `scripts/linux-ble-probe.py` is the working reference for every D-Bus call it needs.
+   presents. `scripts/linux-ble-probe.py` is the working reference for every D-Bus call it needs -- and the
+   whole of what it needs is **11 methods and 2 signals**: `GetManagedObjects`, `Get`/`GetAll`/`Set`,
+   `StartDiscovery`, `StopDiscovery`, `Connect`, `Disconnect`, `ReadValue`, `WriteValue`, `StartNotify`,
+   `StopNotify`, with `PropertiesChanged` and `InterfacesAdded` to listen to.
+
+   **Groundwork done 2026-09-07, Linux**: `TimeFlipUUIDs` is in the core now, its `CBUUID` accessors
+   split off into `TimeFlipUUIDs+CoreBluetooth.swift` beside the radio. What is portable about a UUID is
+   its string, and there is one real difference between the platforms in it: **the vendor's table lists
+   the seven standard UUIDs in 16-bit shorthand, CoreBluetooth accepts them that way, and BlueZ never
+   uses the shorthand at all** -- it reports `0000180f-0000-1000-8000-00805f9b34fb` for what this app
+   calls `180F`. `TimeFlipUUIDs.canonical(_:)` and `match(_:_:)` are that expansion, checked against the
+   spelling BlueZ prints on this machine. Without it every characteristic lookup would find nothing,
+   silently.
+
+   ### The transport is undecided, and here is what was measured before deciding
+
+   | Route | Works? | Cost |
+   |---|---|---|
+   | **`busctl` subprocess** for method calls | **Yes.** `busctl --system --json=short call org.bluez / …GetManagedObjects` returns type-tagged JSON a `JSONDecoder` reads, and the awkward `WriteValue` shape (`aya{sv}`) parses | Nothing to install |
+   | **`busctl monitor`** for signals | **No. Refused unprivileged**: `BecomeMonitor` answers `Access denied` on the system bus | -- |
+   | **`gdbus monitor`** for signals | **Yes**, unprivileged -- it adds match rules rather than becoming a monitor, and streamed real `PropertiesChanged` from `org.bluez` including the cube at RSSI -62 | Emits GVariant **text**, not JSON, so a notification value arrives as `{'Value': <[byte 0x38, 0x00]>}` and needs a parser of its own |
+   | **`libdbus-1` with a modulemap** (the `SQLite3` pattern) | Untried | Needs `libdbus-1-dev`, which is **not installed** -- only the runtime `libdbus-1-3` 1.14.10. Its simple append API is variadic and so uncallable from Swift, but the `dbus_message_iter_*` API is not |
+   | **The D-Bus wire protocol in Swift** | Untried | No dependency at all, and the most work: SASL EXTERNAL, then marshalling, including reading `a{oa{sa{sv}}}` |
+
+   **The thing that decides it is where the notification values are read.** Face turns arrive as signals
+   carrying a byte array, which is the app's core function, so the route that leaves that path depending on
+   a hand-written parser of human-readable output is the one to be most careful about -- and it is also the
+   only route available without installing anything. `libdbus` is the better engineering for the same
+   reason the keyring's `secret-tool` was the worse one, and there the subprocess won because the swap was
+   contained in one file. Whether it is contained here depends on that parser.
 11. **The UI**, once the toolkit is decided.
 12. **The scripted suite on AT-SPI.** The largest single piece, and the only thing that can say the app
     works. `Tests/Methods.md` techniques survive; the locator layer is new.
