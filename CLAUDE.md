@@ -363,6 +363,51 @@ against `Sources/`, `Tests/Scripted/` and `database/` as they now stand.
   again. The "all clear" matters as much as the initial warning -- don't let it shrink to a small
   aside in a longer message.
 
+## This repository is worked on from two machines, so pull before you commit and push after
+
+**Stash, pull, pop, resolve, commit, push.** In that order, with the pull before the commit rather than
+after it, and the push in the same sitting as the commit rather than left for later:
+
+```sh
+git stash push -u -m "what this is"   # -u, or an untracked new file is left behind
+git pull                              # and read what it says rather than assuming it said nothing
+git stash pop                         # resolve any conflict here, before committing
+git commit                            # on top of what the pull brought back
+git push                              # or the other machine cannot see it, and pulls nothing
+```
+
+The reason is that there are two hosts now and both commit to the same branch under the same identity:
+the **Mac** that builds and ships the app, and the **Linux box** the port is being made on.
+`docs/systems-info.md` says what each machine is, and is itself the file most likely to be edited from
+both in one day. A commit made without pulling first is not lost work -- git will not let it be -- but it
+turns a two-line textual overlap into a merge to be untangled later, by whichever machine next tries to
+push, with the reasoning behind both edits no longer in anybody's context.
+
+**A pull that brought nothing is a result, and it gets reported as one.** `git fetch` printing no output
+and `git log HEAD..@{u}` being empty means the other machine has not pushed, which is a different thing
+from having merged its work -- so say "nothing had been pushed", never "merged and resolved". Check the
+other branches too (`git for-each-ref --sort=-committerdate refs/remotes/`) before concluding it, since
+work from the other host may be sitting on a branch this one has never checked out.
+
+**Conflicts are resolved at the `pop`, not worked around.** A conflict there is the two machines having
+edited the same lines, and the fix is to read both sides. Where the conflict is in a document with
+per-machine ownership -- the four sections of `docs/systems-info.md` -- the rule there settles it: each
+machine's facts are its own, neither writes in the other's half, and a conflict inside your own half
+means the other machine edited something it should not have.
+
+**An unpushed commit is why the other machine pulls nothing**, and it has already cost a round trip:
+on 2026-09-07 the Linux box pulled before committing exactly as this rule says, found nothing, and
+reported nothing -- correctly, because the Mac's two commits were sitting local. The pull was not the
+thing that went wrong. **So the work is not finished when it is committed; it is finished when it is
+pushed**, and a commit deliberately held back is worth saying out loud rather than leaving the other
+host to discover.
+
+**Where a host cannot push, that is a blocker to clear rather than a step to drop.** The section below
+says which account needs the privileges. The Linux box has no credential configured at all as of
+2026-09-07 -- no `gh` login, no helper, no keys -- so `gh auth login` is its outstanding setup, and until
+it is done a commit made there has to be reported as local so somebody knows it is not visible from the
+Mac.
+
 ## Working with the git remote (push, PR, etc.)
 
 - Before any operation that touches the GitHub remote (`git push`, `gh pr create`, deleting/renaming
