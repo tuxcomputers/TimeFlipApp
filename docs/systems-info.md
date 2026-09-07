@@ -93,6 +93,59 @@ measured says so.
 
 `sw_vers`, `uname -a`.
 
+### Timezone and locale
+
+**Measured 2026-09-07 18:03.**
+
+| | |
+|---|---|
+| Zone | `Australia/Brisbane`, `AEST`, `+1000` |
+| DST | **Observes none.** `+1000` with a zero DST offset in January, April, July and October 2026 |
+| `AppleLocale` | `en_AU` |
+| `AppleLanguages` | `("en-AU")` |
+
+`date +"%Z %z"`, `readlink /etc/localtime`, `defaults read -g AppleLocale`, and the four offsets read
+out of the tz database with `zoneinfo.ZoneInfo('Australia/Brisbane')`.
+
+**The same zone as the Linux box**, so the hazard question 11 and question 1 were both circling is not
+live between these two machines today. It is still a hazard rather than a non-issue: nothing in the app
+pins a zone, so moving either machine would make it real without anything failing.
+
+**`LANG` is not one answer here, it is three, and none of them is a user setting.** What a launch gets
+depends entirely on what started it:
+
+| How the app starts | What it gets |
+|---|---|
+| Double-clicked, so started by `launchd` | **Nothing.** `launchctl getenv` answers empty for `LANG`, `LC_ALL`, `LC_CTYPE` and `LC_TIME` |
+| From a terminal shell, which is what `scripts/run.sh` is | `LANG=en_AU.UTF-8`. Not from a profile: a login `bash -lc` has none, and `LC_TERMINAL=iTerm2` sits beside it in the app's environment |
+| From a non-interactive shell, which is what an agent session gets | Nothing, and every `LC_*` is `C` |
+
+The middle row was measured off the running app rather than reasoned about: `ps eww` on the live
+`Facet` process showed `LANG=en_AU.UTF-8` with `LC_TERMINAL=iTerm2` beside it, while its parent was
+`launchd` (pid 1). That combination is a terminal launch whose shell has since exited, not a Finder
+launch, which is why `ps eww` on a running copy says how *that* copy was started and is not the general
+answer.
+
+**None of it reaches the app's output, and that is by construction.** Every date this app formats pins
+`Locale(identifier: "en_US_POSIX")` at the call site: seven of them, in `DebugLog`,
+`DeviceEventRecorder`, `DevicePairingRecorder`, `ReportEntryText`, `ReportCalendar`, `GoogleEventRules`
+and `DebugTraceRules`. So no formatted string depends on `LANG`, on `AppleLocale`, or on which of the
+three rows above a launch landed in.
+
+**What does reach the data is the zone**, through `TimeZone.current.identifier`, which
+`TimezoneStore.currentID` and `DebugLog` each resolve per write and store as a `timezone_id`.
+
+**And the two databases on this machine already disagree about what that id means.** Measured
+2026-09-07 18:03: `timezone_id 1` is `Australia/Brisbane` in `production.sqlite`, carrying 124
+`device_event` rows, and **`AEST`** in `test.sqlite`, carrying 3. `AEST` is not an IANA identifier and
+the string appears nowhere in the tree, so it was written at runtime by `TimezoneStore.id(for:)` from a
+`TimeZone.current.identifier` that answered an abbreviation. **What made it answer that has not been
+established**, and the running app has no `TZ` in its environment now.
+
+So a `timezone_id` means whatever the row in that particular database file says. That is the shared-table
+problem question 1 was pointing at, and it does not need two machines to bite: it is already true of two
+files in one directory here.
+
 ### Toolchain
 
 | | |
@@ -180,16 +233,41 @@ The app reads exactly **one** environment variable, `FACET_GOOGLE_CLIENT_JSON`, 
 **Untested here, and the reason not to make an environment variable the primary source of a path:** a
 `.app` launched from the Finder or the Dock is started by `launchd` and does not inherit variables
 exported from a shell profile, so a variable that works under `scripts/run.sh` in a terminal would be
-absent on a double-click. Worth confirming before anything depends on it either way.
+absent on a double-click.
+
+**Half confirmed 2026-09-07**, in *Timezone and locale* above: `launchctl getenv` answers empty for
+every locale variable, and launchd's environment is what a double-clicked `.app` starts from, while the
+running app was started from a terminal and does carry that shell's `LANG`. What has still not been done
+is a Finder launch measured end to end, so this stands as the reason not to depend on a variable rather
+than as a settled fact.
 
 ### Bluetooth and the cube
 
 | | |
 |---|---|
 | Controller address | `5C:9B:A6:81:3B:00`, chipset `BCM_4388C2` |
-| Cube, as this Mac names it | `FA1DDE60-5DBB-D5E9-B53C-881E16916B5E` |
+| Cube, as this Mac names it | `FA1DDE60-5DBB-D5E9-B53C-881E16916B5E`, during run 170. The `device_uuid` row is **empty** now |
 | Cube name | `TimeFlip v2.0` (`device_name.previous_name` is the same) |
-| Paired | yes |
+| Paired | **no**, measured 2026-09-07 18:03: `setting.paired` is `{"paired":false}` in both databases |
+| In the OS's own paired list | **no.** `system_profiler SPBluetoothDataType` lists no TimeFlip at all |
+
+**Paired here is this app's own row and nothing the OS holds.** Measured 2026-09-07 18:03:
+`system_profiler SPBluetoothDataType` lists **no TimeFlip at all**, and its `Not Connected` list does
+hold the `MX Master 3S`, so the absence is the answer rather than an empty command. There is no OS bond
+because there is nothing to bond with: the cube runs no pairing agent and the PIN is the whole of the
+authentication (finding 12), which is the conclusion the Linux box reached from the other direction. So
+the Linux box connecting to the cube cannot disturb anything this Mac holds, because this Mac holds
+nothing but rows.
+
+**Which settles the second half of what was asked: the `paired` row in a moved database means nothing on
+arrival.** It is one machine's record that its own app had a cube, and with the reset practice below it
+is `false` by the time the cube travels anyway.
+
+**Both databases say `paired: false` today and `device_uuid` is empty in both**, which is the wipe at the
+end of the 2026-09-07 runs and the reset before the cube went to the Linux box. `device_name.previous_name`
+is still `TimeFlip v2.0` in `production.sqlite`, kept deliberately so a scan can find the cube again, and
+the identifier in the table above is what this Mac called it during run 170 rather than something stored
+anywhere now.
 
 **The identifier above is this Mac's name for the cube and is meaningless anywhere else.** CoreBluetooth
 hands out a per-host mapping, not the device's address, so the `device_uuid` row in a database copied to
@@ -199,8 +277,36 @@ the Linux box names nothing there. The Linux box sees the same cube as `E8:DB:D8
 `DeviceScanRules.swift:10`.
 
 **So `device_uuid` is a platform-specific value living in a shared table**, and a database moved between
-the two machines carries a pairing that only one of them can act on. Nothing has been decided about
-that yet; it is listed in the questions below.
+the two machines carries a pairing that only one of them can act on. Nothing has been decided about the
+column, and the handover practice below is what removes the need to decide anything about it for now.
+
+### The cube is factory reset before it is used on the other machine
+
+**Stated by the owner 2026-09-07 as a standing practice, not a measurement.** The reset is done **by
+hand**: the cube is connected deliberately and reset, so that it is known to have been reset rather
+than assumed to have been. `Tests/Scripted/99-quit.sh` also wipes it at the end of a full scripted run
+and fails the run if the cube cannot prove it was erased, but a handover does not lean on a run having
+ended that way.
+
+**So the pairing rows in a moved database describe a cube that is no longer in that state**, which is
+what makes `device_uuid` above a non-problem rather than any decision about the column. Three things
+follow, and all three are behaviour this app already has:
+
+- **A reset gives the pairing up on this side.** The app forgets the device along with the wipe, which
+  is what `99-quit` asserts (`paired` back to `0`), so whichever machine has the cube next pairs from
+  scratch rather than inheriting anything.
+- **The cube is back on the vendor default `000000`** (`DeviceLoginRules.defaultPIN`), so the PIN in
+  this Mac's login Keychain names something the hardware no longer has. `DevicePINStore`'s own doc
+  comment already describes that as the honest outcome of a per-machine Keychain, and the default is on
+  the presented list either way (`DeviceLoginRules.candidates`).
+- **The receiving machine pays for a resync**, because a reset restarts the event counter and drops the
+  clock, the face colours, the LED and blink settings and the task parameters. `DeviceSystemStateRules`
+  asks the cube about all of those on connect, so nothing about a handover needs a mechanism that does
+  not already exist.
+
+**Unknown here, and it is the mirror of what the Linux box flagged about its random address**: whether
+this Mac's per-host CoreBluetooth identifier for the cube survives a reset has not been tested. If it
+does not, `device_uuid` is stale after every handover on this side too, not only on the other.
 
 ### Display and UI automation
 
@@ -639,36 +745,5 @@ matters and a command that answers it, so the answer is a measurement rather tha
 the question from here in the same change.** Do not answer inline and do not tick it off in place. When
 this heading has nothing under it, the Linux box has everything it needs.
 
-### 1. The Mac's timezone and locale
-
-**Why:** question 11 asked this side for exactly these two so the pair could be compared, and the Mac's
-facts section records neither, so the comparison still cannot be made. This box is
-**`Australia/Brisbane`** (AEST, +1000, and it observes no DST) with **`en_AU.UTF-8`**. The app owns a
-`timezone` table, writes local times into `device_event`, and the `en_US_POSIX` discipline is only
-applied to *formatting* -- so a database moved between the machines carries times taken in whichever
-zone each was in, and two machines in different zones would be a silent hazard rather than a visible one.
-
-```sh
-date +%Z && readlink /etc/localtime
-locale | head -3
-```
-
-Wanted: the zone, whether it observes DST, and the `LANG`/`LC_*` the app actually launches under -- not
-the shell's, if `launchd` gives a `.app` something different.
-
-### 3. What "Paired: yes" means on the Mac
-
-**Why:** the Bluetooth table above says the cube is paired there. Here `bluetoothctl info` reports
-`Paired: no` and `Bonded: no`, and that is not a fault -- the cube runs no pairing agent and the PIN is
-the whole of the authentication (finding 12). So either macOS holds a real bond that Linux does not, or
-"paired" there is this app's own `setting.paired.paired` row being read back. Which it is decides two
-things: whether this box connecting to the cube can disturb anything the Mac holds, and whether the
-`paired` row in a database copied between the machines means anything on arrival.
-
-```sh
-system_profiler SPBluetoothDataType | grep -i -A6 timeflip
-sqlite3 ~/Library/Application\ Support/Facet/appdata.sqlite \
-  "SELECT setting_value FROM setting WHERE setting_name = 'paired';"
-```
-
-Wanted: whether the cube appears in the OS's own list of paired devices, or only in the app's table.
+**Empty as of 2026-09-07.** Questions 1 and 3 were answered into *System information about the Mac*
+above, in the change that removed them, so the Linux box has everything it has asked for.
