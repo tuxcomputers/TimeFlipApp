@@ -365,8 +365,18 @@ Roughly in dependency order. Nothing here is started.
    - ~~Stage 5, the test target.~~ Done. `@testable import FacetCore` beside `FacetApp` in 100 files,
      one target still. `ActivityIconTests` is the exception and says why in a comment: both targets
      generate a `Bundle.module`, so importing both makes every use of it ambiguous.
-   - **What is left is the scripted run**, which `Sources/` moving makes necessary regardless and which
-     `7ade2c7` had already made necessary. It needs a cube and a person.
+   - **The scripted suite has been run against the split and passed in full**, 2026-09-07 on the Mac,
+     reported by the owner. **There is no stamp**: the run was a shakedown of the suite itself rather
+     than evidence for the branch, it turned up several problems in the checks, and its changes were
+     reverted deliberately. So the split is not what those problems were -- the fixes are in
+     `Tests/Scripted/lib.sh`, `51-device-connect.sh`, `53-device-reconnect.sh` and `56-manual-mode.sh`
+     (`4bb6ff5`, `21a55b1`, `0f78510`), all of them about how a check waits rather than about what the
+     app does.
+
+     **CI is still red and correctly so.** The committed stamp is run 170 at `0f78510`
+     (`outcome: failed`, 11 scripts short), and twelve files have changed since -- the timezone seeding,
+     `TimezoneStore`, and the suite's own fixes. Clearing it needs a full run committed as a stamp,
+     which needs a cube and a person.
 
    The `#if canImport(AppKit)` fallback was not needed and is now moot.
 3. ~~**Platform-aware data directory.**~~ **Done 2026-09-07, Mac.** The seeded `debug` row named
@@ -423,9 +433,10 @@ Roughly in dependency order. Nothing here is started.
 12. **The scripted suite on AT-SPI.** The largest single piece, and the only thing that can say the app
     works. `Tests/Methods.md` techniques survive; the locator layer is new.
 13. **Repo restructure and the `CLAUDE.md` split.** Agreed: one repo, shared core. About a third of the
-    root `CLAUDE.md` is AppKit-specific and would be worse than noise in a GTK session. Also resolves the
-    `database/` symlink, which currently points into the macOS bundle resources -- and which the
-   symlink finding above makes more than a tidiness question.
+    root `CLAUDE.md` is AppKit-specific and would be worse than noise in a GTK session. **The
+    `database/` symlink is no longer part of this item**: it used to point into the macOS bundle
+    resources and was flipped in `7ade2c7`, so `database/` is the real directory and the path under
+    `Sources/` is the link. Nothing about the restructure waits on it any more.
 14. **README.** Links this file from its docs list, and otherwise still describes a macOS-only project.
     Rewriting it to describe two platforms waits for item 13, rather than being half-applied now.
 
@@ -437,13 +448,14 @@ Open questions, with what would answer each.
 |---|---|
 | ~~**Does the core build on Swift 6.0?**~~ **Withdrawn: the premise was wrong.** It was asked because this file believed the Mac built with 6.0, read off `swift-tools-version: 6.0`. That line is the manifest and language level, not the compiler. The Mac builds with **6.3.3**, Linux used **6.2**, and no machine has 6.0 or wants it. `docs/installation.md` states 6.0 as a **minimum**, which both satisfy | Retired 2026-09-07, Mac. Nothing needs a 6.0 toolchain; if the stated minimum is ever worth proving, that is a release question about `installation.md`, not a port question |
 | **Do the other 61 test files pass?** They were excluded for referencing types outside the closed set, not for failing | Widen the closed set as `FacetCore` takes shape |
+| **Does Darwin hand back a `TZ` that corelibs refuses?** `TimeZone.current.identifier` echoes a legacy IANA name verbatim on both platforms (`TZ=Cuba` answers `Cuba`), which is why `timezone` is seeded and read through `timezone_lookup`. But `TZ=AEST` is **refused** on Linux and falls back to the system zone, while an `AEST` row reached the Mac's `test.sqlite` somehow. A behavioural difference in a Foundation call the app depends on | Question 4 in [systems-info.md](systems-info.md), where the answer lands |
 | ~~**How many `tearDown` methods hit the `deinit` isolation trap?**~~ **27 of 30.** Measured on the Mac 2026-09-07 by brace-matching each `tearDown` body: 27 wrap their work in `MainActor.assumeIsolated` and would trap in a `deinit`; 3 do not. It never needed Linux to answer, being a property of the test sources | Answered 2026-09-07, Mac |
-| **Is `contentsOfDirectory(at:)` on a symlink a known corelibs bug or intended?** Worth reporting upstream if the former | Check the swift-corelibs-foundation tracker |
+| **Is `contentsOfDirectory(at:)` on a symlink a known corelibs bug or intended?** Worth reporting upstream if the former. **Narrowed 2026-09-07, Linux**: it is specific to a symlinked *directory*. A symlinked **file** inside a real directory is listed by both `at:` and `atPath:` and read straight through by `String(contentsOf:)` -- measured on `database/500_timezone.sql`, 13 of 13 `.sql` files found either way. So a report has a smaller and sharper case than the original finding suggested | Check the swift-corelibs-foundation tracker |
 | ~~**Does SwiftPM follow the symlinked resources directory on macOS?**~~ **Yes**, before and after the split: 13 `.sql` files in the built bundle, flattened to its root | Answered 2026-09-06, Mac |
 | ~~Does `Thread.isMainThread` matter?~~ **No.** It reads `false` inside a `@MainActor` test on Linux -- isolation holds, the OS thread simply is not thread 1 -- and nothing in `Sources/` calls it | Answered 2026-09-06 |
 | ~~**What do the 41 platform files actually need?**~~ **35 of them, and now assessed by the compiler.** `FacetApp` is what did not move: the panes and views, `BluetoothRadio`, `DeviceLogin`, `BLETrace`, `TimeFlipUUIDs`, `MenuBarController`, `MainMenu`, `ActivityIcon`, `GoogleOAuthClient`, `QuitSequence`, `StatusItemTitle`, `ColourDrawing` and `main.swift` | Answered 2026-09-06, Mac |
-| **How many members does stage 3 actually have to widen?** The type count is 94, measured; the member count cannot be read off one build because the errors cascade | Run the loop. It is the number that is still an estimate |
-| **Does the scripted suite still pass after the split?** `Sources/` moved wholesale and `Tests/Scripted/last-run-mac.md` is stale from `7ade2c7` regardless | One run with a cube, covering both |
+| ~~**How many members does stage 3 actually have to widen?**~~ **437 members, over 152 types, 589 `package` declarations in total.** The loop was run and the section above carries the working; the type count of 94 this row quoted was low by more than half, because what the compiler asks for is the types `FacetApp` names *plus* everything that comes with them | Answered 2026-09-07, Mac |
+| ~~**Does the scripted suite still pass after the split?**~~ **Yes, in full**, reported by the owner from a shakedown run on the Mac. Not a stamped run and not evidence for CI, which still wants one -- but it answers the question this row was asking, which was whether moving `Sources/` wholesale had broken the app on hardware. It had not | Answered 2026-09-07, Mac |
 | **Does the rename apply immediately or is it deferred?** Open since August; finding 1 wants a second BLE central with no cached record, and this box is one | Rename from the Mac, read the GAP name from Linux |
 | **Does the `T.Flip` manufacturer data survive a rename?** If it does, a renamed cube has two stable markers | Rename, then re-read `ManufacturerData` |
 | **Is the static random address stable across a power cycle or factory reset?** The BLE spec permits it to change | Pull the batteries, re-scan, compare |
