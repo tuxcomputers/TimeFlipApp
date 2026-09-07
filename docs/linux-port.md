@@ -22,7 +22,8 @@ moving is a finding that will be measured twice.
 | Can the whole test suite run? | **Under XCTest no**, `@MainActor` blocks ~60%. **Under swift-testing yes** | 2026-09-06 |
 | Is there a UI? | Not started, and the toolkit is undecided | -- |
 | Is there a `FacetCore` target? | **Yes.** 86 files, no AppKit, and `FacetApp` builds on it. 589 access-level edits | 2026-09-07, Mac |
-| What is left before Linux can try the core? | `SQLite3` needs a modulemap or `libsqlite3-dev`; `Security` and `CryptoKit` are still Darwin. Everything else the spike hit is closed | 2026-09-07, Mac |
+| What is left before Linux can try the core? | `SQLite3`, then `Security`, `CryptoKit` and `CoreGraphics` -- **and nothing else**, measured by peeling them one at a time | 2026-09-07, Linux |
+| Does `FacetCore` build on Linux as it stands? | **No.** 177 errors, every one of them `no such module SQLite3`, `libsqlite3-dev` installed or not. Behind that wall, **76 errors in three files** and none in the other 83 | 2026-09-07, Linux |
 
 **The strategy this settles: port the core, do not reimplement it.** The Swift is portable, so the
 11,000 lines of decision logic and the hermetic suite come across rather than being rewritten against the
@@ -37,7 +38,7 @@ level the package is written to, not the compiler that builds it -- so "does the
 remains genuinely unanswered, and a 6.0 toolchain would have to be installed to answer it. Nothing in the
 split needed a 6.2-or-later feature.
 
-**The Linux box**, for the rest: Linux Mint 22.3 (Ubuntu 24.04 noble base), MATE 1.26.2, kernel 7.0.0-31-generic, adapter `hci0`
+**The Linux box**, for the rest: Linux Mint 22.3 (Ubuntu 24.04 noble base), MATE 1.26.1, kernel 7.0.0-31-generic, adapter `hci0`
 (88:E9:FE:5F:1B:52). Cube `TimeFlip v2.0` at E8:DB:D8:CF:F9:0F, `DI_LABS` / `2.0` / `TFv4.1` / `FW_v3.64`.
 
 Already present, needing no installation: BlueZ 5.72, `python3-dbus`, `python3-gi`,
@@ -91,6 +92,10 @@ Only the third is open, and it is one line of dev-only line buffering.
 - **`CoreGraphics` is one `CGFloat` typealias.** Both files that import it use nothing else.
 - **`SQLite3`** needs a modulemap over the system library. The app uses 25 symbols; a hand-written header
   covered them, so the spike needed no `libsqlite3-dev`. A real port should just install it.
+  **And it still needs the modulemap after installing it** -- measured 2026-09-07 on Linux, with
+  `libsqlite3-dev` present and `import SQLite3` failing exactly as before, because the Swift toolchain
+  ships no `SQLite3` module for this platform. The package is what lets the modulemap name the real
+  `/usr/include/sqlite3.h` and lets a link find `libsqlite3.so`; it is not a substitute for it.
 - Linking needs `libsqlite3.so`, and stock Mint ships only `libsqlite3.so.0`. That unversioned symlink is
   what `libsqlite3-dev` provides.
 
@@ -320,10 +325,21 @@ All four are already to-do items below, and none is new:
 
 | Import | Files | Item |
 |---|---|---|
-| `SQLite3` | 4 | Needs a modulemap or `libsqlite3-dev` |
+| `SQLite3` | 4 | Needs a modulemap **and** `libsqlite3-dev`. Not either/or -- see below |
 | `Security` | 2 (`DevicePINStore`, `GoogleTokenStore`) | 7, libsecret |
 | `CoreGraphics` | 2 (`SettingsMetrics`, `ReportCalendarMetrics`) | One `CGFloat` typealias |
 | `CryptoKit` | 1 (`GoogleOAuthRules`) | 8, swift-crypto |
+
+**All four confirmed from Linux 2026-09-07, in that order, and there is no fifth.** The compiler hits
+them one at a time -- each import is unguarded, so each is a hard stop that hides the next -- so they
+were peeled with a modulemap over the real `sqlite3.h` and a detached worktree, to see the whole list
+rather than the first of it. What is behind all four is **76 errors in three files and nothing in the
+other 83**: 75 diagnostics over 19 distinct `Security` symbols in the two Keychain stores, and one
+`SHA256` call in `GoogleOAuthRules`. Both `CoreGraphics` files compile clean once the typealias is
+right, and **`package typealias CGFloat = Double` is what right means** -- a plain one is `internal`,
+which a `package` member may not use, so the naive fix trades four missing-module errors for 22 access
+errors. Full working in the *What `FacetCore` does on this box* section of
+[systems-info.md](systems-info.md).
 
 ---
 
@@ -386,6 +402,16 @@ Roughly in dependency order. Nothing here is started.
    **Groundwork done**: both `Lookup` enums answered `unavailable(OSStatus)`, a Darwin type in an
    otherwise portable enum. They answer `unavailable(Int32)` now, which is the same type on Darwin and
    exists everywhere; `GoogleCalendarRules.Failure.keychainUnavailable` had spelled it `Int32` all along.
+
+   **And there is a keychain on the Linux side, running already** (measured 2026-09-07, Linux).
+   `gnome-keyring-daemon` 46.1 is up with its `secrets` component, `org.freedesktop.secrets` is claimed
+   on the session bus, and there is a `login` collection -- it is what VSCode asks the password for on
+   its first launch of a session. So this item is a port to an existing service rather than a search for
+   one, and it has **two routes**: link `libsecret` (which needs `libsecret-1-dev`, absent, and then a
+   modulemap over its C API -- the `SQLite3` shape again), or speak the Secret Service D-Bus API
+   directly, which needs nothing installed and reuses the mechanics item 10 is bringing for BlueZ
+   anyway. Undecided; both are open. The full measurement is in
+   [systems-info.md](systems-info.md).
 
 8. **`CryptoKit` to swift-crypto.** One file, `GoogleOAuthRules`, one `SHA256.hash` call for PKCE.
 9. **`Network` to a plain socket listener.** One file, `GoogleOAuthClient`, using `NWListener`,

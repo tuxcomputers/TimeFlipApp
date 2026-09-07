@@ -253,185 +253,404 @@ Where an answer is already in [linux-port.md](linux-port.md), it is fine to say 
 are asked again because that file records a spike from a scratch directory, and some of it may have
 moved on.
 
-### 1. The toolchain, exactly
-
-**Why:** so each side knows what compiler the other's results came out of. A build that passes on one
-version and not another is a fact about the toolchains, and neither machine can see the other's.
-
-**Not asking about Swift 6.0.** That question was withdrawn: it existed only because
-`swift-tools-version: 6.0` in `Package.swift` was read as "the Mac builds with 6.0". It is the manifest
-and language level, not the compiler. The Mac is on **6.3.3**, Linux used **6.2**, `docs/installation.md`
-states 6.0 as a **minimum** which both clear, and no machine has 6.0 or needs it.
-
-```sh
-swift --version && which swift
-ls ~/.local/swift/            # or wherever toolchains are unpacked
-```
-
-Wanted: version, exact install path, and whether it is on `PATH` by default.
-
-### 2. Distro, kernel, desktop
-
-**Why:** the tray/menu-bar shape of the app depends on the desktop, and `linux-port.md` says MATE has a
-native tray where GNOME does not.
-
-```sh
-cat /etc/os-release | head -3 && uname -r && echo "$XDG_CURRENT_DESKTOP / $XDG_SESSION_TYPE"
-```
-
-Wanted: distro and version, kernel, desktop environment, and **X11 or Wayland** -- the last decides
-whether AT-SPI automation for the scripted suite is even possible in the form planned.
-
-### 3. `bash`, and what `/bin/sh` is
-
-**Why:** shared scripts. The Mac side is bash **5.3.15**, so bash 5 is the target on both machines and
-there is nothing to write down to.
-
-```sh
-bash --version | head -1 && ls -l /bin/sh
-```
-
-Wanted: confirmation it is bash 5.x, and whether `/bin/sh` is `dash` -- because a `#!/bin/sh` script
-that works here may rely on bash-isms that the Mac's `/bin/sh` tolerates and `dash` does not.
-
-### 4. SQLite
-
-**Why:** the spike used a hand-written 25-symbol modulemap rather than the real headers, and
-`linux-port.md` says stock Mint ships only `libsqlite3.so.0` without the unversioned symlink that
-linking needs.
-
-```sh
-sqlite3 --version
-dpkg -l libsqlite3-dev 2>/dev/null | tail -1
-ls -l /usr/lib/x86_64-linux-gnu/libsqlite3.so*
-```
-
-Wanted: the `sqlite3` CLI version, the library version, whether `libsqlite3-dev` is now installed, and
-whether the shim is still in use.
-
-### 5. Python and the D-Bus bindings
-
-**Why:** `scripts/linux-ble-probe.py` is the reference BLE implementation and needs them, and any
-AT-SPI automation will too.
-
-```sh
-python3 --version
-python3 -c "import dbus, gi; print('dbus and gi present')"
-python3 -c "import pyatspi; print('pyatspi present')"
-```
-
-### 6. BlueZ and the radio
-
-**Why:** the BlueZ backend is to-do item 10 and is the largest device-side piece left.
-
-```sh
-bluetoothctl --version
-hciconfig -a 2>/dev/null | head -5    # or: bluetoothctl show
-```
-
-Wanted: BlueZ version, adapter name and address, and whether the adapter is the built-in one or a
-dongle.
-
-### 7. The cube, from that side
-
-**Why:** the two machines name the same cube differently and a shared database carries only one of the
-two names. This Mac sees `FA1DDE60-5DBB-D5E9-B53C-881E16916B5E`; `linux-port.md` records
-`E8:DB:D8:CF:F9:0F` there.
-
-Wanted: confirmation the address is still that, whether it has changed across a power cycle or a factory
-reset, and **whether the cube is physically at that machine or this one** -- with a rough sense of when,
-because only one machine can hold the connection at a time.
-
-### 8. Filesystem and where the repo lives
-
-**Why:** this Mac's volume is **case-insensitive**. A file added there whose name collides case-wise
-with an existing one cannot be checked out here.
-
-```sh
-df -T . | tail -1
-mkdir -p /tmp/ct && touch /tmp/ct/CaseProbe && ls /tmp/ct/caseprobe 2>/dev/null \
-  && echo "case-insensitive" || echo "case-sensitive"
-pwd
-```
-
-Wanted: filesystem type, case sensitivity, and the absolute path the repository is checked out at.
-
-### 9. How that machine reaches GitHub
-
-**Why:** this Mac uses an **HTTPS** remote on purpose, because `gh auth switch` does not change the SSH
-key offered and an SSH remote authenticates as the wrong account for `tuxcomputers/TimeFlipApp`.
-
-```sh
-git remote -v && git config user.name && git config user.email
-gh auth status 2>&1 | head -8
-```
-
-Wanted: remote URL and protocol, the git identity commits are made under, and which GitHub account has
-access. If pushes fail with `403`, this is why.
-
-### 10. Where the app's data directory resolves
-
-**Why:** `linux-port.md` records the one XCTest failure as corelibs correctly resolving
-`applicationSupportDirectory` to `~/.local/share/Facet` where the test asserts the macOS path. To-do
-item 3 is making that platform-aware, and it is awkward because the literal is also in the seeded
-`debug` row of `database/011_setting.sql`.
-
-```sh
-echo "${XDG_DATA_HOME:-$HOME/.local/share}/Facet"
-ls -la "${XDG_DATA_HOME:-$HOME/.local/share}/Facet" 2>/dev/null
-```
-
-Wanted: the resolved path, whether `XDG_DATA_HOME` is set, and whether a Facet directory exists there
-yet.
-
-### 11. Locale and timezone
-
-**Why:** the app is dense with date handling and owns a `timezone` table. The `en_US_POSIX` discipline
-is what made the date code port cleanly, and it would be worth knowing the two machines are not silently
-in different zones when a database moves between them.
-
-```sh
-timedatectl 2>/dev/null | head -4 || (date +%Z && cat /etc/timezone)
-locale | head -3
-```
-
-### 12. What actually builds and passes there, today
-
-**Why:** `linux-port.md`'s numbers come from a scratch package that was never checked in. Now that
-`Sources/FacetCore` exists as a real target, the interesting question is what it does on that machine.
-
-```sh
-swift build --target FacetCore 2>&1 | tail -5
-```
-
-Wanted: whether `FacetCore` builds as-is, what it needs first (`FoundationNetworking` shims, the SQLite
-modulemap), and the error count if it does not. **This is the most useful single answer on the list**,
-because the whole point of the split was to make that question askable.
+**Empty as of 2026-09-07.** All twelve questions were answered into *System information about the
+Linux* below, in the change that removed them, so the Mac has everything it asked for.
 
 ---
 
 ## System information about the Linux
 
-> **To be filled in by the Linux machine.** Mirror the shape of the Mac section above -- the machine,
-> operating system, toolchain, command-line tools, filesystem, where things live, Bluetooth and the
-> cube, display and automation, the suites. Date every line and say what command produced it.
->
-> This is where the answers to the twelve questions land, one at a time, **each one deleted from
-> *Information required about the Linux system* as it is written down here.** Delete this note when
-> there is something here.
+**All measured 2026-09-07 on the machine below**, by running the command in each row. Anything not
+measured says so.
+
+### The machine
+
+| | |
+|---|---|
+| Model | **A MacBook Pro running Linux**, `MacBookPro14,2` |
+| Chip | Intel Core i7-7567U @ 3.50GHz, 2 cores / 4 threads |
+| Memory | 15 GiB |
+| Architecture | `x86_64` |
+| Host name | `harry-MacBookPro` |
+
+`hostnamectl`, `lscpu`, `free -h`.
+
+**The two machines differ by instruction set as well as by operating system**: `arm64` there, `x86_64`
+here. Nothing in the port has depended on it so far -- both are little-endian, which is what the BLE
+frame parsing cares about -- but no built artefact is interchangeable between them, and a timing figure
+taken on the Mac is not one about this box.
+
+### Operating system
+
+| | |
+|---|---|
+| Distribution | **Linux Mint 22.3 "Zena"**, Ubuntu 24.04 `noble` base |
+| Kernel | 7.0.0-31-generic, `#31~24.04.1-Ubuntu SMP PREEMPT_DYNAMIC`, built 2026-08-10 |
+| Desktop | **MATE 1.26.1** |
+| Display server | **X11**, `XDG_SESSION_TYPE=x11` |
+| Swift target triple | `x86_64-unknown-linux-gnu` |
+
+`/etc/os-release`, `uname -a`, `mate-session --version`, `echo $XDG_SESSION_TYPE`.
+
+**X11, which is what the scripted suite's replacement needed to hear.** Synthetic mouse and keyboard
+events -- the half of `scripts/ax-press.py` and `scripts/status-item-click.py` that is not reading the
+tree -- go through XTEST here. Under Wayland there is no equivalent a normal process may call, so the
+AT-SPI plan in item 12 is possible in the shape planned rather than needing a compositor-specific route.
+
+**[linux-port.md](linux-port.md) said MATE 1.26.2 and that was wrong**: `mate-session` reports 1.26.1.
+Corrected there in the same change.
+
+### Toolchain
+
+| | |
+|---|---|
+| Swift | **6.2** (`swift-6.2-RELEASE`) |
+| Install path | `~/.local/swift/swift-6.2-RELEASE-ubuntu24.04`, 3.2 GB |
+| On `PATH` by default | **No** |
+| SwiftPM | reports itself as `Swift Package Manager 6.2.0-dev` |
+| `swiftc` | `~/.local/swift/swift-6.2-RELEASE-ubuntu24.04/usr/bin/swiftc` |
+| Other toolchains | **None.** That directory holds exactly the one |
+
+`swift --version`, `swift build --version`, `du -sh ~/.local/swift/*`.
+
+Every Swift measurement on this box was taken after:
+
+```sh
+export PATH="$HOME/.local/swift/swift-6.2-RELEASE-ubuntu24.04/usr/bin:$PATH"
+```
+
+**`swift` is not on `PATH` in a fresh shell**, so anything scripted that expects to call it needs that
+line or an absolute path. That is a difference from the Mac worth designing around rather than
+remembering.
+
+### Command-line tools
+
+| Tool | Version | Path |
+|---|---|---|
+| `sqlite3` | 3.45.1 | `/usr/bin/sqlite3` (**installed 2026-09-07**; the Mac is on 3.51.0) |
+| `libsqlite3-0` | 3.45.1-1ubuntu2.7 | `/usr/lib/x86_64-linux-gnu/libsqlite3.so.0` |
+| `libsqlite3-dev` | 3.45.1-1ubuntu2.7 | **installed 2026-09-07**, giving `/usr/include/sqlite3.h` and the unversioned `libsqlite3.so` |
+| `python3` | 3.12.3 | `/usr/bin/python3` (the system one) |
+| `python3-dbus` | 1.3.2 | importable as `dbus` |
+| `python3-gi` | 3.48.2 | importable as `gi` |
+| `python3-pyatspi` | 2.46.1 | importable as `pyatspi` |
+| `bash` | **5.2.21(1)** | `/usr/bin/bash`, and `SHELL=/bin/bash` |
+| `git` | 2.43.0 | `/usr/bin/git` |
+| `gh` | 2.45.0 | `/usr/bin/gh` (**installed 2026-09-07**; the Mac is on 2.100.0). **Logged into no host** |
+| `jq` | 1.7.1 | `/usr/bin/jq` (**installed 2026-09-07**; reports itself as `jq-1.7`) |
+| `secret-tool` | 0.21.4 | `/usr/bin/secret-tool`, from `libsecret-tools` (**installed 2026-09-07**) |
+| `curl` | 8.5.0 | `/usr/bin/curl` |
+| `make` | GNU Make 4.3 | `/usr/bin/make` |
+| `wmctrl` | present | -- |
+| `xdotool` | **not installed** | -- |
+| `flatpak` | present | -- |
+| `snap` | **not installed** | -- |
+| pyobjc | **absent and staying absent** | `import objc` fails; the seven `scripts/ax-*.py` and `status-item-click.py` are Mac-only |
+
+**bash is 5.2.21, so the bash-5 target the Mac set is met** and nothing here has to be written down to
+bash 3. Unlike the Mac there is only one bash on the machine, so which one a script gets is not a
+question here.
+
+**`/bin/sh` is `dash`.** A `#!/bin/sh` script carrying a bash-ism runs on the Mac, whose `/bin/sh` is
+bash in POSIX mode, and fails here. Nothing checked in has a `#!/bin/sh` line today; this is the reason
+to keep it that way.
+
+**Four tools this repository calls were missing until 2026-09-07 and are installed now**, all from
+Ubuntu's own archive with no third-party repository: `sqlite3` and `libsqlite3-dev`, which six
+checked-in files and the `FacetCore` build need between them; `jq`, wanted by `scripts/ci-local.sh`
+alone; and `gh`, wanted by nothing checked in and only by the remote workflow in `CLAUDE.md`.
+
+**Two version gaps between the machines, neither of them currently biting.** The `sqlite3` CLI is
+3.45.1 here against **3.51.0** on the Mac, and `gh` is 2.45.0 against **2.100.0** -- Ubuntu 24.04 ships
+what it ships. The SQLite gap is the one that could matter, since the schema is shared, so it was
+measured rather than assumed: see *The schema applies under this box's SQLite* below.
+
+
+### Filesystem
+
+| | |
+|---|---|
+| Volume | `/dev/nvme0n1p2`, **ext4**, 916 GB, 5% used. `/` and `$HOME` are the same filesystem |
+| Case sensitivity | **case-SENSITIVE**, measured on both the repository volume and `/tmp` |
+
+`df -T .`, and a `CaseProbe`/`caseprobe` pair in both places.
+
+**Each machine is silent about the hazard it creates and loud about the other's.** A wrong-case path
+in a source file or a script works on the Mac and fails here, which is the Mac's half of it. This box's
+half is the mirror image: two filenames differing only in case coexist here perfectly, get committed
+without complaint, and then cannot be checked out on the Mac at all. Neither compiler nor test run
+will say so on the side that did it, so the rule is the same rule from both ends -- never add a name
+that collides case-wise with one already in the tree.
+
+### Where things live
+
+| | |
+|---|---|
+| Repository | `/home/harry/git/TimeFlipApp` |
+| Remote | `https://github.com/tuxcomputers/TimeFlipApp.git` (**HTTPS**, matching the Mac) |
+| Git identity | Harry Phillips `<harry@tux.com.au>`, the same identity as the Mac |
+| App data directory | resolves to `/home/harry/.local/share/Facet`, and **does not exist yet** |
+| Databases | **none on this box.** Nothing has run the app here |
+| Schema | `database/` at the root is the real directory; `Sources/FacetCore/Resources/Database` is a symlink to `../../../database` and resolves correctly here |
+
+**No XDG variable is set**, measured 2026-09-07: `XDG_DATA_HOME`, `XDG_CONFIG_HOME`, `XDG_STATE_HOME`
+and `XDG_CACHE_HOME` are all unset. So corelibs' `applicationSupportDirectory` falls back to
+`$HOME/.local/share`, which is where `/home/harry/.local/share/Facet` above comes from, and the
+platform-aware answer in to-do item 3 needs no variable to be set to be right.
+
+**This box cannot push, and the reason is that nothing here can authenticate.** Measured 2026-09-07,
+after `gh` was installed: `gh auth status` answers **You are not logged into any GitHub hosts**, there is
+no credential helper configured at any scope (`git config --list --show-origin | grep credential` is
+empty), there are no keys in `~/.ssh`, and `GH_TOKEN` and `GITHUB_TOKEN` are both unset. Anonymous
+HTTPS works for reading -- `git ls-remote` and `git fetch` both succeed, the repository being public --
+so this box can follow the Mac and cannot publish to it.
+
+**`gh auth login` is the outstanding step, and `CLAUDE.md` says which account it has to be.** Push
+access to `tuxcomputers/TimeFlipApp` is what matters, not merely being logged in, and `git`'s credential
+helper delegates to `gh auth git-credential` once there is a login for it to delegate to.
+
+### There is a keychain here, and the Secret Service is already running
+
+| | |
+|---|---|
+| Daemon | **`gnome-keyring-daemon` 46.1-2ubuntu0.2, running** with `--components=pkcs11,secrets` |
+| D-Bus name | `org.freedesktop.secrets`, present on the session bus |
+| Collections | `/org/freedesktop/secrets/collection/login` and `.../session` |
+| Keyring files | `~/.local/share/keyrings/login.keyring`, plus `user.keystore` |
+| `libsecret-1-0` | 0.21.4-1build3, `/usr/lib/x86_64-linux-gnu/libsecret-1.so.0` |
+| `libsecret-1-dev` | 0.21.4-1build3, **installed 2026-09-07**. `pkg-config --modversion libsecret-1` answers 0.21.4 and the header is at `/usr/include/libsecret-1/libsecret/secret.h` |
+| `libsecret-tools` (`secret-tool`) | 0.21.4-1build3, **installed 2026-09-07** |
+| `seahorse` | 43.0-3build2, for looking inside it by hand |
+
+`pgrep -a gnome-keyring`, `dbus-send --session --dest=org.freedesktop.secrets ... Get Collections`,
+`dpkg -l`, `pkg-config --exists libsecret-1`.
+
+**Item 7 already named libsecret, so the counterpart was never in doubt. What is new is that it is
+live.** The daemon is running on this box right now, with a `login` collection in it, and it is the same
+keyring VSCode asks the password for on its first launch of a session -- unlocked per session rather
+than per application. That is worth writing down because it makes item 7 a port onto a running service
+rather than a piece of work that has to stand something up first.
+
+**So item 7 has two routes, and the cheaper one needs nothing installed.**
+
+| Route | What it costs | What it gets |
+|---|---|---|
+| Link **libsecret** | a modulemap over its C API -- the same shape as the `SQLite3` wall, and now the same *remaining* work, `libsecret-1-dev` being installed | The API the desktop expects, with prompting and unlocking handled |
+| Talk to **`org.freedesktop.secrets`** over D-Bus | nothing to install: the daemon is up, the name is claimed, and item 10 is bringing a D-Bus layer for BlueZ anyway | The same store, over the bus the port is already going to speak |
+
+The second is worth weighing precisely because of item 10. `org.freedesktop.secrets` and
+`org.bluez` sit on different buses -- session and system respectively -- so they are not one connection,
+but they are one set of D-Bus mechanics, and `scripts/linux-ble-probe.py` already demonstrates all of it
+against BlueZ. **Nothing is decided here**; this records that the choice exists and that neither route
+is blocked.
+
+**Untested, and it matters before either route is built**: what happens when the keyring is *locked*.
+`DevicePINStore` and `GoogleTokenStore` both answer `unavailable(Int32)` for a Keychain that will not
+answer, which is the case that already exists on the Mac -- but the failure here arrives as a prompt to
+the user, or as a D-Bus error if there is nobody to prompt, and which one a background app gets has not
+been measured.
+
+### Bluetooth and the cube
+
+| | |
+|---|---|
+| Adapter | `hci0`, `88:E9:FE:5F:1B:52`, name `harry-MacBookPro` |
+| Adapter provenance | **built in**, on `dw-apb-uart` rather than USB, manufacturer `0x000f` (Broadcom). Not a dongle |
+| BlueZ | **5.72** (`bluetoothctl --version`) |
+| Cube, as this box names it | `E8:DB:D8:CF:F9:0F`, address type **random** |
+| Cube name | `TimeFlip v2.0` |
+| Paired / Bonded / Trusted | **no / no / no**, and that is correct here |
+| Where the cube is | **at this machine**, 2026-09-07 17:05 |
+
+`bluetoothctl show`, `bluetoothctl --timeout 15 scan on`, `bluetoothctl info E8:DB:D8:CF:F9:0F`,
+`readlink -f /sys/class/bluetooth/hci0`.
+
+**The address is unchanged from the 2026-09-06 run** and the cube answered a 15-second scan on
+2026-09-07 at 17:05, so it is physically here now rather than at the Mac. Whether that address survives
+a battery change or a `0xFF` factory reset is **untested**, and there is a reason not to assume it does:
+BlueZ reports it as a **random** address rather than a public one, and a random address is the kind the
+specification allows a device to change. So it is no more a durable identifier than the Mac's per-host
+UUID is -- neither machine's name for this cube can be written into a shared table and trusted on the
+other.
+
+**BlueZ had forgotten the cube across this boot.** `bluetoothctl info` answered `not available` until a
+scan rediscovered it -- there is no bond to persist, the PIN being the whole of the authentication -- so
+on this platform finding the cube is *always* a scan. That is the same lesson the device rename cost on
+the Mac (2026-08-01), arrived at from the other direction.
+
+**The cube is factory reset every time it moves between the two machines.** Stated by the owner
+2026-09-07 as a standing practice, not a measurement, and it is what makes the PIN a non-question: a
+reset cube is on the vendor default `000000`, which is the only PIN this box knows and the default
+`scripts/linux-ble-probe.py` uses. `DevicePINStore`'s own doc comment already describes this as the
+honest outcome of a per-machine Keychain -- a cube carried to a second machine is met by an app that
+knows only the vendor default, and the recovery the vendor gave it is taking the batteries out.
+
+**So each handover costs the receiving machine a resync, and that is by design rather than by accident.**
+A reset restarts the cube's event counter, which is why the history cursor is read from `device_event`
+and checked against what the cube can reach rather than being a stored number (7.1 of
+[state-audit.md](state-audit.md)), and it drops the face colours, the LED and blink settings, the task
+parameters and the clock -- all of which `DeviceSystemStateRules` already asks the cube about on
+connect. Nothing about a handover needs a new mechanism; it exercises the ones a factory reset already
+has.
+
+**One advertising detail not previously written down**, and it is a way to spot the cube that does not
+depend on its name: it carries manufacturer data under key `0xffff` whose value is
+`54 2e 46 6c 69 70 00`, ASCII `T.Flip`. It still advertises **no service UUID**, which is finding 12 and
+why discovery must not be filtered on one.
+
+### Display and UI automation
+
+| | |
+|---|---|
+| Display | `eDP-1`, 2560x1600 at 60Hz, 286x179mm, the only one |
+| Automation stack | AT-SPI: `at-spi2-core` 2.52.0, `libatk-adaptor` 2.52.0, `python3-pyatspi` 2.46.1 |
+| Registry | **running**: `at-spi-bus-launcher` and `at-spi2-registryd` are both up |
+| `toolkit-accessibility` | **false** |
+| Present | `wmctrl` |
+| Absent | `xdotool`, `accerciser` |
+
+`xrandr --current`, `gsettings get org.gnome.desktop.interface toolkit-accessibility`, `pgrep -a at-spi`.
+
+**The accessibility bus is running but toolkit accessibility is switched off**, so a GTK app started
+today would expose no tree to read. Turning it on is one `gsettings set`, and it is a precondition for
+to-do item 12 rather than a piece of work in it.
+
+### The suites
+
+| | |
+|---|---|
+| `swift test` | **cannot run today.** Measured again after the install: 178 errors, 176 of them `no such module SQLite3`, plus the driver's own `error: fatalError`. No test is discovered |
+| `Tests/Scripted/` | **cannot run today**: no app binary to drive, and toolkit accessibility is off. The `sqlite3` half of that is fixed as of 2026-09-07 |
+| `swift build --target FacetCore` | fails, and the whole of why is below |
+
+**`swift test` stops in the same place `swift build --target FacetCore` does**, which is worth knowing
+before reading anything into it: SwiftPM builds `FacetCore` first as a dependency of the test target, so
+the run dies on `SQLite3` and never reaches `FacetApp` at all. **The AppKit wall is behind the SQLite3
+one and has not been seen from this box yet**, so nothing measured here says anything about it.
+
+**Nothing checks that `sqlite3` is on `PATH` before calling it**, which is worth knowing for the next
+fresh machine rather than this one: no script in `Tests/Scripted/` or `scripts/` tests for it, so
+`lib.sh`'s `sql()` fails 127 with a `command not found` per query rather than saying once what is
+missing. That is `CLAUDE.md`'s rule about swallowed failures seen from the other end -- the failure is
+loud, and says the wrong thing.
+
+### What `FacetCore` does on this box
+
+**Measured 2026-09-07, after `libsqlite3-dev` was installed.** `swift build --target FacetCore` **fails
+with 177 errors, and all 177 are one message**: `no such module 'SQLite3'`, reported against
+`DatabaseBootstrap.swift:2` once per compile unit. Nothing else is reported, because `emit-module` stops
+there -- so the raw error count says nothing about how much is wrong, and reading it as 177 problems
+would be reading it wrong.
+
+**Installing `libsqlite3-dev` does not clear that on its own, and this is the correction worth carrying
+forward.** [linux-port.md](linux-port.md) said `SQLite3` "needs a modulemap **or** `libsqlite3-dev`". It
+needs **both**: the Swift toolchain ships no `SQLite3` module for Linux -- there is no modulemap
+mentioning sqlite anywhere in the 3.2 GB of it -- so `import SQLite3` cannot resolve however many
+headers are on the machine. What the package buys is that the modulemap can point at the **real**
+`/usr/include/sqlite3.h` and that linking can find an unversioned `libsqlite3.so`, rather than a
+hand-written stub standing in for both. Corrected in that file in the same change.
+
+Two lines over the real header clear it outright, with **no warnings** out of a 641 KB system header:
+
+```
+module SQLite3 [system] {
+    header "/usr/include/sqlite3.h"
+    link "sqlite3"
+    export *
+}
+```
+
+The walls behind it were then measured by peeling them one at a time, with that modulemap and the four
+Darwin imports guarded in a **detached worktree** so the tree itself was never edited.
+
+| # | Wall | Files | What it takes |
+|---|---|---|---|
+| 1 | `SQLite3` | `DatabaseBootstrap`, `DatabaseConnection`, `DebugLog`, `DebugTraceFile` | `libsqlite3-dev` **and** the four-line modulemap above. Cleared outright, real API, no stub |
+| 2 | `Security` | `DevicePINStore`, `GoogleTokenStore` | item 7 of [linux-port.md](linux-port.md). **19 distinct missing symbols** (`kSec*`, `SecItem*`, `errSec*`, plus `CFDictionary` and `CFTypeRef`) over **75 diagnostics** |
+| 3 | `CryptoKit` | `GoogleOAuthRules` | item 8, swift-crypto. **One** call site: `SHA256` at line 53 |
+| 4 | `CoreGraphics` | `SettingsMetrics`, `ReportCalendarMetrics` | one `package typealias CGFloat = Double`, declared **once for the module**. Both files then compile clean |
+
+**With `SQLite3` supplied and the other three merely guarded rather than replaced, the whole of what is
+left is 76 errors in three files.** `DevicePINStore` 37, `GoogleTokenStore` 38, `GoogleOAuthRules` 1, and
+**not one error in the other 83 files**, with no warnings anywhere. Guarding an import does not implement
+it, so those 76 are the call sites themselves -- which is exactly the inventory wanted. The portable half
+really is portable, and what stands between this box and a building core is the two Keychain stores and
+one hash call.
+
+**The `CGFloat` typealias has to be `package`, and the naive version does not compile.** A plain
+`typealias CGFloat = Double` is `internal`, and the metrics types are `package` after the split, so every
+member using it fails with `property cannot be declared package because its type uses an internal type`
+-- 22 errors across the two files, which looks nothing like a missing-import problem and is entirely a
+consequence of stage 3's 589 widenings. `package typealias` clears all 22. Declaring it twice, once per
+file, fails differently again (`invalid redeclaration of 'CGFloat'`), so it is one declaration, `package`,
+for the module.
+
+**Linking is untested.** Every measurement above stops at `emit-module`, so nothing here says the
+`link "sqlite3"` line resolves at link time; that cannot be tried until walls 2 and 3 are actually
+implemented rather than guarded.
+
+### The schema applies under this box's SQLite
+
+**Measured 2026-09-07**, now that there is a `sqlite3` to do it with, and it matters because the two
+machines are two minor versions apart (3.45.1 here, 3.51.0 on the Mac) over a schema they share.
+
+All **13** files in `database/` applied to a fresh database in file order, each with
+`PRAGMA foreign_keys = ON`, exactly as `scripts/compare-database-to-ddl.sh` does it:
+
+| | |
+|---|---|
+| Files applied | 13 of 13, **no errors** |
+| Tables created | 13 |
+| `PRAGMA integrity_check` | `ok` |
+| `PRAGMA foreign_key_check` | no violations |
+| Seeds | `setting` 19, `icon` 43, `colour` 21, `event_type` 8, `timezone` 1 |
+| Time | 1.32s |
+
+**So nothing in the DDL needs a SQLite newer than 3.45.1**, and the 1.32s is the same cost
+[linux-port.md](linux-port.md) already measured at ~1.15s for a bootstrap -- which is why each test
+bootstrapping its own database costs what it costs, on this platform as on the other.
 
 ---
 
 ## Information required about the Mac
 
-> **Asked by the Linux machine, answered and then deleted by the Mac.** Whatever the Linux side needs to
-> know about this Mac and cannot see for itself: toolchain details, paths, how the cube is paired here,
-> what a macOS-only framework actually does in a given file, how something is drawn, what a scripted
-> check observes.
->
-> Ask with a reason and, where it makes sense, the command that would answer it. Add items here one at a
-> time as they come up; numbers start at 1 and are never reused.
->
-> **The Mac answers by writing the fact into *System information about the Mac* above and removing the
-> request from here in the same change**, never by replying inline. Delete this note when there is
-> something here.
+**Questions from the Linux side, for the Mac to answer and then delete.** Each one has the reason it
+matters and a command that answers it, so the answer is a measurement rather than a recollection.
+
+**Answering one means: write the fact into *System information about the Mac* above, dated, and remove
+the question from here in the same change.** Do not answer inline and do not tick it off in place. When
+this heading has nothing under it, the Linux box has everything it needs.
+
+### 1. The Mac's timezone and locale
+
+**Why:** question 11 asked this side for exactly these two so the pair could be compared, and the Mac's
+facts section records neither, so the comparison still cannot be made. This box is
+**`Australia/Brisbane`** (AEST, +1000, and it observes no DST) with **`en_AU.UTF-8`**. The app owns a
+`timezone` table, writes local times into `device_event`, and the `en_US_POSIX` discipline is only
+applied to *formatting* -- so a database moved between the machines carries times taken in whichever
+zone each was in, and two machines in different zones would be a silent hazard rather than a visible one.
+
+```sh
+date +%Z && readlink /etc/localtime
+locale | head -3
+```
+
+Wanted: the zone, whether it observes DST, and the `LANG`/`LC_*` the app actually launches under -- not
+the shell's, if `launchd` gives a `.app` something different.
+
+### 3. What "Paired: yes" means on the Mac
+
+**Why:** the Bluetooth table above says the cube is paired there. Here `bluetoothctl info` reports
+`Paired: no` and `Bonded: no`, and that is not a fault -- the cube runs no pairing agent and the PIN is
+the whole of the authentication (finding 12). So either macOS holds a real bond that Linux does not, or
+"paired" there is this app's own `setting.paired.paired` row being read back. Which it is decides two
+things: whether this box connecting to the cube can disturb anything the Mac holds, and whether the
+`paired` row in a database copied between the machines means anything on arrival.
+
+```sh
+system_profiler SPBluetoothDataType | grep -i -A6 timeflip
+sqlite3 ~/Library/Application\ Support/Facet/appdata.sqlite \
+  "SELECT setting_value FROM setting WHERE setting_name = 'paired';"
+```
+
+Wanted: whether the cube appears in the OS's own list of paired devices, or only in the app's table.
