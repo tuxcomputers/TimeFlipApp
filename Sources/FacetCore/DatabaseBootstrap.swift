@@ -204,10 +204,34 @@ package enum DatabaseBootstrap {
             guard let sql = try? String(contentsOf: file, encoding: .utf8) else {
                 throw Failure.fileUnreadable(file.lastPathComponent)
             }
-            guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else {
+            // **One transaction per file, and it is a 64-fold difference rather than a tidiness.**
+            // sqlite gives every statement outside a transaction one of its own, which means an fsync
+            // each: `002_timezone.sql` seeds 448 zones and took **3.87s** a statement at a time against
+            // **0.06s** wrapped, and a whole bootstrap 6.2s against 0.9s (measured 2026-09-07, Linux).
+            // Every database-backed test pays that once, so it was the difference between a suite that
+            // runs in a couple of minutes and one that takes half an hour.
+            //
+            // **It also makes a file all-or-nothing.** `sqlite3_exec` abandons the rest of a file at the
+            // first failing statement, which used to leave the statements before it applied -- a table
+            // created and half seeded, reported as a failure nobody could act on precisely. Now the
+            // rollback puts the file back to not having run, and the throw says which file and why.
+            guard sqlite3_exec(db, "BEGIN;", nil, nil, nil) == SQLITE_OK else {
                 throw Failure.statementFailed(
                     file: file.lastPathComponent,
-                    message: String(cString: sqlite3_errmsg(db))
+                    message: "could not begin a transaction: \(String(cString: sqlite3_errmsg(db)))"
+                )
+            }
+            guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else {
+                let message = String(cString: sqlite3_errmsg(db))
+                sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
+                throw Failure.statementFailed(file: file.lastPathComponent, message: message)
+            }
+            guard sqlite3_exec(db, "COMMIT;", nil, nil, nil) == SQLITE_OK else {
+                let message = String(cString: sqlite3_errmsg(db))
+                sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
+                throw Failure.statementFailed(
+                    file: file.lastPathComponent,
+                    message: "could not commit: \(message)"
                 )
             }
             applied.append(file.lastPathComponent)
