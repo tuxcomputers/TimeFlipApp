@@ -1,37 +1,33 @@
-@testable import FacetApp
 @testable import FacetCore
 import Foundation
-import XCTest
+import Testing
 
 /// Covers `HistoryTimer`: the interval it waits, and its re-reading the setting on every timeout.
 ///
 /// The timeout is driven by calling `fire()` rather than by waiting for a run loop, so the re-arming is
 /// asserted in milliseconds instead of minutes. What that skips is `Timer` itself, which is the part with no
 /// decisions in it.
-@MainActor
-final class HistoryTimerTests: XCTestCase, @unchecked Sendable {
-    private var database: TemporaryDatabase!
+@Suite @MainActor
+final class HistoryTimerTests {
+    private let database: TemporaryDatabase
     private var settings: SettingStore!
     private var built: HistoryTimer?
     private var timeouts = 0
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
-        try MainActor.assumeIsolated {
-            database = TemporaryDatabase()
-            try database.bootstrap()
-            settings = SettingStore(connection: database.connection())
-        }
+    init() throws {
+        database = TemporaryDatabase()
+        try database.bootstrap()
+        settings = SettingStore(connection: database.connection())
     }
 
-    override func tearDown() {
-        MainActor.assumeIsolated {
-            built?.stop()
-            built = nil
-            settings = nil
-            database.remove()
-        }
-        super.tearDown()
+    deinit {
+        // **The timer stops itself, which is why this does not stop it.** The `tearDown` this replaces
+        // called `built?.stop()`, and a `deinit` cannot: it is never isolated. It does not need to
+        // either -- `HistoryTimer` keeps its `Timer` in a `TimerHolder` whose own `deinit` invalidates
+        // it, a shape that type adopted for exactly this reason and says so. Releasing this instance
+        // releases the timer, which invalidates the `Timer`, so the `stop()` was belt and braces rather
+        // than the thing that did the stopping.
+        database.remove()
     }
 
     /// Built on first use rather than in `setUpWithError`, which is not main-actor isolated: the timeout closure
@@ -54,28 +50,28 @@ final class HistoryTimerTests: XCTestCase, @unchecked Sendable {
 
     // MARK: - what it waits
 
-    func testItStartsOnWhateverTheSettingSays() {
-        XCTAssertTrue(setInterval(45))
+    @Test func testItStartsOnWhateverTheSettingSays() {
+        #expect(setInterval(45))
 
         timer.start()
 
-        XCTAssertEqual(timer.scheduledSeconds, 45)
+        #expect(timer.scheduledSeconds == 45)
     }
 
-    func testTheSeededValueIsWhatADevBuildWaits() {
+    @Test func testTheSeededValueIsWhatADevBuildWaits() {
         // `011_setting.sql` seeds 10, deliberately below the production floor: fast polling while working on
         // it. Read from the real DDL rather than written by the test, so this fails if the seed changes.
         timer.start()
 
-        XCTAssertEqual(timer.scheduledSeconds, TimeInterval(HistoryTimer.defaultSeconds))
+        #expect(timer.scheduledSeconds == TimeInterval(HistoryTimer.defaultSeconds))
     }
 
-    func testStoppingForgetsEverything() {
+    @Test func testStoppingForgetsEverything() {
         timer.start()
 
         timer.stop()
 
-        XCTAssertNil(timer.scheduledSeconds, "start() reads the setting again rather than resuming a value")
+        #expect(timer.scheduledSeconds == nil, "start() reads the setting again rather than resuming a value")
     }
 
     // MARK: - stopping while there is nothing to ask
@@ -101,124 +97,121 @@ final class HistoryTimerTests: XCTestCase, @unchecked Sendable {
         return created
     }
 
-    func testATimeoutWithNothingToFollowStopsRatherThanRearming() {
+    @Test func testATimeoutWithNothingToFollowStopsRatherThanRearming() {
         // Pausing closes the open segment, so a paused app with no cube has nothing to ask and nothing to grow. It
         // used to go on waking every interval to discover that.
         let anything = Flag(true)
         let timer = timer(following: { anything.value })
         timer.start()
-        XCTAssertNotNil(timer.scheduledSeconds)
+        #expect(timer.scheduledSeconds != nil)
 
         anything.value = false
         timer.fire()
 
-        XCTAssertEqual(timeouts, 0, "the work is not done either -- there is nothing to do")
-        XCTAssertNil(timer.scheduledSeconds, "and no next timeout was armed")
+        #expect(timeouts == 0, "the work is not done either -- there is nothing to do")
+        #expect(timer.scheduledSeconds == nil, "and no next timeout was armed")
     }
 
-    func testItDoesNotStartWhileThereIsNothingToFollow() {
+    @Test func testItDoesNotStartWhileThereIsNothingToFollow() {
         let timer = timer(following: { false })
 
         timer.start()
 
-        XCTAssertNil(timer.scheduledSeconds)
+        #expect(timer.scheduledSeconds == nil)
     }
 
-    func testItComesBackWhenSomethingIsBeingTimedAgain() {
+    @Test func testItComesBackWhenSomethingIsBeingTimedAgain() {
         // `resumeIfStopped` is called from `onTimingChanged`, the funnel every path that starts timing already uses.
         let anything = Flag(false)
         let timer = timer(following: { anything.value })
         timer.start()
-        XCTAssertNil(timer.scheduledSeconds)
+        #expect(timer.scheduledSeconds == nil)
 
         anything.value = true
         timer.resumeIfStopped()
 
-        XCTAssertEqual(timer.scheduledSeconds, TimeInterval(HistoryTimer.defaultSeconds))
+        #expect(timer.scheduledSeconds == TimeInterval(HistoryTimer.defaultSeconds))
     }
 
-    func testResumingAnAlreadyRunningTimerLeavesItAlone() {
+    @Test func testResumingAnAlreadyRunningTimerLeavesItAlone() {
         // It is called on every timing change, most of which happen while it is already running. Re-arming there
         // would push the next timeout back each time, so a busy session would fetch history less often than a quiet
         // one.
-        XCTAssertTrue(setInterval(45))
+        #expect(setInterval(45))
         let timer = timer(following: { true })
         timer.start()
 
-        XCTAssertTrue(setInterval(30))
+        #expect(setInterval(30))
         timer.resumeIfStopped()
 
-        XCTAssertEqual(timer.scheduledSeconds, 45, "still on the interval it was armed with")
+        #expect(timer.scheduledSeconds == 45, "still on the interval it was armed with")
     }
 
     // MARK: - reading it again on every timeout
 
-    func testATimeoutAsksAndThenRearms() {
-        XCTAssertTrue(setInterval(30))
+    @Test func testATimeoutAsksAndThenRearms() {
+        #expect(setInterval(30))
         timer.start()
 
         timer.fire()
 
-        XCTAssertEqual(timeouts, 1)
-        XCTAssertEqual(timer.scheduledSeconds, 30, "still waiting the same interval")
+        #expect(timeouts == 1)
+        #expect(timer.scheduledSeconds == 30, "still waiting the same interval")
     }
 
-    func testAnIntervalChangedWhileWaitingAppliesAtTheNextTimeout() {
-        XCTAssertTrue(setInterval(30))
+    @Test func testAnIntervalChangedWhileWaitingAppliesAtTheNextTimeout() {
+        #expect(setInterval(30))
         timer.start()
-        XCTAssertEqual(timer.scheduledSeconds, 30, "precondition")
+        #expect(timer.scheduledSeconds == 30, "precondition")
 
         // Changed by something else entirely -- another connection, or a hand-edited row. Nothing tells the
         // timer, which is the point: it asks again every time it fires.
-        XCTAssertTrue(setInterval(120))
+        #expect(setInterval(120))
         timer.fire()
 
-        XCTAssertEqual(timer.scheduledSeconds, 120)
+        #expect(timer.scheduledSeconds == 120)
     }
 
-    func testTheWorkHappensBeforeTheNextIntervalIsRead() {
+    @Test func testTheWorkHappensBeforeTheNextIntervalIsRead() {
         // Asking first is what stops a slow fetch and a short interval overlapping: the wait is measured from
         // the end of the work rather than the start of it.
-        XCTAssertTrue(setInterval(30))
+        #expect(setInterval(30))
         var observed: TimeInterval?
         var timer: HistoryTimer?
         timer = HistoryTimer(settings: settings, debugLog: nil) { observed = timer?.scheduledSeconds }
         defer { timer?.stop() }
         timer?.start()
-        XCTAssertTrue(setInterval(120))
+        #expect(setInterval(120))
 
         timer?.fire()
 
-        XCTAssertEqual(observed, 30, "the work ran while the interval it was waiting was still the old one")
-        XCTAssertEqual(timer?.scheduledSeconds, 120, "and the new one was read afterwards")
+        #expect(observed == 30, "the work ran while the interval it was waiting was still the old one")
+        #expect(timer?.scheduledSeconds == 120, "and the new one was read afterwards")
     }
 
     // MARK: - the bounds
 
-    func testAMissingRowFallsBackRatherThanSwitchingTheTimerOff() {
+    @Test func testAMissingRowFallsBackRatherThanSwitchingTheTimerOff() {
         // With a cube paired, not asking for history means not recording time. A malformed row is a worse
         // reason to stop than to use the value the schema seeds.
-        XCTAssertEqual(
-            HistoryTimer.interval(fromSeconds: nil),
-            TimeInterval(HistoryTimer.defaultSeconds)
-        )
+        #expect(HistoryTimer.interval(fromSeconds: nil) == TimeInterval(HistoryTimer.defaultSeconds))
     }
 
-    func testTheRowIsWhatTheTimerRunsAt() {
+    @Test func testTheRowIsWhatTheTimerRunsAt() {
         // **One floor, where there were two.** A minute was applied to a build without the developer flag and a
         // second to a build with it, so the seeded 10 meant one cadence on a developer's machine and another
         // everywhere else. There is one build now, and the row is the answer.
-        XCTAssertEqual(HistoryTimer.interval(fromSeconds: 10), 10)
-        XCTAssertEqual(HistoryTimer.interval(fromSeconds: 120), 120)
+        #expect(HistoryTimer.interval(fromSeconds: 10) == 10)
+        #expect(HistoryTimer.interval(fromSeconds: 120) == 120)
     }
 
-    func testZeroCannotSpinTheTimer() {
-        XCTAssertEqual(HistoryTimer.interval(fromSeconds: 0), 1)
-        XCTAssertEqual(HistoryTimer.interval(fromSeconds: -30), 1)
+    @Test func testZeroCannotSpinTheTimer() {
+        #expect(HistoryTimer.interval(fromSeconds: 0) == 1)
+        #expect(HistoryTimer.interval(fromSeconds: -30) == 1)
     }
 
-    func testAnHourIsTheFarEnd() {
-        XCTAssertEqual(HistoryTimer.interval(fromSeconds: 86_400), 3_600)
-        XCTAssertEqual(HistoryTimer.interval(fromSeconds: 3_600), 3_600)
+    @Test func testAnHourIsTheFarEnd() {
+        #expect(HistoryTimer.interval(fromSeconds: 86_400) == 3_600)
+        #expect(HistoryTimer.interval(fromSeconds: 3_600) == 3_600)
     }
 }

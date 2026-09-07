@@ -91,21 +91,11 @@ let platformBoundTests = [
     "WriteDebounceTests.swift",
 ]
 
-// **Portable, but an `@MainActor` XCTestCase, which on Linux is fatal rather than awkward.** Linux
-// discovers tests through a generated list and cannot cast an isolated method, so one such class aborts
-// the entire run with SIGABRT. These come back as item 6 migrates them to swift-testing, which handles
-// isolation properly -- 17 files, and the list to work through.
-//
-// **An isolated *helper* is not affected and is not listed.** `TemporaryDatabase` is `@MainActor` in
-// places and is needed by files that do run; only an XCTestCase subclass is the problem.
-let mainActorTests = [
-    "DebugTraceFileTests.swift",
-    "DevicePINSourceTests.swift",
-    "HistoryTimerTests.swift",
-]
-
+// **The `@MainActor` list is gone because it emptied.** Every portable suite that XCTest could not run
+// on this platform is on swift-testing now, so what is left out is only what needs a platform this one
+// does not have yet.
 #if os(Linux)
-let testsThatCannotRunOnLinuxYet = platformBoundTests + mainActorTests
+let testsThatCannotRunOnLinuxYet = platformBoundTests
 #else
 let testsThatCannotRunOnLinuxYet: [String] = []
 #endif

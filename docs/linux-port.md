@@ -20,7 +20,7 @@ moving is a finding that will be measured twice.
 | Does the app's core compile on Linux? | **Yes -- `FacetCore` entire**, 89 files, 0 errors, 0 warnings, from a deleted `.build` in 13s | 2026-09-07, Linux |
 | Does the logic behave? | **Yes**, 432 tests pass | 2026-09-06 |
 | Can the whole test suite run? | **Under XCTest no**, `@MainActor` blocks ~60%. **Under swift-testing yes** | 2026-09-06 |
-| Does any of the suite run on Linux? | **Yes. `swift test` passes 832 of 1725 tests** across 50 files in 45s -- 540 still under XCTest, 292 migrated to swift-testing. The other 893 are excluded by name in `Package.swift` and come back as items 6, 9, 10 and 11 land | 2026-09-07, Linux |
+| Does any of the suite run on Linux? | **Yes. `swift test` passes 873 of 1725 tests** across 52 suites in 47s -- 540 under XCTest in 1.9s, 333 under swift-testing in 45s. The other 852 need AppKit, CoreBluetooth or a `FacetApp` type, and come back with items 9, 10 and 11 | 2026-09-07, Linux |
 | Is there a UI? | Not started, and the toolkit is undecided | -- |
 | Is there a `FacetCore` target? | **Yes.** 86 files, no AppKit, and `FacetApp` builds on it. 589 access-level edits | 2026-09-07, Mac |
 | ~~What is left before Linux can try the core?~~ | **Nothing. All four are done**: `SQLite3` has a modulemap target, `CoreGraphics` a `package typealias`, `Security` the login keyring through `secret-tool`, `CryptoKit` a written SHA-256 | 2026-09-07, Linux |
@@ -425,8 +425,14 @@ Roughly in dependency order. Nothing here is started.
    checks read.
 5. ~~**Make `DatabaseBootstrap` refuse an empty DDL listing**, and resolve symlinks before
    enumerating.~~ Done 2026-09-06, along with flipping `database/` to be the real directory.
-6. **Migrate the test suite to swift-testing**, checking every `tearDown` by hand for the `deinit`
-   isolation trap. Mechanical for the assertions, not for the lifecycle.
+6. ~~**Migrate the test suite to swift-testing**, checking every `tearDown` by hand for the `deinit`
+   isolation trap.~~ **Done for everything that can run here, 2026-09-07, Linux.** All 17 portable
+   `@MainActor` suites are on swift-testing, the `mainActorTests` exclusion list is gone because it
+   emptied, and **873 of the 1725 tests pass on Linux**: 333 under swift-testing in 45s beside 540 still
+   under XCTest in 1.9s.
+
+   The 48 files still excluded are excluded for needing AppKit, CoreBluetooth or a `FacetApp` type, not
+   for their testing framework, and they migrate when their platform arrives.
 
    **Under way. 14 suites migrated, and 832 of the 1725 tests now run on Linux** (2026-09-07): 292
    under swift-testing in 42s, beside 540 still under XCTest in 2s. 17 files are left on the
@@ -466,12 +472,34 @@ Roughly in dependency order. Nothing here is started.
    - **`accuracy:` has no equivalent**, `#expect` taking one expression rather than a pair. The six
      colour-channel comparisons went through a named `isApproximately` so the tolerance stays visible.
 
-   **Three files are left because their `tearDown` does something isolated**, which is the trap this
-   item was always going to have: `HistoryTimerTests` stops a timer, `DevicePINSourceTests` removes a
-   directory of its own, and `DebugTraceFileTests` nests an `assumeIsolated`. Those need a decision
-   about when the cleanup can run rather than a mechanical rewrite.
+   **The three files whose `tearDown` did isolated work turned out to need one decision each**, and the
+   answers are worth having because none was a rewrite:
 
-   So what remains is those three, and then the platform-bound 48 as their platforms arrive.
+   - `HistoryTimerTests` called `built?.stop()`, which a `deinit` cannot. **It does not need to**:
+     `HistoryTimer` keeps its `Timer` in a `TimerHolder` whose own `deinit` invalidates it, a shape that
+     type adopted for this exact reason and documents. Releasing the suite releases the timer, which
+     stops itself, so the `stop()` was belt and braces.
+   - `DevicePINSourceTests` removes a directory, which needs no isolation at all -- a `URL` is
+     `Sendable` and `FileManager` does not care who asks.
+   - `DebugTraceFileTests` was the ordinary case written on one line, which the pattern pass missed.
+
+   **Two differences with teeth, found by running rather than reading:**
+
+   - **XCTest assertions absorb a thrown error and `#expect` does not.** Their arguments are throwing
+     autoclosures, so `try` inside one never needed the test to be `throws`. Hoisting an unwrap out of a
+     comparison makes the test `throws`, and the compiler is the one that says so.
+   - **`.immutable` is a BSD file flag corelibs does not implement**, and a `try?` around it swallowed
+     the refusal -- so a test asserting that a file which will not give up its copy is not reported as
+     settled *failed on Linux against an app behaving correctly*. The portable equivalent is taking
+     write permission off the file (`0o400`), and it had to be the **file** rather than the directory
+     because `DeveloperConfigFile.clearPIN` rewrites in place, deliberately not atomically -- an
+     in-place write needs no permission on the containing directory at all.
+
+   **One difference to know about rather than fix: cleanup is no longer deterministic.** XCTest called
+   `tearDown` itself; swift-testing's equivalent is `deinit`, which runs when ARC says so, and at process
+   exit some instances are never released at all. A full run leaves a dozen or so `facet-db-*`
+   directories in `/tmp` where XCTest left none. Harmless -- they are temporary directories in the
+   temporary directory -- but it is the sort of thing somebody would otherwise go hunting for.
 7. ~~**`Security` to libsecret.**~~ **Done 2026-09-07, Linux, and not via libsecret.** Both stores
    branch at compile time inside their own four functions, as this item said they would, so no call site
    changed and the Darwin bodies are untouched.
