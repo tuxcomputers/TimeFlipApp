@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(Security)
 import Security
+#endif
 
 /// Where a cube's PIN lives: the login Keychain, and nowhere else in an ordinary build.
 ///
@@ -40,6 +42,17 @@ package enum DevicePINStore {
     /// write believed on the strength of a status code would be a cube nobody can log into.
     @discardableResult
     static func save(pin: String) -> Bool {
+        #if !canImport(Security)
+        // **The login keyring instead, through `secret-tool`** -- see `SecretToolStore`, which carries the
+        // reasoning and the measurements. Same contract: replace what is there, read it back, and only then
+        // answer `true`.
+        return SecretToolStore.store(
+            service: service,
+            account: account,
+            label: "Facet: TimeFlip cube PIN",
+            secret: pin
+        )
+        #else
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -57,6 +70,7 @@ package enum DevicePINStore {
         }
         guard status == errSecSuccess else { return false }
         return lookUp() == .found(pin)
+        #endif
     }
 
     /// What the Keychain said when asked for the PIN. **Three answers, not two**, for `GoogleTokenStore.Lookup`'s
@@ -74,6 +88,13 @@ package enum DevicePINStore {
     }
 
     static func lookUp() -> Lookup {
+        #if !canImport(Security)
+        switch SecretToolStore.lookUp(service: service, account: account) {
+        case let .found(pin): return .found(pin)
+        case .missing: return .missing
+        case let .unavailable(code): return .unavailable(code)
+        }
+        #else
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -91,6 +112,7 @@ package enum DevicePINStore {
             return .unavailable(errSecDecode)
         }
         return .found(pin)
+        #endif
     }
 
     /// The stored PIN, or `nil` when there is none **or when it could not be read**.
@@ -107,6 +129,9 @@ package enum DevicePINStore {
     /// asked for there to be no PIN and there is none.
     @discardableResult
     static func clear() -> Bool {
+        #if !canImport(Security)
+        return SecretToolStore.clear(service: service, account: account)
+        #else
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -114,5 +139,6 @@ package enum DevicePINStore {
         ]
         let status = SecItemDelete(query as CFDictionary)
         return status == errSecSuccess || status == errSecItemNotFound
+        #endif
     }
 }

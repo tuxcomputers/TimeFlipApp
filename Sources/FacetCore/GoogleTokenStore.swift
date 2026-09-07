@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(Security)
 import Security
+#endif
 
 /// Where the refresh token lives: the login Keychain, and nowhere else.
 ///
@@ -26,6 +28,17 @@ package enum GoogleTokenStore {
     /// crash inside it would lose a working connection to save a new one.
     @discardableResult
     package static func save(refreshToken: String) -> Bool {
+        #if !canImport(Security)
+        // **The login keyring instead, through `secret-tool`** -- see `SecretToolStore` for why a
+        // subprocess rather than the library. It reads the secret back before answering `true`, which is
+        // stricter than this Darwin path, whose `SecItemUpdate` success is taken at its word.
+        return SecretToolStore.store(
+            service: service,
+            account: account,
+            label: "Facet: Google refresh token",
+            secret: refreshToken
+        )
+        #else
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -42,6 +55,7 @@ package enum GoogleTokenStore {
         // copy of it appearing on another device is a copy of the ability to act on the account.
         insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
         return SecItemAdd(insert as CFDictionary, nil) == errSecSuccess
+        #endif
     }
 
     /// What the Keychain said when asked for the token. **Three answers, not two.**
@@ -65,6 +79,13 @@ package enum GoogleTokenStore {
 
     /// Asks the Keychain, and says which of the three answers came back.
     package static func lookUp() -> Lookup {
+        #if !canImport(Security)
+        switch SecretToolStore.lookUp(service: service, account: account) {
+        case let .found(token): return .found(token)
+        case .missing: return .missing
+        case let .unavailable(code): return .unavailable(code)
+        }
+        #else
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -82,6 +103,7 @@ package enum GoogleTokenStore {
             return .unavailable(errSecDecode)
         }
         return .found(token)
+        #endif
     }
 
     /// The stored token, or `nil` when there is none **or when it could not be read**.
@@ -99,6 +121,9 @@ package enum GoogleTokenStore {
     /// none. Reporting failure would make a second sign-out look broken.
     @discardableResult
     package static func clear() -> Bool {
+        #if !canImport(Security)
+        return SecretToolStore.clear(service: service, account: account)
+        #else
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -106,5 +131,6 @@ package enum GoogleTokenStore {
         ]
         let status = SecItemDelete(query as CFDictionary)
         return status == errSecSuccess || status == errSecItemNotFound
+        #endif
     }
 }
