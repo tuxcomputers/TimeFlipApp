@@ -1,0 +1,12 @@
+// The system SQLite, as a module Swift can import on a platform whose toolchain does not ship one.
+//
+// **Linux only, and absent from the build graph on Darwin.** macOS ships `SQLite3` as an SDK module, so
+// `Package.swift` makes this target a dependency only `.when(platforms: [.linux])` -- two modules of one
+// name in one build is a thing not to find out about later. Nothing in `Sources/` or `Tests/` branches on
+// which one it got: `import SQLite3` is the same line on both platforms, which is the whole point of
+// naming this target after the module it stands in for.
+module SQLite3 [system] {
+    header "shim.h"
+    link "sqlite3"
+    export *
+}
