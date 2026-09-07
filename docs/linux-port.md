@@ -17,13 +17,13 @@ moving is a finding that will be measured twice.
 | Question | Answer | When |
 |---|---|---|
 | Can Linux talk to the cube? | **Yes**, every stage, on real hardware | 2026-09-06 |
-| Does the app's core compile on Linux? | **Yes**, 53 files, 0 errors, 0 warnings | 2026-09-06 |
+| Does the app's core compile on Linux? | **Yes -- `FacetCore` entire**, 89 files, 0 errors, 0 warnings, from a deleted `.build` in 13s | 2026-09-07, Linux |
 | Does the logic behave? | **Yes**, 432 tests pass | 2026-09-06 |
 | Can the whole test suite run? | **Under XCTest no**, `@MainActor` blocks ~60%. **Under swift-testing yes** | 2026-09-06 |
 | Is there a UI? | Not started, and the toolkit is undecided | -- |
 | Is there a `FacetCore` target? | **Yes.** 86 files, no AppKit, and `FacetApp` builds on it. 589 access-level edits | 2026-09-07, Mac |
-| What is left before Linux can try the core? | `SQLite3`, then `Security`, `CryptoKit` and `CoreGraphics` -- **and nothing else**, measured by peeling them one at a time | 2026-09-07, Linux |
-| Does `FacetCore` build on Linux as it stands? | **No.** 177 errors, every one of them `no such module SQLite3`, `libsqlite3-dev` installed or not. Behind that wall, **76 errors in three files** and none in the other 83 | 2026-09-07, Linux |
+| ~~What is left before Linux can try the core?~~ | **Nothing. All four are done**: `SQLite3` has a modulemap target, `CoreGraphics` a `package typealias`, `Security` the login keyring through `secret-tool`, `CryptoKit` a written SHA-256 | 2026-09-07, Linux |
+| What is left before Linux can **run** anything? | The suite (item 6, swift-testing) to know it behaves; then item 9 for sign-in and item 10 for the radio. Both of those are in `FacetApp`, not the core | 2026-09-07, Linux |
 
 **The strategy this settles: port the core, do not reimplement it.** The Swift is portable, so the
 11,000 lines of decision logic and the hermetic suite come across rather than being rewritten against the
@@ -68,14 +68,25 @@ the authentication) and **no `sudo`**.
 One trap that cost the first two runs: **do not filter discovery on the service UUID.** The cube
 advertises none. That is finding 12, and it is why `BluetoothRadio` passes `withServices: nil`.
 
-## Found: the core compiles
+## Found: the core compiles -- and now the whole of it does
 
-53 source files, `swift build`, **0 errors and 0 warnings**. Those 53 are the *closed set* -- the files
-that reference nothing outside themselves plus Foundation -- computed rather than chosen, so the result
-is not flattered by a convenient selection.
+**`swift build --target FacetCore` completes on Linux: 89 files, 0 errors, 0 warnings, from a deleted
+`.build` in 13 seconds** (2026-09-07). No `-Xcc`, no scratch package, no selected subset: the target as
+it stands in the tree, with its resource bundle carrying all 17 `.sql` files.
+
+The spike's number was **53 files** -- the *closed set*, being those referencing nothing outside
+themselves plus Foundation, computed rather than chosen so the result was not flattered by a convenient
+selection. What stood between that and the whole target was four modules, and all four are now closed:
+`SQLite3` (a `systemLibrary` target), `CoreGraphics` (one `package typealias`), `Security` (the login
+keyring, item 7) and `CryptoKit` (a written SHA-256, item 8).
 
 The date and timezone handling, which was the risk expected to bite hardest, produced **not one error**.
 The `Locale(identifier: "en_US_POSIX")` discipline throughout the codebase is why.
+
+**What this does and does not mean.** The portable half compiles and links its own module; nothing here
+says it *behaves*, because `swift test` still cannot run on Linux -- that is item 6, and it is now the
+single thing standing between a compiling core and a verified one. Nor is there anything to run: the
+executable is `FacetApp`, which is AppKit, so a Linux binary waits on items 9, 10 and 11.
 
 ### The three genuine Foundation gaps
 
@@ -319,16 +330,17 @@ was visible from the Linux side, which computed the move list from the import li
 **an import line is evidence of what a file needed once**, and the compiler is the only authority on
 what it needs now.
 
-### What the core still imports besides Foundation
+### What the core imported besides Foundation, and what each became
 
-All four are already to-do items below, and none is new:
+**All four are closed as of 2026-09-07**, in the order the compiler hit them -- each import being
+unguarded, each was a hard stop hiding the next:
 
-| Import | Files | Item |
+| Import | Files | What it is now |
 |---|---|---|
-| `SQLite3` | 4 | Needs a modulemap **and** `libsqlite3-dev`. Not either/or -- see below |
-| `Security` | 2 (`DevicePINStore`, `GoogleTokenStore`) | 7, libsecret |
-| `CoreGraphics` | 2 (`SettingsMetrics`, `ReportCalendarMetrics`) | One `CGFloat` typealias |
-| `CryptoKit` | 1 (`GoogleOAuthRules`) | 8, swift-crypto |
+| `SQLite3` | 4 | A `systemLibrary` target named `SQLite3`, depended on `.when(platforms: [.linux])` so Darwin keeps its SDK module. Needs a modulemap **and** `libsqlite3-dev`, not either/or -- see below. No source file changed |
+| `Security` | 2 (`DevicePINStore`, `GoogleTokenStore`) | The login keyring through `secret-tool` (`SecretToolStore`), branched at compile time inside both stores. Item 7 |
+| `CoreGraphics` | 2 (`SettingsMetrics`, `ReportCalendarMetrics`) | One `package typealias CGFloat = Double` in `CoreGraphicsShim`. It has to be `package` -- a plain one trades four missing-module errors for 22 access errors |
+| `CryptoKit` | 1 (`GoogleOAuthRules`) | `PortableSHA256`, 60 lines, compiled everywhere and called only on Linux. Item 8 |
 
 **All four confirmed from Linux 2026-09-07, in that order, and there is no fifth.** The compiler hits
 them one at a time -- each import is unguarded, so each is a hard stop that hides the next -- so they
@@ -403,27 +415,37 @@ Roughly in dependency order. Nothing here is started.
    enumerating.~~ Done 2026-09-06, along with flipping `database/` to be the real directory.
 6. **Migrate the test suite to swift-testing**, checking every `tearDown` by hand for the `deinit`
    isolation trap. Mechanical for the assertions, not for the lifecycle.
-7. **`Security` to libsecret.** Two files, `DevicePINStore` and `GoogleTokenStore`. **No seam is
-   needed and none was added** (looked at 2026-09-07): both are `enum` namespaces of static functions
-   called directly from four places, and swapping Security for libsecret is a platform choice, so a
-   compile-time branch inside the two files serves it with no call-site changes. A runtime seam would
-   only be worth adding for testability, which is a different argument.
+7. ~~**`Security` to libsecret.**~~ **Done 2026-09-07, Linux, and not via libsecret.** Both stores
+   branch at compile time inside their own four functions, as this item said they would, so no call site
+   changed and the Darwin bodies are untouched.
 
-   **Groundwork done**: both `Lookup` enums answered `unavailable(OSStatus)`, a Darwin type in an
-   otherwise portable enum. They answer `unavailable(Int32)` now, which is the same type on Darwin and
-   exists everywhere; `GoogleCalendarRules.Failure.keychainUnavailable` had spelled it `Int32` all along.
+   **libsecret's simple API turned out to be uncallable from Swift**: `secret_password_store_sync` and
+   friends are variadic C (measured against the installed header). In-process means the `*v_sync`
+   variants, which take a `GHashTable`, which means a second system-library target for glib-2.0, a
+   `SecretSchema` built by hand and GError plumbing -- around 200 lines and a new class of memory bug
+   against 60 for `secret-tool`. `SecretToolStore` carries the reasoning, and the swap back is entirely
+   inside that one file if packaging ever objects to depending on a binary.
 
-   **And there is a keychain on the Linux side, running already** (measured 2026-09-07, Linux).
-   `gnome-keyring-daemon` 46.1 is up with its `secrets` component, `org.freedesktop.secrets` is claimed
-   on the session bus, and there is a `login` collection -- it is what VSCode asks the password for on
-   its first launch of a session. So this item is a port to an existing service rather than a search for
-   one, and it has **two routes**: link `libsecret` (which needs `libsecret-1-dev`, absent, and then a
-   modulemap over its C API -- the `SQLite3` shape again), or speak the Secret Service D-Bus API
-   directly, which needs nothing installed and reuses the mechanics item 10 is bringing for BlueZ
-   anyway. Undecided; both are open. The full measurement is in
-   [systems-info.md](systems-info.md).
+   **The thing that had to be right: an exit code is not the answer.** `secret-tool` exits 1 both for a
+   secret that is not there and for a keyring it cannot reach, so an empty stderr is what tells them
+   apart. Collapsing them is the fault `DevicePINStore.Lookup` exists to prevent -- the app would rotate
+   the PIN of a cube whose perfectly good PIN it merely could not read.
 
-8. **`CryptoKit` to swift-crypto.** One file, `GoogleOAuthRules`, one `SHA256.hash` call for PKCE.
+   Verified against this machine's real keyring, twelve checks including byte-exact round trips, a
+   secret with trailing newlines, unicode, and `missing` rather than `unavailable` for an absent item.
+   The hermetic suite cannot cover any of it until item 6.
+
+   **Groundwork kept**: both `Lookup` enums answer `unavailable(Int32)` rather than `OSStatus`, which is
+   the same type on Darwin and exists everywhere.
+
+8. ~~**`CryptoKit` to swift-crypto.**~~ **Done 2026-09-07, Linux, and not with swift-crypto.**
+   `PortableSHA256` is 60 lines in the core; Darwin keeps CryptoKit and only Linux calls it. The
+   dependency was refused because `Package.swift` states it has none and the archived app's one
+   dependency was dropped for the same reason -- and because what is hashed is a public random string
+   whose wrong answer Google rejects at once. **It is compiled on both platforms and called on one**, so
+   the Mac's `swift test` covers the code Linux depends on, including a case asserting the two
+   implementations agree at every length from 0 to 200. Verified against published vectors, `sha256sum`
+   over 201 inputs, and `hashlib` at the twelve lengths where the padding changes shape.
 9. **`Network` to a plain socket listener.** One file, `GoogleOAuthClient`, using `NWListener`,
    `NWConnection` and `NWParameters` for the OAuth loopback redirect. Three types rather than the one
    this item used to name, though still one file and one job.
