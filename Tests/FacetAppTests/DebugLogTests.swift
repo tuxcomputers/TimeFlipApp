@@ -1,8 +1,7 @@
-@testable import FacetApp
 @testable import FacetCore
 import Foundation
 import SQLite3
-import XCTest
+import Testing
 
 /// Covers `DebugLog`: that a recorded message becomes a row, that the row is shaped the way anything
 /// reading it later expects, and that the tags stay aligned on the console.
@@ -10,35 +9,32 @@ import XCTest
 /// Rows rather than console output, because the row is what a failed session is reconstructed from --
 /// and because console output cannot be asserted on without capturing a file descriptor, which would
 /// test the plumbing instead of the record.
-@MainActor
-final class DebugLogTests: XCTestCase, @unchecked Sendable {
-    private var database: TemporaryDatabase!
+@Suite @MainActor
+final class DebugLogTests {
+    private let database: TemporaryDatabase
     private var log: DebugLog!
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
-        try MainActor.assumeIsolated {
-            database = TemporaryDatabase()
-            // The trace's own database, which is the only one that has `debug_log` in it.
-            try database.bootstrapDebug()
-            log = DebugLog(databaseURL: database.debugURL, isRecording: true)
-        }
+    init() throws {
+        database = TemporaryDatabase()
+        // The trace's own database, which is the only one that has `debug_log` in it.
+        try database.bootstrapDebug()
+        log = DebugLog(databaseURL: database.debugURL, isRecording: true)
     }
 
-    override func tearDown() {
-        MainActor.assumeIsolated {
-            // Released before the file goes, so the connection closes first.
-            log = nil
-            database.remove()
-        }
-        super.tearDown()
+    deinit {
+        // **`deinit` rather than `tearDown`, and it is not isolated.** Releasing the stored
+        // properties by hand is what the old `MainActor.assumeIsolated` block was for; the
+        // instance is discarded whole here, so removing the directory is all that is left.
+        // The database connection closes after the file is unlinked rather than before, which
+        // both platforms allow.
+        database.remove()
     }
 
     /// Every `debug_log` row, oldest first.
     private func rows() -> [(loggedAt: String, timezoneID: Int64, tag: String, message: String)] {
         var handle: OpaquePointer?
         guard sqlite3_open_v2(database.debugURL.path, &handle, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
-            XCTFail("could not open the database")
+            Issue.record("could not open the database")
             return []
         }
         defer { sqlite3_close(handle) }
@@ -51,7 +47,7 @@ final class DebugLogTests: XCTestCase, @unchecked Sendable {
             &statement,
             nil
         ) == SQLITE_OK else {
-            XCTFail("could not read debug_log")
+            Issue.record("could not read debug_log")
             return []
         }
         var found: [(String, Int64, String, String)] = []
@@ -68,90 +64,78 @@ final class DebugLogTests: XCTestCase, @unchecked Sendable {
 
     // MARK: - the record
 
-    func testARecordedMessageBecomesARow() {
+    @Test func testARecordedMessageBecomesARow() {
         log.record(.click, "Status item clicked: side=left clicks=1 -> showMenu")
 
         let rows = rows()
-        XCTAssertEqual(rows.count, 1)
-        XCTAssertEqual(rows.first?.tag, "click", "the tag is stored bare, without its brackets or padding")
-        XCTAssertEqual(rows.first?.message, "Status item clicked: side=left clicks=1 -> showMenu")
+        #expect(rows.count == 1)
+        #expect(rows.first?.tag == "click", "the tag is stored bare, without its brackets or padding")
+        #expect(rows.first?.message == "Status item clicked: side=left clicks=1 -> showMenu")
     }
 
-    func testMessagesAreRecordedInTheOrderTheyHappened() {
+    @Test func testMessagesAreRecordedInTheOrderTheyHappened() {
         log.record(.click, "first")
         log.record(.menu, "second")
         log.record(.tab, "third")
 
-        XCTAssertEqual(rows().map(\.message), ["first", "second", "third"])
-        XCTAssertEqual(rows().map(\.tag), ["click", "menu", "tab"])
+        #expect(rows().map(\.message) == ["first", "second", "third"])
+        #expect(rows().map(\.tag) == ["click", "menu", "tab"])
     }
 
-    func testTheTimestampIsLocalTimeToTheMillisecond() throws {
+    @Test func testTheTimestampIsLocalTimeToTheMillisecond() throws {
         log.record(.click, "timed")
 
-        let loggedAt = try XCTUnwrap(rows().first?.loggedAt)
+        let loggedAt = try #require(rows().first?.loggedAt)
         // `2026-08-12T13:25:38.472`: no offset and no `Z`, because the zone is the row's own foreign key
         // rather than part of the text, and milliseconds because two clicks can share a second.
         let shape = try NSRegularExpression(pattern: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}$"#)
-        XCTAssertEqual(
-            shape.numberOfMatches(in: loggedAt, range: NSRange(loggedAt.startIndex..., in: loggedAt)), 1,
+        #expect(
+            shape.numberOfMatches(in: loggedAt, range: NSRange(loggedAt.startIndex..., in: loggedAt)) == 1,
             "unexpected shape: \(loggedAt)"
         )
     }
 
-    func testTheRowNamesTheZoneItsTimeWasRecordedIn() throws {
+    @Test func testTheRowNamesTheZoneItsTimeWasRecordedIn() throws {
         log.record(.click, "zoned")
 
-        let timezoneID = try XCTUnwrap(rows().first?.timezoneID)
-        XCTAssertNotEqual(timezoneID, 0, "0 is the Unknown sentinel, and this machine has a real zone")
-        XCTAssertEqual(
-            // **Resolved through `timezone_lookup`, not compared to the identifier itself.** The two are not
-            // always the same string: a machine set to a legacy name answers `TZ=Cuba` as `Cuba`, and the
-            // seeded row it resolves to is `America/Havana` -- and `UTC`, which a CI runner is quite likely
-            // to be in, is a legacy name for `Etc/UTC`. Comparing the stored name to
-            // `TimeZone.current.identifier` would fail on both while the app was behaving correctly.
-            //
-            // **The trace's own tables, not the app's.** Each file carries its own `timezone`, and nothing
-            // may join across them, so a row in a submitted `debug.sqlite` is readable without the app's
-            // database beside it. What the seeded ids changed is only that the two files now agree about
-            // what a given id means; they are still two tables and still filled separately.
-            String(timezoneID),
-            database.debugString(
-                "SELECT timezone_id FROM timezone_lookup WHERE timezone_name = '\(TimeZone.current.identifier)';"
-            ),
+        let timezoneID = try #require(rows().first?.timezoneID)
+        #expect(timezoneID != 0, "0 is the Unknown sentinel, and this machine has a real zone")
+        #expect(
+            String(timezoneID) == database.debugString( "SELECT timezone_id FROM timezone_lookup WHERE timezone_name = '\(TimeZone.current.identifier)';" ),
             "the row should carry the id this database resolves the machine's current zone to"
         )
     }
 
     // MARK: - the console prefix
 
-    func testEveryTagBracketsToTheSameWidth() {
+    @Test func testEveryTagBracketsToTheSameWidth() {
         let widths = Set(DebugLog.Tag.allCases.map(\.bracketed.count))
-        XCTAssertEqual(
-            widths.count, 1,
-            "a new case must re-pad the rest rather than break alignment: "
-                + DebugLog.Tag.allCases.map(\.bracketed).joined(separator: " ")
+        #expect(
+            widths.count == 1,
+            // Interpolated rather than concatenated: `#expect` takes a `Comment`, which a string
+            // literal becomes on its own where a `String` expression does not.
+            "a new case must re-pad the rest rather than break alignment: \(DebugLog.Tag.allCases.map(\.bracketed).joined(separator: " "))"
         )
     }
 
-    func testTheLongestTagIsNotPadded() {
+    @Test func testTheLongestTagIsNotPadded() {
         // The one case that comes out flush, which is what proves the width is measured rather than a
         // number that happens to be big enough today.
         let longest = DebugLog.Tag.allCases.max { $0.rawValue.count < $1.rawValue.count }
-        XCTAssertEqual(longest?.bracketed, longest.map { "[\($0.rawValue)]" })
+        #expect(longest?.bracketed == longest.map { "[\($0.rawValue)]" })
     }
 
     // MARK: - the switch, while the app runs
 
-    func testALogThatIsNotRecordingWritesNothing() {
+    @Test func testALogThatIsNotRecordingWritesNothing() {
         let quiet = DebugLog(databaseURL: database.debugURL, isRecording: false)
 
         quiet.record(.click, "Nobody asked for this")
 
-        XCTAssertTrue(rows().isEmpty)
+        #expect(rows().isEmpty)
     }
 
-    func testTheMessageIsNotEvenBuiltWhileItIsOff() {
+    @Test func testTheMessageIsNotEvenBuiltWhileItIsOff() {
         // **The property the whole design rests on.** Every call site reads `debugLog?.record(.transmit, "…\(hex)")`,
         // and Swift would build that string before entering this at all -- so a launch that records nothing would
         // still pay for a hex dump of every BLE packet. The message is an autoclosure for exactly this, and this is
@@ -161,15 +145,15 @@ final class DebugLogTests: XCTestCase, @unchecked Sendable {
 
         quiet.record(.click, Self.expensive(counting: &built))
 
-        XCTAssertEqual(built, 0, "the message was composed for a log that was never going to write it")
+        #expect(built == 0, "the message was composed for a log that was never going to write it")
     }
 
-    func testTheMessageIsBuiltExactlyOnceWhileItIsOn() {
+    @Test func testTheMessageIsBuiltExactlyOnceWhileItIsOn() {
         var built = 0
 
         log.record(.click, Self.expensive(counting: &built))
 
-        XCTAssertEqual(built, 1, "the console and the row take the same string, built once")
+        #expect(built == 1, "the console and the row take the same string, built once")
     }
 
     private static func expensive(counting built: inout Int) -> String {
@@ -177,7 +161,7 @@ final class DebugLogTests: XCTestCase, @unchecked Sendable {
         return "Something that cost a string to say"
     }
 
-    func testTurningItOnStartsRecordingAtThatMoment() {
+    @Test func testTurningItOnStartsRecordingAtThatMoment() {
         let log = DebugLog(databaseURL: database.debugURL, isRecording: false)
         log.record(.click, "Before")
 
@@ -185,10 +169,10 @@ final class DebugLogTests: XCTestCase, @unchecked Sendable {
         log.record(.face, "After")
 
         // The switch is the first row, so a submitted trace says where it begins rather than starting mid-story.
-        XCTAssertEqual(rows().map(\.message), ["Logging turned on", "After"])
+        #expect(rows().map(\.message) == ["Logging turned on", "After"])
     }
 
-    func testTurningItOffStopsRecordingAtThatMoment() {
+    @Test func testTurningItOffStopsRecordingAtThatMoment() {
         log.record(.click, "Before")
 
         log.setRecording(false)
@@ -196,17 +180,17 @@ final class DebugLogTests: XCTestCase, @unchecked Sendable {
 
         // And the switch is the last row, so a trace that ends abruptly is saying it was switched off rather than
         // that the app died.
-        XCTAssertEqual(rows().map(\.message), ["Before", "Logging turned off"])
+        #expect(rows().map(\.message) == ["Before", "Logging turned off"])
     }
 
-    func testBeingToldWhatItAlreadyIsWritesNothing() {
+    @Test func testBeingToldWhatItAlreadyIsWritesNothing() {
         // The window writes the row on every press, including one that did not change the value.
         log.setRecording(true)
 
-        XCTAssertTrue(rows().isEmpty)
+        #expect(rows().isEmpty)
     }
 
-    func testALaunchThatRecordsNothingLeavesNoFileBehind() {
+    @Test func testALaunchThatRecordsNothingLeavesNoFileBehind() {
         // The file is brought up on the first message, not at launch, so somebody who has never turned this on finds
         // nothing in the folder.
         let elsewhere = TemporaryDatabase()
@@ -215,24 +199,24 @@ final class DebugLogTests: XCTestCase, @unchecked Sendable {
 
         quiet.record(.click, "Nobody asked for this")
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: elsewhere.debugURL.path))
+        #expect(!(FileManager.default.fileExists(atPath: elsewhere.debugURL.path)))
     }
 
-    func testTheFileIsBroughtUpByTheFirstMessageRecorded() {
+    @Test func testTheFileIsBroughtUpByTheFirstMessageRecorded() {
         let elsewhere = TemporaryDatabase()
         defer { elsewhere.remove() }
         let log = DebugLog(databaseURL: elsewhere.debugURL, isRecording: true)
 
         log.record(.click, "The first thing that happened")
 
-        XCTAssertTrue(FileManager.default.fileExists(atPath: elsewhere.debugURL.path))
+        #expect(FileManager.default.fileExists(atPath: elsewhere.debugURL.path))
     }
 
     // MARK: - the file it is writing
 
-    func testTheLogNamesTheFileItIsWriting() {
+    @Test func testTheLogNamesTheFileItIsWriting() {
         // The file that is open now, which is not the folder the `debug` setting names: a folder chosen on the App
         // tab holds no trace until the next launch. `DebugTraceFile` reads it for exactly that reason.
-        XCTAssertEqual(log.databaseURL, database.debugURL)
+        #expect(log.databaseURL == database.debugURL)
     }
 }

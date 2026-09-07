@@ -1,7 +1,6 @@
-@testable import FacetApp
 @testable import FacetCore
 import Foundation
-import XCTest
+import Testing
 
 /// Bringing the cube's record of the day into `device_event`: what is asked for, in what order rows are written, and
 /// when the stream is not trusted.
@@ -9,9 +8,9 @@ import XCTest
 /// **Against a real database with a stubbed cube**, which is the only split that works here: the sequence is about
 /// what ends up in the table, and the table is the one thing that can say. The cube is two closures because that is
 /// all the ingestor uses of it -- one frame, or a stream from a number.
-@MainActor
-final class HistoryIngestorTests: XCTestCase, @unchecked Sendable {
-    private var database: TemporaryDatabase!
+@Suite @MainActor
+final class HistoryIngestorTests {
+    private let database: TemporaryDatabase
     private var events: DeviceEventRecorder!
 
     /// What the stubbed cube answers, and what it was asked.
@@ -20,31 +19,29 @@ final class HistoryIngestorTests: XCTestCase, @unchecked Sendable {
     private var askedFrom: [Int] = []
     private var lastEventReads = 0
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
-        try MainActor.assumeIsolated {
-            database = TemporaryDatabase()
-            try database.bootstrap()
-            let connection = database.connection()
-            events = DeviceEventRecorder(
-                connection: connection,
-                timezones: TimezoneStore(connection: connection),
-                timeEntries: nil,
-                debugLog: nil
-            )
-            deviceLast = nil
-            stream = []
-            askedFrom = []
-            lastEventReads = 0
-        }
+    init() throws {
+        database = TemporaryDatabase()
+        try database.bootstrap()
+        let connection = database.connection()
+        events = DeviceEventRecorder(
+            connection: connection,
+            timezones: TimezoneStore(connection: connection),
+            timeEntries: nil,
+            debugLog: nil
+        )
+        deviceLast = nil
+        stream = []
+        askedFrom = []
+        lastEventReads = 0
     }
 
-    override func tearDown() {
-        MainActor.assumeIsolated {
-            events = nil
-            database.remove()
-        }
-        super.tearDown()
+    deinit {
+        // **`deinit` rather than `tearDown`, and it is not isolated.** Releasing the stored
+        // properties by hand is what the old `MainActor.assumeIsolated` block was for; the
+        // instance is discarded whole here, so removing the directory is all that is left.
+        // The database connection closes after the file is unlinked rather than before, which
+        // both platforms allow.
+        database.remove()
     }
 
     private func ingestor() -> HistoryIngestor {
@@ -99,16 +96,16 @@ final class HistoryIngestorTests: XCTestCase, @unchecked Sendable {
 
     // MARK: - a first fetch
 
-    func testAnEmptyDatabaseAsksFromTheBeginning() {
+    @Test func testAnEmptyDatabaseAsksFromTheBeginning() {
         deviceLast = segment(3, at: 3000)
         stream = [segment(1, at: 1000), segment(2, at: 2000), segment(3, at: 3000)]
 
         refresh(ingestor())
 
-        XCTAssertEqual(askedFrom, [0])
+        #expect(askedFrom == [0])
     }
 
-    func testEverythingButTheLastFrameIsRecordedAsFinished() {
+    @Test func testEverythingButTheLastFrameIsRecordedAsFinished() {
         // The last frame of a complete dump is the interval the cube is still on; everything before it has been closed
         // out by the frame that follows it.
         deviceLast = segment(3, at: 3000)
@@ -116,22 +113,22 @@ final class HistoryIngestorTests: XCTestCase, @unchecked Sendable {
 
         let outcome = refresh(ingestor())
 
-        XCTAssertEqual(outcome, .recorded(finished: 2, openSegment: true))
-        XCTAssertEqual(rows().map(\.event), [1, 2, 3])
-        XCTAssertEqual(rows().map(\.finalised), [true, true, false])
+        #expect(outcome == .recorded(finished: 2, openSegment: true))
+        #expect(rows().map(\.event) == [1, 2, 3])
+        #expect(rows().map(\.finalised) == [true, true, false])
     }
 
-    func testTheFacesAndDurationsLandAsReported() {
+    @Test func testTheFacesAndDurationsLandAsReported() {
         deviceLast = segment(2, face: 7, at: 2000, seconds: 90)
         stream = [segment(1, face: 4, at: 1000, seconds: 30), segment(2, face: 7, at: 2000, seconds: 90)]
 
         refresh(ingestor())
 
-        XCTAssertEqual(rows().map(\.face), [4, 7])
-        XCTAssertEqual(rows().map(\.seconds), [30, 90])
+        #expect(rows().map(\.face) == [4, 7])
+        #expect(rows().map(\.seconds) == [30, 90])
     }
 
-    func testFramesArrivingOutOfOrderStillLand() {
+    @Test func testFramesArrivingOutOfOrderStillLand() {
         // **Order is not tidiness.** The recorder decides update-versus-insert from the newest row it can see, so a
         // later segment written first makes every earlier one look already superseded -- they take the update branch
         // against rows that were never inserted, and the backlog is silently dropped.
@@ -140,33 +137,33 @@ final class HistoryIngestorTests: XCTestCase, @unchecked Sendable {
 
         refresh(ingestor())
 
-        XCTAssertEqual(rows().map(\.event), [1, 2, 3], "a frame was lost to out-of-order writing")
+        #expect(rows().map(\.event) == [1, 2, 3], "a frame was lost to out-of-order writing")
     }
 
     // MARK: - the cheap check
 
-    func testACubeSittingOnTheRecordedSegmentSkipsTheStream() {
+    @Test func testACubeSittingOnTheRecordedSegmentSkipsTheStream() {
         // The whole value of the cheap check being a frame rather than a number: nothing new, so no stream at all.
         events.record(segment(5, at: 5000, seconds: 60))
         deviceLast = segment(5, at: 5000, seconds: 120)
 
         let outcome = refresh(ingestor())
 
-        XCTAssertEqual(outcome, .unchanged)
-        XCTAssertTrue(askedFrom.isEmpty, "the stream was fetched for a segment already on record")
+        #expect(outcome == .unchanged)
+        #expect(askedFrom.isEmpty, "the stream was fetched for a segment already on record")
     }
 
-    func testTheUnchangedSegmentIsStillRefreshed() {
+    @Test func testTheUnchangedSegmentIsStillRefreshed() {
         // Its duration has grown since it was last looked at, which is the reason the row is written anyway.
         events.record(segment(5, at: 5000, seconds: 60))
         deviceLast = segment(5, at: 5000, seconds: 120)
 
         refresh(ingestor())
 
-        XCTAssertEqual(rows().map(\.seconds), [120])
+        #expect(rows().map(\.seconds) == [120])
     }
 
-    func testAPauseArrivingOnTheSameSegmentIsRecorded() {
+    @Test func testAPauseArrivingOnTheSameSegmentIsRecorded() {
         // What a double tap looks like: the same interval, back again, marked paused. It is the only way the app finds
         // out, so it has to survive the cheap-check path rather than only the stream.
         events.record(segment(5, at: 5000, seconds: 60, paused: false))
@@ -174,12 +171,12 @@ final class HistoryIngestorTests: XCTestCase, @unchecked Sendable {
 
         refresh(ingestor())
 
-        XCTAssertEqual(events.openSegment()?.isPaused, true)
+        #expect(events.openSegment()?.isPaused == true)
     }
 
     // MARK: - resuming
 
-    func testItResumesAtTheRecordedSegmentRatherThanPastIt() {
+    @Test func testItResumesAtTheRecordedSegmentRatherThanPastIt() {
         // That row is normally the cube's still-open segment, and asking for it again is how its finished duration
         // comes back.
         events.record(segment(5, at: 5000))
@@ -188,10 +185,10 @@ final class HistoryIngestorTests: XCTestCase, @unchecked Sendable {
 
         refresh(ingestor())
 
-        XCTAssertEqual(askedFrom, [5])
+        #expect(askedFrom == [5])
     }
 
-    func testACounterThatWentBackwardsRestartsFromTheBeginning() {
+    @Test func testACounterThatWentBackwardsRestartsFromTheBeginning() {
         // A factory reset. The stored position names a segment the cube cannot reach, so asking for it would return
         // nothing for ever while everything the cube does hold went unfetched.
         events.record(segment(38, at: 5000))
@@ -200,10 +197,10 @@ final class HistoryIngestorTests: XCTestCase, @unchecked Sendable {
 
         refresh(ingestor())
 
-        XCTAssertEqual(askedFrom, [0])
+        #expect(askedFrom == [0])
     }
 
-    func testTheOldGenerationsRowsAreLeftWhereTheyAre() {
+    @Test func testTheOldGenerationsRowsAreLeftWhereTheyAre() {
         // They are recorded time, and the cube restarting a counter says nothing about time already spent. The pair
         // `(event_number, start_epoch)` is what lets a reused number land as its own row.
         events.record(segment(1, at: 100))
@@ -212,10 +209,10 @@ final class HistoryIngestorTests: XCTestCase, @unchecked Sendable {
 
         refresh(ingestor())
 
-        XCTAssertEqual(rows().map(\.epoch), [100, 9000])
+        #expect(rows().map(\.epoch) == [100, 9000])
     }
 
-    func testACubeThatDidNotAnswerLeavesThePositionStanding() {
+    @Test func testACubeThatDidNotAnswerLeavesThePositionStanding() {
         // A timed-out read re-requests the same thing rather than re-streaming everything the cube holds.
         events.record(segment(5, at: 5000))
         deviceLast = nil
@@ -223,10 +220,10 @@ final class HistoryIngestorTests: XCTestCase, @unchecked Sendable {
 
         refresh(ingestor())
 
-        XCTAssertEqual(askedFrom, [5])
+        #expect(askedFrom == [5])
     }
 
-    func testAManualSegmentDoesNotAnswerWhereTheCubeIsUpTo() {
+    @Test func testAManualSegmentDoesNotAnswerWhereTheCubeIsUpTo() {
         // **The one that reached hardware.** `device_event` holds the app's own segments too, on faces above 12, and
         // they carry the epoch as their event number because nothing issued them one. Read the newest row of any kind
         // and a manual stretch timed after the cube's answers this with about 1.8 billion -- which no cube can reach,
@@ -238,10 +235,10 @@ final class HistoryIngestorTests: XCTestCase, @unchecked Sendable {
 
         refresh(ingestor())
 
-        XCTAssertEqual(askedFrom, [5], "a manual segment answered where the cube's history is up to")
+        #expect(askedFrom == [5], "a manual segment answered where the cube's history is up to")
     }
 
-    func testACubeSittingStillIsStillRecognisedAfterAManualSegment() {
+    @Test func testACubeSittingStillIsStillRecognisedAfterAManualSegment() {
         // The same fault seen from the other side: the cheap check compares against the position, so a poisoned
         // position turns every tick into a full stream of a history that has not changed.
         events.record(segment(5, at: 5000, seconds: 60))
@@ -250,13 +247,13 @@ final class HistoryIngestorTests: XCTestCase, @unchecked Sendable {
 
         let outcome = refresh(ingestor())
 
-        XCTAssertEqual(outcome, .unchanged)
-        XCTAssertTrue(askedFrom.isEmpty, "the stream was fetched for a segment already on record")
+        #expect(outcome == .unchanged)
+        #expect(askedFrom.isEmpty, "the stream was fetched for a segment already on record")
     }
 
     // MARK: - a stream that did not finish
 
-    func testAStreamShortOfTheCubesLatestDoesNotOpenASegment() {
+    @Test func testAStreamShortOfTheCubesLatestDoesNotOpenASegment() {
         // A dropped stream also ends on a frame, and that frame is a closed segment with more history behind it.
         // Taking it as current would draw a stretch that finished some time ago as what is happening now.
         deviceLast = segment(9, at: 9000)
@@ -264,11 +261,14 @@ final class HistoryIngestorTests: XCTestCase, @unchecked Sendable {
 
         let outcome = refresh(ingestor())
 
-        XCTAssertEqual(outcome, .incomplete)
-        XCTAssertNil(events.openSegment(), "a segment was opened from a stream that never reached the cube's latest")
+        #expect(outcome == .incomplete)
+        #expect(
+            events.openSegment() == nil,
+            "a segment was opened from a stream that never reached the cube's latest"
+        )
     }
 
-    func testNoneOfAPartialStreamIsWritten() {
+    @Test func testNoneOfAPartialStreamIsWritten() {
         // Not even the frames that arrived. The recorder decides open-versus-closed from the newest row it can see, so
         // the last one written always becomes the open segment -- and a partial batch would leave a stretch that
         // finished long ago drawn as what is happening now, which is what withholding the live frame is for.
@@ -277,10 +277,10 @@ final class HistoryIngestorTests: XCTestCase, @unchecked Sendable {
 
         refresh(ingestor())
 
-        XCTAssertTrue(rows().isEmpty)
+        #expect(rows().isEmpty)
     }
 
-    func testTheNextRefreshAsksAgainFromTheSamePlaceAndGetsItAll() {
+    @Test func testTheNextRefreshAsksAgainFromTheSamePlaceAndGetsItAll() {
         // Nothing is lost by waiting: the position is the table, so a stream that finishes later brings the lot.
         deviceLast = segment(9, at: 9000)
         stream = [segment(1, at: 1000), segment(2, at: 2000)]
@@ -290,26 +290,26 @@ final class HistoryIngestorTests: XCTestCase, @unchecked Sendable {
         stream = [segment(1, at: 1000), segment(2, at: 2000), segment(9, at: 9000)]
         refresh(loop)
 
-        XCTAssertEqual(askedFrom, [0, 0], "the second fetch asked from somewhere else")
-        XCTAssertEqual(rows().map(\.event), [1, 2, 9])
-        XCTAssertEqual(events.openSegment()?.eventNumber, 9)
+        #expect(askedFrom == [0, 0], "the second fetch asked from somewhere else")
+        #expect(rows().map(\.event) == [1, 2, 9])
+        #expect(events.openSegment()?.eventNumber == 9)
     }
 
     // MARK: - nothing to do
 
-    func testACubeWithNoHistoryAtAllRecordsNothing() {
+    @Test func testACubeWithNoHistoryAtAllRecordsNothing() {
         deviceLast = nil
         stream = []
 
         let outcome = refresh(ingestor())
 
-        XCTAssertEqual(outcome, .nothingToAsk)
-        XCTAssertTrue(rows().isEmpty)
+        #expect(outcome == .nothingToAsk)
+        #expect(rows().isEmpty)
     }
 
     // MARK: - one at a time
 
-    func testARefreshArrivingMidFetchDoesNotRunOnTopOfIt() {
+    @Test func testARefreshArrivingMidFetchDoesNotRunOnTopOfIt() {
         // Two fetches at once would be two conversations on one characteristic with nothing in the answers to say
         // which is which.
         deviceLast = segment(2, at: 2000)
@@ -338,10 +338,10 @@ final class HistoryIngestorTests: XCTestCase, @unchecked Sendable {
         // **`.nothingToAsk` to the caller that arrived mid-fetch, even though it is now run afterwards.** Its own
         // request was not answered, and handing it the re-run's outcome would report an answer to somebody else's
         // question.
-        XCTAssertEqual(inner, .nothingToAsk, "a second refresh ran on top of the first")
+        #expect(inner == .nothingToAsk, "a second refresh ran on top of the first")
     }
 
-    func testARefreshArrivingMidFetchRunsWhenThatOneIsDone() {
+    @Test func testARefreshArrivingMidFetchRunsWhenThatOneIsDone() {
         // **It used to be dropped, and that was wrong for six of the seven callers.** Only the timer can afford to
         // wait for the next trigger; the others ask *because* a state change has just happened -- the cube turned,
         // locked, unlocked, paused, reset, or a link came up -- and the tick they would wait for is up to ten seconds
@@ -373,13 +373,13 @@ final class HistoryIngestorTests: XCTestCase, @unchecked Sendable {
 
         loop.refresh(because: "the first") { _ in order.append("first done") }
 
-        XCTAssertEqual(lastEventReads, 2, "the second refresh was asked for and never happened")
+        #expect(lastEventReads == 2, "the second refresh was asked for and never happened")
         // **The order is the whole point**: one at a time still holds, so the second conversation starts only once
         // the first has finished and reported. Asserting the count alone would pass for two fetches interleaved.
-        XCTAssertEqual(order, ["read 1", "first done", "read 2"])
+        #expect(order == ["read 1", "first done", "read 2"])
     }
 
-    func testManyRefreshesArrivingMidFetchCollapseIntoOne() {
+    @Test func testManyRefreshesArrivingMidFetchCollapseIntoOne() {
         // Only the latest reason is kept, so a burst during one fetch costs one re-run rather than one apiece. They
         // all want the same thing: the table brought up to date once this conversation is over.
         deviceLast = segment(2, at: 2000)
@@ -405,12 +405,12 @@ final class HistoryIngestorTests: XCTestCase, @unchecked Sendable {
 
         refresh(loop)
 
-        XCTAssertEqual(lastEventReads, 2, "three requests during one fetch are one re-run, not three")
+        #expect(lastEventReads == 2, "three requests during one fetch are one re-run, not three")
     }
 
     // MARK: - a fetch does not outlive its link
 
-    func testAFetchLeftInFlightByALostLinkDoesNotBlockTheNextOne() {
+    @Test func testAFetchLeftInFlightByALostLinkDoesNotBlockTheNextOne() {
         // **The fault this exists for cost a whole session on a device run, 2026-08-22.** A stream request went out,
         // the suite pressed Forget Device before the answer came back, and the closure the radio was holding was
         // simply never called. `isHistoryFetching` stayed true for the life of the process, so every later refresh was
@@ -433,17 +433,17 @@ final class HistoryIngestorTests: XCTestCase, @unchecked Sendable {
         )
 
         loop.refresh(because: "the cube was turned")
-        XCTAssertEqual(lastEventReads, 1, "precondition: a fetch got as far as asking for the stream")
-        XCTAssertNotNil(strand, "precondition: and is waiting on an answer that will never come")
+        #expect(lastEventReads == 1, "precondition: a fetch got as far as asking for the stream")
+        #expect(strand != nil, "precondition: and is waiting on an answer that will never come")
 
         loop.linkEnded()
 
         // The next reason to ask gets a fetch of its own rather than a refusal.
         loop.refresh(because: "the link came up")
-        XCTAssertEqual(lastEventReads, 2)
+        #expect(lastEventReads == 2)
     }
 
-    func testAnAnswerFromAnAbandonedFetchIsIgnored() {
+    @Test func testAnAnswerFromAnAbandonedFetchIsIgnored() {
         // A late answer must not finish a fetch that is no longer anybody's: `done` would clear the *current* fetch's
         // isHistoryFetching, letting a second conversation start on top of it -- the exact thing one-at-a-time prevents.
         deviceLast = segment(2, at: 2000)
@@ -466,30 +466,30 @@ final class HistoryIngestorTests: XCTestCase, @unchecked Sendable {
         loop.refresh(because: "the cube was turned")
         loop.linkEnded()
         loop.refresh(because: "the link came up")
-        XCTAssertTrue(rows().count > 0, "precondition: the second fetch recorded something")
+        #expect(rows().count > 0, "precondition: the second fetch recorded something")
         let after = rows().count
 
         // The cube finally answers the question the abandoned fetch asked.
         strand?([segment(9, at: 9000)])
 
-        XCTAssertEqual(rows().count, after, "the abandoned fetch's frames were written anyway")
+        #expect(rows().count == after, "the abandoned fetch's frames were written anyway")
     }
 
-    func testALinkEndingWithNothingInFlightIsNotWorthSaying() {
+    @Test func testALinkEndingWithNothingInFlightIsNotWorthSaying() {
         // Every window close and tab change ends a link, so this is called constantly. Saying so each time would bury
         // the row that matters in ones that mean nothing happened.
         let loop = ingestor()
 
         loop.linkEnded()
 
-        XCTAssertEqual(lastEventReads, 0)
+        #expect(lastEventReads == 0)
     }
 
     private var pending: HistoryIngestor?
 
     // MARK: - telling the app
 
-    func testSomethingRecordedSaysSo() {
+    @Test func testSomethingRecordedSaysSo() {
         deviceLast = segment(2, at: 2000)
         stream = [segment(1, at: 1000), segment(2, at: 2000)]
         let loop = ingestor()
@@ -498,10 +498,10 @@ final class HistoryIngestorTests: XCTestCase, @unchecked Sendable {
 
         refresh(loop)
 
-        XCTAssertEqual(changed, 1)
+        #expect(changed == 1)
     }
 
-    func testNothingToRecordSaysNothing() {
+    @Test func testNothingToRecordSaysNothing() {
         deviceLast = nil
         stream = []
         let loop = ingestor()
@@ -510,6 +510,6 @@ final class HistoryIngestorTests: XCTestCase, @unchecked Sendable {
 
         refresh(loop)
 
-        XCTAssertEqual(changed, 0)
+        #expect(changed == 0)
     }
 }

@@ -1,192 +1,190 @@
-@testable import FacetApp
 @testable import FacetCore
-import XCTest
+import Foundation
+import Testing
 
 /// Covers `FaceStore`: which category a face holds, and what it takes to change it.
-@MainActor
-final class FaceStoreTests: XCTestCase, @unchecked Sendable {
-    private var database: TemporaryDatabase!
+@Suite @MainActor
+final class FaceStoreTests {
+    private let database: TemporaryDatabase
     private var faces: FaceStore!
     private var categories: CategoryStore!
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
-        try MainActor.assumeIsolated {
-            database = TemporaryDatabase()
-            try database.bootstrap()
-            let connection = database.connection()
-            faces = FaceStore(connection: connection)
-            categories = CategoryStore(connection: connection)
-        }
+    init() throws {
+        database = TemporaryDatabase()
+        try database.bootstrap()
+        let connection = database.connection()
+        faces = FaceStore(connection: connection)
+        categories = CategoryStore(connection: connection)
     }
 
-    override func tearDown() {
-        MainActor.assumeIsolated {
-            faces = nil
-            categories = nil
-            database.remove()
-        }
-        super.tearDown()
+    deinit {
+        // **`deinit` rather than `tearDown`, and it is not isolated.** Releasing the stored
+        // properties by hand is what the old `MainActor.assumeIsolated` block was for; the
+        // instance is discarded whole here, so removing the directory is all that is left.
+        // The database connection closes after the file is unlinked rather than before, which
+        // both platforms allow.
+        database.remove()
     }
 
     private func categoryID(named name: String) throws -> Int {
-        try XCTUnwrap(categories.matching(name: name).first?.id)
+try #require(categories.matching(name: name).first?.id)
     }
 
-    func testTheManualFaceStartsEmpty() {
+    @Test func testTheManualFaceStartsEmpty() {
         // Seeded pointing at Unassigned, which is a face with nothing on it rather than a face holding a
         // category called Unassigned -- so it reads as nil.
-        XCTAssertNil(faces.categoryID(forFace: ManualFace.first))
+        #expect(faces.categoryID(forFace: ManualFace.first) == nil)
     }
 
-    func testASeededFaceReportsItsCategory() throws {
+    @Test func testASeededFaceReportsItsCategory() throws {
         // Face 8 is seeded with Break, and locked.
-        XCTAssertEqual(faces.categoryID(forFace: 8), try categoryID(named: "Break"))
+let breakID = try categoryID(named: "Break")
+        #expect(faces.categoryID(forFace: 8) == breakID)
     }
 
-    func testAssigningToTheManualFaceTakes() throws {
+    @Test func testAssigningToTheManualFaceTakes() throws {
         let meeting = try categoryID(named: "Meeting")
 
-        XCTAssertTrue(faces.assign(categoryID: meeting, toFace: ManualFace.first))
+        #expect(faces.assign(categoryID: meeting, toFace: ManualFace.first))
 
-        XCTAssertEqual(faces.categoryID(forFace: ManualFace.first), meeting)
+        #expect(faces.categoryID(forFace: ManualFace.first) == meeting)
     }
 
-    func testReassigningReplacesWhatWasThere() throws {
+    @Test func testReassigningReplacesWhatWasThere() throws {
         let meeting = try categoryID(named: "Meeting")
         let breakID = try categoryID(named: "Break")
-        XCTAssertTrue(faces.assign(categoryID: meeting, toFace: ManualFace.first))
+        #expect(faces.assign(categoryID: meeting, toFace: ManualFace.first))
 
-        XCTAssertTrue(faces.assign(categoryID: breakID, toFace: ManualFace.first))
+        #expect(faces.assign(categoryID: breakID, toFace: ManualFace.first))
 
-        XCTAssertEqual(faces.categoryID(forFace: ManualFace.first), breakID, "one category at a time")
+        #expect(faces.categoryID(forFace: ManualFace.first) == breakID, "one category at a time")
     }
 
-    func testALockedFaceKeepsWhatItHas() throws {
+    @Test func testALockedFaceKeepsWhatItHas() throws {
         // Face 2 is seeded locked. Locking exists to stop a face being reassigned by accident, so the write
         // refuses rather than trusting every caller to have checked.
         let before = faces.categoryID(forFace: 2)
         let breakID = try categoryID(named: "Break")
 
-        XCTAssertFalse(faces.assign(categoryID: breakID, toFace: 2))
+        #expect(!(faces.assign(categoryID: breakID, toFace: 2)))
 
-        XCTAssertEqual(faces.categoryID(forFace: 2), before)
+        #expect(faces.categoryID(forFace: 2) == before)
     }
 
-    func testClearingPutsAFaceBackToNothing() throws {
-        XCTAssertTrue(faces.assign(categoryID: try categoryID(named: "Meeting"), toFace: ManualFace.first))
+    @Test func testClearingPutsAFaceBackToNothing() throws {
+#expect(faces.assign(categoryID: try categoryID(named: "Meeting"), toFace: ManualFace.first))
 
-        XCTAssertTrue(faces.clear(face: ManualFace.first))
+        #expect(faces.clear(face: ManualFace.first))
 
-        XCTAssertNil(faces.categoryID(forFace: ManualFace.first))
+        #expect(faces.categoryID(forFace: ManualFace.first) == nil)
     }
 
-    func testAFaceThatDoesNotExistHoldsNothing() {
-        XCTAssertNil(faces.categoryID(forFace: 99))
+    @Test func testAFaceThatDoesNotExistHoldsNothing() {
+        #expect(faces.categoryID(forFace: 99) == nil)
     }
 
     // MARK: - which faces hold a category
 
-    func testEveryFaceHoldingACategoryIsReported() throws {
+    @Test func testEveryFaceHoldingACategoryIsReported() throws {
         let meeting = try categoryID(named: "Meeting")
-        XCTAssertTrue(faces.assign(categoryID: meeting, toFace: 13))
-        XCTAssertTrue(faces.assign(categoryID: meeting, toFace: 14))
+        #expect(faces.assign(categoryID: meeting, toFace: 13))
+        #expect(faces.assign(categoryID: meeting, toFace: 14))
 
         let holding = faces.facesHolding(categoryID: meeting).map(\.face)
 
         // Face 2 is seeded with Meeting, and both manual faces now hold it too: one category, many faces, which is
         // exactly why retiring has to look at all of them.
-        XCTAssertEqual(holding, [2, 13, 14])
+        #expect(holding == [2, 13, 14])
     }
 
-    func testALockedFaceIsReportedAsLocked() throws {
+    @Test func testALockedFaceIsReportedAsLocked() throws {
         // Face 8 is seeded locked, holding Break.
         let holding = faces.facesHolding(categoryID: try categoryID(named: "Break"))
 
-        XCTAssertEqual(holding.first { $0.face == 8 }?.isFaceLocked, true)
-        XCTAssertEqual(holding.filter(\.isFaceLocked).map(\.face), [8], "and nothing else is")
+        #expect(holding.first { $0.face == 8 }?.isFaceLocked == true)
+        #expect(holding.filter(\.isFaceLocked).map(\.face) == [8], "and nothing else is")
     }
 
-    func testACategoryOnNoFaceHoldsNothing() throws {
+    @Test func testACategoryOnNoFaceHoldsNothing() throws {
         // A category nobody has put anywhere, which is what every newly created one is.
-        let fresh = try XCTUnwrap(categories.insert(name: "Reading"))
+        let fresh = try #require(categories.insert(name: "Reading"))
 
-        XCTAssertTrue(faces.facesHolding(categoryID: fresh).isEmpty)
+        #expect(faces.facesHolding(categoryID: fresh).isEmpty)
     }
 
     // MARK: - asking whether a face is locked
 
-    func testTheSeededFacesReportTheirLock() {
+    @Test func testTheSeededFacesReportTheirLock() {
         // Faces 2 and 8 are the two the DDL seeds with a category, and both are seeded locked -- which makes a locked
         // face the ordinary case on a fresh database rather than an edge of it.
-        XCTAssertEqual(faces.isFaceLocked(face: 2), true)
-        XCTAssertEqual(faces.isFaceLocked(face: 8), true)
-        XCTAssertEqual(faces.isFaceLocked(face: 5), false, "an Unassigned face is free to take one")
+        #expect(faces.isFaceLocked(face: 2) == true)
+        #expect(faces.isFaceLocked(face: 8) == true)
+        #expect(faces.isFaceLocked(face: 5) == false, "an Unassigned face is free to take one")
     }
 
-    func testAManualFaceIsNeverLocked() {
+    @Test func testAManualFaceIsNeverLocked() {
         // Being reassigned is the whole point of them, so the guard `assign` shares must never catch one.
         for face in ManualFace.all {
-            XCTAssertEqual(faces.isFaceLocked(face: face), false, "manual face \(face)")
+            #expect(faces.isFaceLocked(face: face) == false, "manual face \(face)")
         }
     }
 
-    func testAFaceWithNoRowAnswersNothingRatherThanUnlocked() {
+    @Test func testAFaceWithNoRowAnswersNothingRatherThanUnlocked() {
         // The two are different faults and a caller reports them differently: one is a face somebody protected, the
         // other is not a face at all.
-        XCTAssertNil(faces.isFaceLocked(face: 99))
+        #expect(faces.isFaceLocked(face: 99) == nil)
     }
 
-    func testALockChangedElsewhereIsSeenByTheNextRead() {
-        XCTAssertEqual(faces.isFaceLocked(face: 2), true, "precondition")
+    @Test func testALockChangedElsewhereIsSeenByTheNextRead() {
+        #expect(faces.isFaceLocked(face: 2) == true, "precondition")
 
-        XCTAssertTrue(database.execute("UPDATE face SET locked = 0 WHERE face_id = 2;"))
+        #expect(database.execute("UPDATE face SET locked = 0 WHERE face_id = 2;"))
 
-        XCTAssertEqual(faces.isFaceLocked(face: 2), false)
+        #expect(faces.isFaceLocked(face: 2) == false)
     }
 
     // MARK: - locking a face
 
-    func testAFaceCanBeLockedAndUnlocked() {
-        XCTAssertTrue(faces.setLocked(true, face: 5))
-        XCTAssertEqual(faces.isFaceLocked(face: 5), true)
+    @Test func testAFaceCanBeLockedAndUnlocked() {
+        #expect(faces.setLocked(true, face: 5))
+        #expect(faces.isFaceLocked(face: 5) == true)
 
-        XCTAssertTrue(faces.setLocked(false, face: 5))
-        XCTAssertEqual(faces.isFaceLocked(face: 5), false)
+        #expect(faces.setLocked(false, face: 5))
+        #expect(faces.isFaceLocked(face: 5) == false)
     }
 
-    func testUnlockingASeededFaceLetsItTakeACategoryAgain() {
+    @Test func testUnlockingASeededFaceLetsItTakeACategoryAgain() {
         // The gesture the lock exists for, end to end: face 2 is seeded locked holding Meeting, and refuses Break
         // until it is unlocked.
         let breakID = try? categoryID(named: "Break")
-        XCTAssertFalse(faces.assign(categoryID: breakID ?? 1, toFace: 2), "precondition: locked faces refuse")
+        #expect(!(faces.assign(categoryID: breakID ?? 1, toFace: 2)), "precondition: locked faces refuse")
 
-        XCTAssertTrue(faces.setLocked(false, face: 2))
+        #expect(faces.setLocked(false, face: 2))
 
-        XCTAssertTrue(faces.assign(categoryID: breakID ?? 1, toFace: 2))
+        #expect(faces.assign(categoryID: breakID ?? 1, toFace: 2))
     }
 
-    func testLockingIsNotItselfRefusedByTheLock() {
+    @Test func testLockingIsNotItselfRefusedByTheLock() {
         // Or it would be a switch that can only be flicked one way. Locking stops a *category* landing; it does not
         // stop the lock being changed.
-        XCTAssertEqual(faces.isFaceLocked(face: 8), true, "precondition: seeded locked")
+        #expect(faces.isFaceLocked(face: 8) == true, "precondition: seeded locked")
 
-        XCTAssertTrue(faces.setLocked(false, face: 8))
-        XCTAssertTrue(faces.setLocked(true, face: 8))
+        #expect(faces.setLocked(false, face: 8))
+        #expect(faces.setLocked(true, face: 8))
     }
 
-    func testAFaceWithNoRowRefusesTheLock() {
+    @Test func testAFaceWithNoRowRefusesTheLock() {
         // Reported rather than silently doing nothing, so a caller can tell "not a face" from "done".
-        XCTAssertFalse(faces.setLocked(true, face: 99))
+        #expect(!(faces.setLocked(true, face: 99)))
     }
 
     // MARK: - the design rule
 
-    func testAChangeMadeElsewhereIsSeenByTheNextRead() throws {
+    @Test func testAChangeMadeElsewhereIsSeenByTheNextRead() throws {
         let meeting = try categoryID(named: "Meeting")
 
-        XCTAssertTrue(database.execute("UPDATE face SET category_id = \(meeting) WHERE face_id = \(ManualFace.first);"))
+        #expect(database.execute("UPDATE face SET category_id = \(meeting) WHERE face_id = \(ManualFace.first);"))
 
-        XCTAssertEqual(faces.categoryID(forFace: ManualFace.first), meeting, "read again, not remembered")
+        #expect(faces.categoryID(forFace: ManualFace.first) == meeting, "read again, not remembered")
     }
 }

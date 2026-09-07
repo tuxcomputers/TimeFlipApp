@@ -20,7 +20,7 @@ moving is a finding that will be measured twice.
 | Does the app's core compile on Linux? | **Yes -- `FacetCore` entire**, 89 files, 0 errors, 0 warnings, from a deleted `.build` in 13s | 2026-09-07, Linux |
 | Does the logic behave? | **Yes**, 432 tests pass | 2026-09-06 |
 | Can the whole test suite run? | **Under XCTest no**, `@MainActor` blocks ~60%. **Under swift-testing yes** | 2026-09-06 |
-| Does any of the suite run on Linux? | **Yes. `swift test` passes 540 of 1725 tests**, 36 files, in 37s. The other 1185 are excluded by name in `Package.swift` and come back as items 6, 9, 10 and 11 land | 2026-09-07, Linux |
+| Does any of the suite run on Linux? | **Yes. `swift test` passes 832 of 1725 tests** across 50 files in 45s -- 540 still under XCTest, 292 migrated to swift-testing. The other 893 are excluded by name in `Package.swift` and come back as items 6, 9, 10 and 11 land | 2026-09-07, Linux |
 | Is there a UI? | Not started, and the toolkit is undecided | -- |
 | Is there a `FacetCore` target? | **Yes.** 86 files, no AppKit, and `FacetApp` builds on it. 589 access-level edits | 2026-09-07, Mac |
 | ~~What is left before Linux can try the core?~~ | **Nothing. All four are done**: `SQLite3` has a modulemap target, `CoreGraphics` a `package typealias`, `Security` the login keyring through `secret-tool`, `CryptoKit` a written SHA-256 | 2026-09-07, Linux |
@@ -161,10 +161,21 @@ assumption traps: SIGILL, no message, after every test has already reported star
 `deinit` has to be callable without isolation. Every `tearDown` in the suite needs looking at
 individually for this, and it is the one part of the migration that cannot be done by pattern.
 
-**Timing is not a concern.** The migrated file takes 23.9s for 21 tests, and `.serialized` and
-`--no-parallel` make no difference, because it is not contention: applying the DDL costs ~1.15s, measured
-independently in plain Python and sqlite3, and each test bootstraps its own database. That is the test
-design, not a Linux regression.
+**Timing was not a concern, then briefly was, and is not again.** The spike measured 23.9s for 21 tests
+with `.serialized` and `--no-parallel` making no difference, because the cost was the DDL apply that
+every test pays in its own bootstrap -- the test design rather than a Linux regression.
+
+**Then the seeded `timezone` table turned that cost into a wall** (2026-09-07). 448 zones plus 151
+aliases is 599 more statements per bootstrap, and sqlite gives every statement outside a transaction one
+of its own with an fsync attached: 6.2s per test, at which point 292 tests in parallel never finished a
+single one in ten minutes. Not contention -- each test simply held a database open for six seconds while
+the next began.
+
+**Fixed by applying each DDL file in one transaction**, which is a 64-fold difference on the seed file
+alone (3.87s to 0.06s) and takes a bootstrap from 6.2s to 0.9s. The 540 XCTest tests went from 38.1s to
+**2.0s** with it, and the 292 migrated ones run in **42s in parallel**. So the answer stands where the
+spike left it -- parallelism is fine and `.serialized` is not needed -- but for a different reason than
+it gave, and the number that matters is the per-statement fsync rather than the DDL's size.
 
 ## Found: a symlinked directory reads as empty, and the bootstrap calls that success
 
@@ -417,10 +428,12 @@ Roughly in dependency order. Nothing here is started.
 6. **Migrate the test suite to swift-testing**, checking every `tearDown` by hand for the `deinit`
    isolation trap. Mechanical for the assertions, not for the lifecycle.
 
-   **Under way, and the structure it needed is done (2026-09-07, Linux).** `swift test` runs on Linux
-   now and passes **540 tests across 36 files in 37 seconds** -- more than the spike's 432, and against
-   the real target rather than a scratch package. What made that possible was not the migration but
-   getting the package to build tests at all on Linux:
+   **Under way. 14 suites migrated, and 832 of the 1725 tests now run on Linux** (2026-09-07): 292
+   under swift-testing in 42s, beside 540 still under XCTest in 2s. 17 files are left on the
+   `mainActorTests` list, three of them for a reason worth knowing -- see below.
+
+   The structure it needed came first, and what made it possible was not the migration but getting the
+   package to build tests at all on Linux:
 
    - `FacetApp` is no longer in the package on Linux, and neither is the executable product. `swift test`
      builds *every* target rather than only what the tests depend on, so a declared AppKit executable
@@ -436,8 +449,29 @@ Roughly in dependency order. Nothing here is started.
      (`DeviceFaceRulesTests`). Neither was needed; the Linux build is what proved it, since a file that
      compiles without a module needs nothing from it on either platform.
 
-   So the remaining work is the migration proper: 17 portable `@MainActor` files first, being the ones
-   that only need the framework swapped, then the platform-bound 48 as their platforms arrive.
+   **What the mapping table above does not mention, and each cost a compiler round to find:**
+
+   - **`Testing` does not re-export Foundation** the way `XCTest` did. Seven files needed
+     `import Foundation` added.
+   - **`deinit` can do the cleanup, but only what needs no isolation.** It is never isolated, so
+     reading an isolated `var` from it is refused -- the `database` property becomes a `let`, and
+     `TemporaryDatabase` being a `Sendable` struct with a nonisolated `remove()` is what makes the rest
+     work. The `x = nil` lines the old `tearDown` bodies carried simply go: the instance is discarded
+     whole. Verified it still cleans up, with zero temporary directories left after a run.
+   - **`try` is fine at the start of an `#expect` and illegal to the right of an operator.**
+     `#expect(try #require(a).isActive)` compiles; `#expect(a < try #require(b))` does not, and those
+     three call sites were hoisted to locals.
+   - **`#expect`'s message is a `Comment`**, which a string *literal* becomes on its own. A `String`
+     expression -- a concatenation, say -- does not, and has to be interpolated.
+   - **`accuracy:` has no equivalent**, `#expect` taking one expression rather than a pair. The six
+     colour-channel comparisons went through a named `isApproximately` so the tolerance stays visible.
+
+   **Three files are left because their `tearDown` does something isolated**, which is the trap this
+   item was always going to have: `HistoryTimerTests` stops a timer, `DevicePINSourceTests` removes a
+   directory of its own, and `DebugTraceFileTests` nests an `assumeIsolated`. Those need a decision
+   about when the cleanup can run rather than a mechanical rewrite.
+
+   So what remains is those three, and then the platform-bound 48 as their platforms arrive.
 7. ~~**`Security` to libsecret.**~~ **Done 2026-09-07, Linux, and not via libsecret.** Both stores
    branch at compile time inside their own four functions, as this item said they would, so no call site
    changed and the Darwin bodies are untouched.

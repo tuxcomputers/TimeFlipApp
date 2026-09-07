@@ -1,75 +1,73 @@
-@testable import FacetApp
 @testable import FacetCore
-import XCTest
+import Foundation
+import Testing
 
 /// Covers `DatabaseEnvironment`: reading which database a launch opened.
 ///
 /// The read matters more than it looks. Its answer decides whether the menu bar warns that a test
 /// database is open, so a wrong answer is worse than no answer -- which is why the `nil` cases below are
 /// tested as carefully as the two real ones.
-@MainActor
-final class DatabaseEnvironmentTests: XCTestCase, @unchecked Sendable {
-    private var database: TemporaryDatabase!
-    private var settings: SettingStore!
+///
+/// **swift-testing rather than XCTest**, as every `@MainActor` suite has to be: Linux discovers XCTest
+/// tests through a generated list and cannot cast an isolated method, so one such class aborts the whole
+/// run. Here the isolation is simply honoured. `init` replaces `setUpWithError` and needs no
+/// `assumeIsolated` -- it *is* on the main actor -- and cleanup moves to `deinit`, which is not.
+@Suite @MainActor
+final class DatabaseEnvironmentTests {
+    private let database: TemporaryDatabase
+    private let settings: SettingStore
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
-        try MainActor.assumeIsolated {
-            database = TemporaryDatabase()
-            try database.bootstrap()
-            settings = SettingStore(connection: database.connection())
-        }
+    init() throws {
+        database = TemporaryDatabase()
+        try database.bootstrap()
+        settings = SettingStore(connection: database.connection())
     }
 
-    override func tearDown() {
-        MainActor.assumeIsolated {
-            settings = nil
-            database.remove()
-        }
-        super.tearDown()
+    deinit {
+        database.remove()
     }
 
     private func setType(_ value: String) {
-        XCTAssertTrue(
+        #expect(
             database.execute("UPDATE setting SET setting_value = '\(value)' WHERE setting_name = 'db_type';")
         )
     }
 
-    func testAFreshDatabaseReadsAsProduction() {
-        XCTAssertEqual(DatabaseEnvironment.read(from: settings), .production)
+    @Test func aFreshDatabaseReadsAsProduction() {
+        #expect(DatabaseEnvironment.read(from: settings) == .production)
     }
 
-    func testADatabaseMarkedAsATestCopyReadsAsTest() {
+    @Test func aDatabaseMarkedAsATestCopyReadsAsTest() {
         // What switching to a test database does to the row it just seeded.
         setType(#"{"type":"test"}"#)
 
-        XCTAssertEqual(DatabaseEnvironment.read(from: settings), .test)
+        #expect(DatabaseEnvironment.read(from: settings) == .test)
     }
 
-    func testTheTypeIsReadCaseInsensitively() {
+    @Test func theTypeIsReadCaseInsensitively() {
         // The row is written by hand and by script, so the casing it arrives in is not guaranteed.
         setType(#"{"type":"TEST"}"#)
 
-        XCTAssertEqual(DatabaseEnvironment.read(from: settings), .test)
+        #expect(DatabaseEnvironment.read(from: settings) == .test)
     }
 
-    func testAValueNamingNeitherEnvironmentIsNotGuessedAt() {
+    @Test func aValueNamingNeitherEnvironmentIsNotGuessedAt() {
         for value in [#"{"type":"staging"}"#, #"{"type":""}"#, #"{"kind":"test"}"#, "production"] {
             setType(value)
-            XCTAssertNil(DatabaseEnvironment.read(from: settings), "should not resolve: \(value)")
+            #expect(DatabaseEnvironment.read(from: settings) == nil, "should not resolve: \(value)")
         }
     }
 
-    func testAMissingSettingRowIsUnknownRatherThanProduction() {
-        XCTAssertTrue(database.execute("DELETE FROM setting WHERE setting_name = 'db_type';"))
+    @Test func aMissingSettingRowIsUnknownRatherThanProduction() {
+        #expect(database.execute("DELETE FROM setting WHERE setting_name = 'db_type';"))
 
-        XCTAssertNil(DatabaseEnvironment.read(from: settings))
+        #expect(DatabaseEnvironment.read(from: settings) == nil)
     }
 
-    func testAMissingDatabaseIsUnknownRatherThanProduction() {
+    @Test func aMissingDatabaseIsUnknownRatherThanProduction() {
         // A launch that reads production while opening nothing is the worst of the three answers.
         let missing = SettingStore(connection: DatabaseConnection(databaseURL: database.directory.appendingPathComponent("nowhere.sqlite")))
 
-        XCTAssertNil(DatabaseEnvironment.read(from: missing))
+        #expect(DatabaseEnvironment.read(from: missing) == nil)
     }
 }

@@ -99,23 +99,9 @@ let platformBoundTests = [
 // **An isolated *helper* is not affected and is not listed.** `TemporaryDatabase` is `@MainActor` in
 // places and is needed by files that do run; only an XCTestCase subclass is the problem.
 let mainActorTests = [
-    "CategoryStoreTests.swift",
-    "ColourStoreTests.swift",
-    "CubeLockTests.swift",
-    "DailyLimitWatchTests.swift",
-    "DatabaseEnvironmentTests.swift",
-    "DayTotalTests.swift",
-    "DebugLogTests.swift",
     "DebugTraceFileTests.swift",
     "DevicePINSourceTests.swift",
-    "DevicePairingRecorderTests.swift",
-    "FaceColourRulesTests.swift",
-    "FaceStoreTests.swift",
-    "ForcedPauseWatchTests.swift",
-    "HistoryIngestorTests.swift",
     "HistoryTimerTests.swift",
-    "SettingStoreTests.swift",
-    "TimingReadoutTests.swift",
 ]
 
 #if os(Linux)

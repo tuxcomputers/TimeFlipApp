@@ -1,6 +1,6 @@
-@testable import FacetApp
 @testable import FacetCore
-import XCTest
+import Foundation
+import Testing
 
 /// Putting `ForcedPause`'s decision on the wire: what is sent, when it is claimed, and the window in which the tables
 /// have not caught up with the command yet.
@@ -10,8 +10,8 @@ import XCTest
 /// so without the guard the driver asks for a second pause off the back of its own first one. Finding 9 in
 /// `docs/timeflip2-firmware-observations.md` is what makes the fetch unavoidable: the cube files the record and
 /// announces nothing, so there is no notification the app could have waited on instead.
-@MainActor
-final class ForcedPauseWatchTests: XCTestCase {
+@Suite @MainActor
+final class ForcedPauseWatchTests {
     /// A bench whose every answer is a variable, so a test names only what it is about.
     @MainActor
     private final class Bench {
@@ -65,39 +65,39 @@ final class ForcedPauseWatchTests: XCTestCase {
 
     // MARK: - the pause
 
-    func testAnEventOnAFaceWithNoCategoryStopsTheCube() {
+    @Test func testAnEventOnAFaceWithNoCategoryStopsTheCube() {
         let bench = Bench()
         let watch = bench.make()
         watch.check()
-        XCTAssertEqual(bench.sent, [true])
-        XCTAssertEqual(bench.fetches.count, 1, "the cube announces nothing, so the app has to go and ask")
+        #expect(bench.sent == [true])
+        #expect(bench.fetches.count == 1, "the cube announces nothing, so the app has to go and ask")
     }
 
-    func testAnEventOnAFaceWithACategoryStopsNothing() {
+    @Test func testAnEventOnAFaceWithACategoryStopsNothing() {
         let bench = Bench()
         bench.facesWithCategory = [5]
         let watch = bench.make()
         watch.check()
-        XCTAssertTrue(bench.sent.isEmpty)
-        XCTAssertTrue(bench.fetches.isEmpty)
+        #expect(bench.sent.isEmpty)
+        #expect(bench.fetches.isEmpty)
     }
 
     // MARK: - the window the guard exists for
 
-    func testTheFetchItAsksForCannotMakeItSendASecondPause() {
+    @Test func testTheFetchItAsksForCannotMakeItSendASecondPause() {
         // The exact sequence: pause sent, cube confirms, app asks for history, and that fetch's own `onChanged` calls
         // `check` again -- while `device_event` still says the cube is running on a face with no category.
         let bench = Bench()
         let watch = bench.make()
         watch.check()
-        XCTAssertEqual(bench.sent, [true])
+        #expect(bench.sent == [true])
 
         watch.check()
         watch.check()
-        XCTAssertEqual(bench.sent, [true], "a command is in flight, so nothing else is decided from a stale table")
+        #expect(bench.sent == [true], "a command is in flight, so nothing else is decided from a stale table")
     }
 
-    func testItLooksAgainOnceTheFetchHasWritten() {
+    @Test func testItLooksAgainOnceTheFetchHasWritten() {
         let bench = Bench()
         let watch = bench.make()
         watch.check()
@@ -106,26 +106,26 @@ final class ForcedPauseWatchTests: XCTestCase {
         bench.landTheFetch()
 
         watch.check()
-        XCTAssertEqual(bench.sent, [true], "the cube is stopped now, so there is nothing left to ask for")
+        #expect(bench.sent == [true], "the cube is stopped now, so there is nothing left to ask for")
     }
 
-    func testACommandThatWasNeverSentLeavesNothingInFlight() {
+    @Test func testACommandThatWasNeverSentLeavesNothingInFlight() {
         // `CubeLock` answers false for a cube that is locked or unreachable, and then never calls the completion. A
         // flag left set there would wedge the watch for the rest of the launch.
         let bench = Bench()
         bench.accepts = false
         let watch = bench.make()
         watch.check()
-        XCTAssertTrue(bench.sent.isEmpty)
+        #expect(bench.sent.isEmpty)
 
         bench.accepts = true
         watch.check()
-        XCTAssertEqual(bench.sent, [true], "the watch is not wedged by a command that never went out")
+        #expect(bench.sent == [true], "the watch is not wedged by a command that never went out")
     }
 
     // MARK: - claiming
 
-    func testAPauseTheCubeRefusedIsNotClaimed() {
+    @Test func testAPauseTheCubeRefusedIsNotClaimed() {
         // The command went out and did not take, so there is no pause of this app's to lift later.
         let bench = Bench()
         bench.confirms = false
@@ -137,10 +137,10 @@ final class ForcedPauseWatchTests: XCTestCase {
         bench.cubePauseState = .paused
         bench.facesWithCategory = [5]
         watch.check()
-        XCTAssertEqual(bench.sent, [true], "nothing was claimed, so nothing is lifted")
+        #expect(bench.sent == [true], "nothing was claimed, so nothing is lifted")
     }
 
-    func testGivingTheFaceACategoryStartsTheCubeAgain() {
+    @Test func testGivingTheFaceACategoryStartsTheCubeAgain() {
         let bench = Bench()
         let watch = bench.make()
         watch.check()
@@ -150,10 +150,10 @@ final class ForcedPauseWatchTests: XCTestCase {
         // Nothing physical happens: the table changes under a cube sitting still.
         bench.facesWithCategory = [5]
         watch.check()
-        XCTAssertEqual(bench.sent, [true, false])
+        #expect(bench.sent == [true, false])
     }
 
-    func testAFlipOntoAnAssignedFaceNeedsNoCommand() {
+    @Test func testAFlipOntoAnAssignedFaceNeedsNoCommand() {
         // The firmware lifts the pause on the turn, so the frame reports the cube already running.
         let bench = Bench()
         let watch = bench.make()
@@ -165,20 +165,20 @@ final class ForcedPauseWatchTests: XCTestCase {
         bench.facesWithCategory = [2]
         bench.cubePauseState = .running
         watch.check()
-        XCTAssertEqual(bench.sent, [true], "nothing to send: the cube is already running")
+        #expect(bench.sent == [true], "nothing to send: the cube is already running")
     }
 
     // MARK: - what it will not touch
 
-    func testALockedCubeIsLeftAlone() {
+    @Test func testALockedCubeIsLeftAlone() {
         let bench = Bench()
         bench.cubeLockState = .locked
         let watch = bench.make()
         watch.check()
-        XCTAssertTrue(bench.sent.isEmpty)
+        #expect(bench.sent.isEmpty)
     }
 
-    func testAPauseTheDailyLimitIsHoldingIsNotLifted() {
+    @Test func testAPauseTheDailyLimitIsHoldingIsNotLifted() {
         let bench = Bench()
         let watch = bench.make()
         watch.check()
@@ -188,15 +188,15 @@ final class ForcedPauseWatchTests: XCTestCase {
         bench.facesWithCategory = [5]
         bench.limitIsHolding = true
         watch.check()
-        XCTAssertEqual(bench.sent, [true], "a hard limit has to win, or assigning a category is a way round it")
+        #expect(bench.sent == [true], "a hard limit has to win, or assigning a category is a way round it")
     }
 
-    func testTheAppsOwnFacesAreNotTheCubes() {
+    @Test func testTheAppsOwnFacesAreNotTheCubes() {
         // `main.swift` filters 13 and 14 out before the watch sees them, which is this answering nil.
         let bench = Bench()
         bench.face = nil
         let watch = bench.make()
         watch.check()
-        XCTAssertTrue(bench.sent.isEmpty)
+        #expect(bench.sent.isEmpty)
     }
 }
