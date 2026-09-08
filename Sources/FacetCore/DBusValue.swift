@@ -84,6 +84,23 @@ package indirect enum DBusValue: Equatable, Sendable {
         }
     }
 
+    /// The members, seeing through a variant. **Every property BlueZ answers is wrapped in one**, so an
+    /// array read that pattern-matches `.array` directly finds nothing -- and finds it silently, which is
+    /// how `Flags` and `UUIDs` came back empty the first time this was written.
+    package var items: [DBusValue]? {
+        switch self {
+        case let .array(value): return value
+        case let .structure(value): return value
+        case let .variant(inner): return inner.items
+        default: return nil
+        }
+    }
+
+    /// An array of strings, which is what `UUIDs` and `Flags` are.
+    package var strings: [String]? {
+        items.map { $0.compactMap(\.text) }
+    }
+
     package var members: [String: DBusValue]? {
         switch self {
         case let .dictionary(value): return value

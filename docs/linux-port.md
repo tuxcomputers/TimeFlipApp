@@ -22,6 +22,7 @@ moving is a finding that will be measured twice.
 | Can the whole test suite run? | **Under XCTest no**, `@MainActor` blocks ~60%. **Under swift-testing yes** | 2026-09-06 |
 | Does any of the suite run on Linux? | **Yes. `swift test` passes 891 of 1743 tests** across 55 suites in 49s -- 540 under XCTest, 351 under swift-testing. The rest need AppKit, CoreBluetooth or a `FacetApp` type, and come back with items 10 and 11 | 2026-09-07, Linux |
 | Can Swift talk to BlueZ? | **Yes, in process, over libdbus.** `SystemBus` calls methods, marshals arguments both ways and receives signals with typed values; seven tests drive it against the real system bus | 2026-09-07, Linux |
+| Can it discover? | **Yes.** `BlueZRadio` powers the adapter, runs discovery and turns BlueZ devices into the `ScannedDevice` values `DeviceScanRules` already decides about -- 11 devices found in a real scan. **Not yet confirmed against the cube**, which was not advertising when it was tried | 2026-09-07, Linux |
 | Is there a UI? | Not started, and the toolkit is undecided | -- |
 | Is there a `FacetCore` target? | **Yes.** 86 files, no AppKit, and `FacetApp` builds on it. 589 access-level edits | 2026-09-07, Mac |
 | ~~What is left before Linux can try the core?~~ | **Nothing. All four are done**: `SQLite3` has a modulemap target, `CoreGraphics` a `package typealias`, `Security` the login keyring through `secret-tool`, `CryptoKit` a written SHA-256 | 2026-09-07, Linux |
@@ -577,6 +578,45 @@ Roughly in dependency order. Nothing here is started.
    calls `180F`. `TimeFlipUUIDs.canonical(_:)` and `match(_:_:)` are that expansion, checked against the
    spelling BlueZ prints on this machine. Without it every characteristic lookup would find nothing,
    silently.
+
+   ### What is built so far
+
+   | Piece | What it does | Checked by |
+   |---|---|---|
+   | `SystemBus` | the whole of the libdbus interop: calls, marshalling both ways, signals | 7 tests against the real system bus |
+   | `DBusValue` | a D-Bus value as a plain Swift tree, so nothing above sees libdbus | the above, plus every tree test |
+   | `BlueZObjectTree` | the object tree read as records: adapters, devices, services, characteristics | 9 tests, hand-built trees |
+   | `BlueZAddress` | a Bluetooth address carried inside the `UUID` this app is written around | 6 tests, both directions |
+   | `TimeFlipUUIDs` | the UUID strings, and the 16-bit expansion BlueZ needs | 6 tests |
+   | `BlueZRadio` | power, discovery, connect, disconnect, forget | discovery run against a real adapter |
+
+   **Everything above `SystemBus` is pure**, which is deliberate: the mistakes this layer makes are silent
+   ones. A UUID compared in the wrong spelling finds no characteristic and reports nothing missing, and a
+   property read without unwrapping its variant answers an empty array -- **which is a bug that happened**,
+   caught by a test rather than by a run: BlueZ wraps every property in a variant, so `Flags` and `UUIDs`
+   came back empty until `DBusValue.items` learned to see through one.
+
+   **Two decisions worth knowing about:**
+
+   - **A Bluetooth address is carried inside a `UUID` rather than widening the model.** `ScannedDevice`,
+     `CubeRadio` and the `device_uuid` row are all written in terms of a `UUID`, and BlueZ has no such
+     identifier -- it has the device's real address. So the six address bytes go in the last six bytes of a
+     UUID behind a constant marker (`face7000-0000-0000-0000-…`), which is deterministic in both
+     directions: the same cube is the same identifier on every launch and the address reads back out to
+     make a call with. The marker is *checked* when reading, so a `device_uuid` written on the Mac -- a
+     perfectly valid UUID naming nothing here -- is refused rather than aimed at six bytes of somebody
+     else's identifier.
+   - **Which advertisement is a cube is `DeviceScanRules`, unchanged.** The same rule CoreBluetooth's side
+     asks, so a renamed cube is found or lost identically on both platforms rather than by two rules that
+     have to be kept in step. Writing the probe for this taught its own lesson: `ordered` is *ordering, not
+     filtering*, as its comment says, so taking its first element answers an arbitrary device when nothing
+     is eligible at all. `isEligible` is the filter.
+
+   **Still unverified and first on the list**: the two-name mapping. On Darwin the advertised local name
+   never changes while `CBPeripheral.name` is the GAP name a rename moves (finding 1, seven renames). BlueZ
+   has `Name`, the remote device's own, and `Alias`, a *local* override defaulting to it -- so `Name` is the
+   closer analogue of both, and **whether a `0x15` rename moves it has not been measured**. `BlueZRadio`
+   says so at the mapping.
 
    ### The transport is decided: libdbus, in process
 

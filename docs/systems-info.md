@@ -709,11 +709,11 @@ to-do item 12 rather than a piece of work in it.
 
 | | |
 |---|---|
-| `swift test` | **Runs. 891 tests, 0 failures, 49s** (2026-09-07) -- 540 under XCTest and 351 under swift-testing. That is 55 suites; the 48 files excluded by name in `Package.swift` are excluded for needing AppKit, CoreBluetooth or a `FacetApp` type |
+| `swift test` | **Runs. 906 tests, 0 failures, 48s** (2026-09-07) -- 540 under XCTest and 366 under swift-testing. That is 57 suites; the 48 files excluded by name in `Package.swift` are excluded for needing AppKit, CoreBluetooth or a `FacetApp` type |
 | `Tests/Scripted/` | **cannot run today**: no app binary to drive, and toolkit accessibility is off. The `sqlite3` half of that is fixed as of 2026-09-07 |
 | `swift build --target FacetCore` | fails, and the whole of why is below |
 
-**What the 891 are and are not.** They are the rules, the stores, the database layer and the device
+**What the 906 are and are not.** They are the rules, the stores, the database layer and the device
 protocol -- the half of the app that does not know what a window is -- exercised against real
 bootstrapped databases on this machine. They are not the UI, the radio or Google sign-in, none of which
 compiles here yet. The figure to compare them against is 1725, the whole suite on the Mac.

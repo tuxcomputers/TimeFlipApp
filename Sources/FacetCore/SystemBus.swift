@@ -73,6 +73,11 @@ package final class SystemBus: @unchecked Sendable {
     ///
     /// Blocking, deliberately: every call this app makes to BlueZ is a step in a sequence that cannot
     /// proceed without the answer, and the callers are already off the main actor.
+    ///
+    /// **The reply is discardable because several of these are made for effect**: `StartDiscovery`,
+    /// `Connect` and `Set` answer nothing worth reading, and what matters about them is whether they
+    /// threw. The read-backs that follow are separate calls, deliberately.
+    @discardableResult
     package func call(
         destination: String,
         path: String,
