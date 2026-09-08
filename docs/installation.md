@@ -1,6 +1,6 @@
 # Installation
 
-[← Back to README](../README.md) · [Google OAuth setup →](google-oauth-setup.md)
+[← Back to README](../README.md) · [Distribution →](distribution.md) · [Google OAuth setup →](google-oauth-setup.md)
 
 ## System Requirements
 
@@ -75,6 +75,20 @@ carries is absent too. Useful for compiling and for `swift test`, not for runnin
 swift build -c release
 .build/release/FacetApp
 ```
+
+## Sending somebody a build
+
+Everything above builds the app for the machine it is run on. `scripts/package.sh` builds the same app
+into `dist/Facet-<version>.dmg`, a disk image that installs on a machine with no Swift and no Xcode on
+it:
+
+```bash
+scripts/package.sh              # universal (arm64 + x86_64), the one to send
+scripts/package.sh --arm64      # Apple Silicon only, faster, for a local check
+```
+
+**It is not notarized, so the first launch on somebody else's Mac is refused** until they clear it in
+System Settings once. [distribution.md](distribution.md) is what that costs and how to stop it.
 
 ## Building and Testing
 
