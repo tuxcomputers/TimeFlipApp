@@ -96,4 +96,20 @@ package enum TimeFlipUUIDs {
     package static func match(_ one: String, _ other: String) -> Bool {
         canonical(one) == canonical(other)
     }
+
+    /// What this app calls a UUID, for a log or a listing. `nil` for one it has never named -- which is a
+    /// finding rather than noise: a cube offering something unnamed is still subscribed to.
+    package static func name(for uuid: String) -> String? {
+        let named: [(String, String)] = [
+            (serviceString, "service"), (commandResultString, "command result"),
+            (commandString, "command"), (passwordString, "password"),
+            (eventsDataString, "events data"), (facesString, "faces"),
+            (doubleTapString, "double tap"), (systemStateString, "system state"),
+            (historyString, "history"), (deviceInformationString, "device information"),
+            (manufacturerNameString, "manufacturer name"), (modelNumberString, "model number"),
+            (hardwareRevisionString, "hardware revision"), (firmwareRevisionString, "firmware revision"),
+            (batteryServiceString, "battery service"), (batteryLevelString, "battery level"),
+        ]
+        return named.first { match($0.0, uuid) }?.1
+    }
 }

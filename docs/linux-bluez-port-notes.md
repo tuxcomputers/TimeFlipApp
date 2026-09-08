@@ -26,6 +26,35 @@ Two things that are *easier* here, both worth knowing before designing around th
   bonding dance to reproduce and no agent to register.
 - **No `sudo`.** Discovery, connection, reads, writes and notifications all ran as an ordinary desktop user.
 
+## And it works from Swift, which is the thing that was still an assumption
+
+**2026-09-07, this Linux box, against the cube after a factory reset.** Everything above was the Python
+probe; this is `FacetCore`'s own code doing the same sequence over `libdbus`, in process, with no
+subprocess and no Python.
+
+| Stage | What came back |
+|---|---|
+| Discovery | the cube found by **`DeviceScanRules`**, the app's own rule, unchanged from the Mac's side |
+| Its identity here | `TimeFlip v2.0` at `E8:DB:D8:CF:F9:0F`, as the identifier `FACE7000-0000-0000-0000-E8DBD8CFF90F` |
+| Connect | `ServicesResolved: true`, `Paired: false` |
+| Enumeration | **16 characteristics**, each matched to the app's own UUID spelling |
+| Login | the vendor PIN as six ASCII digits, and the command result read back `02` |
+| Reads | `DI_LABS`, `2.0`, `FW_v3.64`, battery `100%`, facing `0c` |
+| Notifications | values pushed as `PropertiesChanged` signals carrying `ay`, read as `[UInt8]` |
+
+**The address survived the factory reset.** `E8:DB:D8:CF:F9:0F` before and after, which `systems-info.md`
+had recorded as untested -- and worth knowing because it is a *random*-type address, the kind the
+specification allows a device to change.
+
+**Two things this run did not prove**, said plainly because the run looks more complete than it is:
+
+- **A face turn was not observed.** The two values pushed were the login verdict and the initial `faces`
+  value on subscribe, both arriving immediately and both `0c`. So the notification path is proven with
+  real bytes from real hardware; that a *change* of face pushes a new value is still only the Python
+  probe's finding (sixteen turns, evidence rows above), not this code's.
+- **Nothing was written but the PIN.** No `0x10` status read, no pause, no lock, no colour. The write path
+  is proven for six bytes to the password characteristic and no further.
+
 ## The mapping
 
 | CoreBluetooth | BlueZ over D-Bus |

@@ -22,7 +22,8 @@ moving is a finding that will be measured twice.
 | Can the whole test suite run? | **Under XCTest no**, `@MainActor` blocks ~60%. **Under swift-testing yes** | 2026-09-06 |
 | Does any of the suite run on Linux? | **Yes. `swift test` passes 891 of 1743 tests** across 55 suites in 49s -- 540 under XCTest, 351 under swift-testing. The rest need AppKit, CoreBluetooth or a `FacetApp` type, and come back with items 10 and 11 | 2026-09-07, Linux |
 | Can Swift talk to BlueZ? | **Yes, in process, over libdbus.** `SystemBus` calls methods, marshals arguments both ways and receives signals with typed values; seven tests drive it against the real system bus | 2026-09-07, Linux |
-| Can it discover? | **Yes.** `BlueZRadio` powers the adapter, runs discovery and turns BlueZ devices into the `ScannedDevice` values `DeviceScanRules` already decides about -- 11 devices found in a real scan. **Not yet confirmed against the cube**, which was not advertising when it was tried | 2026-09-07, Linux |
+| Can it discover? | **Yes**, and the cube is found by `DeviceScanRules` -- the app's own rule, unchanged | 2026-09-07, Linux |
+| Can it drive the cube from Swift? | **Yes.** Connect, resolve, enumerate 16 characteristics by UUID, log in on the vendor PIN, read four characteristics, receive notifications. A face *turn* was not observed and nothing but the PIN was written | 2026-09-07, Linux |
 | Is there a UI? | Not started, and the toolkit is undecided | -- |
 | Is there a `FacetCore` target? | **Yes.** 86 files, no AppKit, and `FacetApp` builds on it. 589 access-level edits | 2026-09-07, Mac |
 | ~~What is left before Linux can try the core?~~ | **Nothing. All four are done**: `SQLite3` has a modulemap target, `CoreGraphics` a `package typealias`, `Security` the login keyring through `secret-tool`, `CryptoKit` a written SHA-256 | 2026-09-07, Linux |
@@ -588,7 +589,8 @@ Roughly in dependency order. Nothing here is started.
    | `BlueZObjectTree` | the object tree read as records: adapters, devices, services, characteristics | 9 tests, hand-built trees |
    | `BlueZAddress` | a Bluetooth address carried inside the `UUID` this app is written around | 6 tests, both directions |
    | `TimeFlipUUIDs` | the UUID strings, and the 16-bit expansion BlueZ needs | 6 tests |
-   | `BlueZRadio` | power, discovery, connect, disconnect, forget | discovery run against a real adapter |
+   | `BlueZRadio` | power, discovery, connect, disconnect, forget | run against the real cube |
+   | `BlueZGatt` | read, write, subscribe, and the value out of a signal | run against the real cube |
 
    **Everything above `SystemBus` is pure**, which is deliberate: the mistakes this layer makes are silent
    ones. A UUID compared in the wrong spelling finds no characteristic and reports nothing missing, and a
@@ -611,6 +613,30 @@ Roughly in dependency order. Nothing here is started.
      have to be kept in step. Writing the probe for this taught its own lesson: `ordered` is *ordering, not
      filtering*, as its comment says, so taking its first element answers an arbitrary device when nothing
      is eligible at all. `isEligible` is the filter.
+
+   ### What the cube itself answered, 2026-09-07
+
+   The sequence in full, from `FacetCore`'s own code over libdbus with no subprocess: discovery found the
+   cube by `DeviceScanRules`; connect gave `ServicesResolved: true` and `Paired: false`; **16
+   characteristics** resolved, every one the app names matched from the app's own spelling -- which is the
+   16-bit expansion earning its keep; the vendor PIN went on the wire as six ASCII digits and the command
+   result read back `02`; `DI_LABS`, `2.0`, `FW_v3.64`, battery `100%`, facing `0c` came back off real
+   reads; and notifications arrived as `PropertiesChanged` signals carrying `ay`, read as `[UInt8]`.
+
+   **The address survived the factory reset** -- `E8:DB:D8:CF:F9:0F` before and after -- which
+   `systems-info.md` had down as untested, and which matters because it is a *random*-type address, the
+   kind the specification lets a device change.
+
+   **Two things that run did not prove**, because it looks more complete than it is. **A face turn was not
+   observed**: the two values pushed were the login verdict and the initial `faces` value on subscribe,
+   both `0c`, so a *change* of face pushing a new value is still the Python probe's finding rather than
+   this code's. And **nothing but the PIN was written** -- no `0x10` status read, no pause, no lock, no
+   colour -- so the write path is proven for six bytes to one characteristic and no further.
+
+   **Neither `BlueZRadio` nor `BlueZGatt` has a hermetic test**, and cannot: both are I/O against a daemon
+   and a device. The suite covers everything they are built on -- the bus, the value tree, the object tree,
+   the addresses, the UUIDs -- and what covers these two is a device run, which is what `Tests/Scripted/`
+   is for once there is an app on this platform to drive.
 
    **Still unverified and first on the list**: the two-name mapping. On Darwin the advertised local name
    never changes while `CBPeripheral.name` is the GAP name a rename moves (finding 1, seven renames). BlueZ
