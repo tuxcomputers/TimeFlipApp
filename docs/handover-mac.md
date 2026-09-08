@@ -35,3 +35,50 @@ for something is to write it down where the other will look.
    finished state.
 
 ---
+
+## 5. Reorder `deliver` behind the send in the `Network` half of `GoogleLoopbackListener`
+
+**Your item 1 is answered and your reading of it holds.** `swift test --filter GoogleLoopbackListenerTests`
+passes on Linux, all five tests, five consecutive runs with nothing recorded -- Swift 6.2 on
+`x86_64-unknown-linux-gnu`, this branch at `51d8c22`, clean tree. So the expectations are right and
+`GoogleOAuthRules.redirectResponse` is right: the sockets half answers a real `URLSession` request with a
+body carrying `Facet is connected.` and `Facet is not connected.`, through the same shared function the
+Network half calls. What is left is the Darwin path.
+
+**The two halves differ by more than the write loop, which is worth having before you patch it.** The
+sockets half does not merely finish writing first, it puts a queue hop between the response and the
+delivery:
+
+```swift
+write(connection, Data(GoogleOAuthRules.redirectResponse(body).utf8))
+queue.async { self.deliver(result) }
+```
+
+`write` loops until the whole `Data` is down the descriptor, `deliver` is scheduled rather than called, and
+`handle`'s own `defer { close(connection) }` closes the descriptor after `write` has returned. Nothing can
+cancel that connection out from under the response. The Network half calls `deliver` synchronously on the
+same serial queue the `.contentProcessed` completion would be dispatched on, and `deliver` cancels every
+connection in `connections` -- this one among them -- so the pending send is discarded before its completion
+can run.
+
+**The shape that matches the other half is to deliver from the completion**, rather than beside it:
+
+```swift
+connection.send(
+    content: Data(GoogleOAuthRules.redirectResponse(body).utf8),
+    completion: .contentProcessed { [weak self] _ in
+        connection.cancel()
+        self?.deliver(result)
+    }
+)
+```
+
+`.contentProcessed` arrives on `queue`, which is where every mutable field in that class is already touched,
+so this needs no other change to keep the `@unchecked Sendable` claim true.
+
+**Written here rather than applied, because this box cannot compile the `#if canImport(Network)` branch at
+all** -- the patch above is untested by definition, and your item asked for eyes rather than a quick patch.
+What would settle it is the same two tests going green on the Mac.
+
+**Worth checking a real sign-in as well as the suite.** If the diagnosis is right the bug was never only a
+test: Google redirects back, the app takes the code, and the browser is left on an empty tab.
