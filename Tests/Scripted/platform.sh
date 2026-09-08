@@ -87,7 +87,12 @@ esac
 # **The same directory written the way a person writes it**, for the one place it is stored rather than
 # used: `00-setup` puts the debug trace's directory into a `setting` row, and the app expands the tilde on
 # its way back out. Kept beside the absolute form so the two cannot name different places.
-SUPPORT_TILDE="${SUPPORT/#$HOME/\~}"
+#
+# **The replacement is a bare `~` and must stay one.** Bash does no tilde expansion in the replacement half
+# of `${var/pat/rep}`, so nothing needs escaping there, and a `\~` is not an escaped tilde but a backslash
+# followed by one. That row is JSON, where `\~` is an invalid escape, so the setting stops parsing and the
+# debug trace every check polls is never written.
+SUPPORT_TILDE="${SUPPORT/#$HOME/~}"
 
 DB="$SUPPORT/appdata.sqlite"
 # The trace, in its own file beside the app's. See `lib.sh` for why the two are separate.
