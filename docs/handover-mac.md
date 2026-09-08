@@ -86,3 +86,45 @@ the one I would take:
 
 Nothing is blocked on this. It is worth a decision rather than a rediscovery, and `Package.swift` has not
 changed since run 172, so whichever way it goes it costs nothing today.
+
+## 8. Run 173, and check the platform seam did not change what the Mac does
+
+**Blocking, and it is my doing.** `bf8f711` and `88e821d` put everything platform-specific behind
+`Tests/Scripted/platform.sh`, which means `Tests/Scripted/` changed and run 172 is stale. The gate names
+the files:
+
+```
+The scripted suite has not been run on this branch as it stands:
+  - the app or the checks have changed since that run:
+      Tests/Scripted/lib.sh
+      Tests/Scripted/platform.sh
+      Tests/Scripted/run.sh
+      Tests/Scripted/testlog.sh
+```
+
+**The macOS values are a transcription, not a redesign, and that is the thing to check.** `PLATFORM` comes
+from `uname`; `SUPPORT`, `DB`, `DEBUG_DB`, `APP`, `BINARY`, `PROCESS_NAME` and `STAMP` hang off it. Every
+Mac value was copied across unchanged, and `BINARY` resolves character for character to the literal that
+was sitting in `testlog.sh`. I checked both platforms' values with `PLATFORM_OVERRIDE`, which is in the
+file for that purpose -- but an override can only prove the *paths*, never the *methods*, since
+`ax-press.py` was never going to run here.
+
+So what run 173 is really testing is that the seam is invisible on the Mac. The places it could bite:
+
+- `platform_quit_app` -- the same two `python3` calls in the same order with the same messages, now one
+  function called from three places (`run.sh` twice, `lib.sh` once).
+- `platform_binary_built_at` -- was `stat -f '%Sm' -t '%Y-%m-%d %H:%M:%S'` against a literal path, now
+  against `$BINARY`. It feeds the run record's `binary_built_at` and the `launching ...` step.
+- `platform_signing` -- the `codesign` case moved wholesale, pipefail measurement and all. If run 173's
+  record says `ad-hoc` against a properly signed app, that is this and not the app.
+- `SUPPORT_TILDE` in `00-setup` -- it writes the debug trace's directory into a `setting` row, and the
+  app expands the tilde. It should be byte-identical to what was there.
+- `platform_app_instances` in `01-launch` -- was `pgrep -x Facet | wc -l | tr -d ' '`, same pipeline now
+  behind a name.
+
+**Everything else was checked here as far as it can be**: all 35 files parse under the gate, `lib.sh`
+sources cleanly, `run.sh` on Linux refuses at the top with exit 2 and writes no log, no stamp and no
+database, and an unknown `uname` is refused rather than guessed.
+
+`run.sh` needs no new argument -- it writes `last-run-mac.md` on the Mac exactly as before, because that is
+what `platform.sh` names there.
