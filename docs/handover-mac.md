@@ -35,19 +35,3 @@ for something is to write it down where the other will look.
    finished state.
 
 ---
-
-## 4. Run the scripted suite and commit the stamp
-
-**Why:** CI is red and correct to be. The committed stamp is run 170 at `0f78510`: `outcome: failed`, 21
-of 32 scripts, 11 short of their declared checks -- and twelve files have changed since it, including the
-timezone seeding, `TimezoneStore` and the suite's own `lib.sh`, `51`, `53` and `56`.
-
-**This is the one thing the Linux box can never do.** There is no app to drive here, no accessibility
-tree, and `Tests/Scripted/` needs a person and a cube.
-
-Worth knowing before starting: the cube has been factory reset and driven from Linux since that stamp
-(see [linux-bluez-port-notes.md](linux-bluez-port-notes.md)), so it is on the vendor PIN, was last left
-paused with auto-pause at 5 minutes, and its pairing on this Mac will need making again.
-
-**Do this last.** It takes an uninterrupted screen and it is worth nothing if item 1 has not passed
-first.
