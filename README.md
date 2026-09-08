@@ -34,6 +34,7 @@ from the using end.
 - **[Features Under Development](docs/TODO-features-under-development.md)** - the longer-form notes behind individual features
 - **[The Linux port](docs/linux-port.md)** - what has been proved to work on Linux, what is left, and what is still an open question
 - **[The two systems](docs/systems-info.md)** - measured facts each of the Mac and the Linux box needs about the other
+- **[Handover: for the Mac](docs/handover-mac.md)** and **[for the Linux box](docs/handover-linux.md)** - what each machine is asking the other to do, deleted an item at a time as it is done
 - **[State Reference](docs/state-reference.md)** - the one name every state in the app goes by
 - **[Scripted checks](Tests/Scripted/README.md)** - the suite that drives the real app against a real device
 

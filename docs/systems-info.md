@@ -11,6 +11,11 @@ measured, with the date and the machine that measured it, or it is marked as unk
 between, and nothing inferred from what "should" be the case. A guess written down in a facts file is
 worse than no line at all, because the next person cannot tell it from a measurement.
 
+**Facts, not tasks.** This file is for what is true about each machine. Asking the other machine to *do*
+something -- build this, run that, decide the other -- goes in [handover-mac.md](handover-mac.md) or
+[handover-linux.md](handover-linux.md), which work the same way and empty the same way. A question whose
+answer is a fact belongs here; a job belongs there.
+
 **How this file is meant to be used.** Each machine owns two sections: what it *is*, and what it *needs
 to know* about the other. You fill in your own facts and you ask your own questions; the other machine
 answers them by adding to its own facts section. Nobody writes in the other machine's half.
