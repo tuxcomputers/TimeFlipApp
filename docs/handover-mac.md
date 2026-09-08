@@ -36,36 +36,6 @@ for something is to write it down where the other will look.
 
 ---
 
-## 1. Build and test this branch
-
-**Why:** 27 commits have landed here since the last state the Mac verified, touching 32 files across
-`Package.swift`, `Sources/` and `database/`, and **not one line of it has been compiled on macOS.**
-Everything else on this list is worth less than this.
-
-```sh
-swift build && swift test
-```
-
-`Package.swift` is the part to be suspicious of. It now chooses its target list, product list and both
-dependency lists by host, and declares two `systemLibrary` targets -- `SQLite3` and `CDBus` -- that exist
-only on Linux. **The claim it rests on is that a target nothing depends on is never built**, and
-`swift build` succeeding is that claim being tested. On macOS the graph should be exactly what it was
-before Linux appeared in the manifest: `FacetCore` with no dependencies, the tests against `FacetApp` and
-`FacetCore`, the executable product, and no `SQLite3` or `CDBus` anywhere.
-
-**Two predictions, so a deviation is obvious rather than something to hunt for:**
-
-- **The suite should be much faster than it was.** Each DDL file is applied in one transaction now, where
-  sqlite had been giving every statement its own and an fsync with it. On Linux that took the XCTest half
-  from 38.1s to 2.0s, and every database-backed test here was paying the same cost.
-- **About 1750 tests, reported as two figures** -- an XCTest count and a swift-testing count -- because 17
-  suites migrated. It was 1718 before; the new ones are the SHA-256, loopback listener, UUID, BlueZ object
-  tree and BlueZ address suites. The `SystemBus` suite is `#if canImport(CDBus)` and compiles to nothing
-  here.
-
-**If it fails, send the output raw rather than triaging it.** A manifest mistake will be at the top, and
-the Linux box would rather read the real errors than a summary of them.
-
 ## 2. Check the symlinked DDL file survives the bundle
 
 **Why:** `database/500_timezone.sql` is a **symlink** to `002_timezone.sql` now, so the debug database's
