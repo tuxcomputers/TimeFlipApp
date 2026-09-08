@@ -208,7 +208,15 @@ check_the_suite_was_run() {
       # gate teaches people to work around it. This is what the section above means by "editing a README does
       # not force a re-run"; that was true of every README except the one describing this suite, until now.
       # `$STAMP` stays named separately because `SCRIPTED_STAMP` can point it somewhere else for testing.
-      watched=(Sources Tests/Scripted database ":!$STAMP" ":!Tests/Scripted/*.md")
+      #
+      # **`Package.swift` is watched because the manifest decides what gets built**, so a commit that changes
+      # only it alters the app while leaving every watched source untouched -- a target's file list, an
+      # exclusion, a dependency, or the whole `#if os(Linux)` graph. That is the same class of change the rest
+      # of this list exists to catch, arriving by a path it would otherwise not look at. It is watched whole
+      # rather than only outside the `os(Linux)` branch: a pathspec is textual and cannot tell the branches
+      # apart, and a gate that has to parse what it guards is one that fails open when the parsing is wrong.
+      # The cost is a manifest edit that cannot affect macOS at all still asking for a run with the cube.
+      watched=(Sources Tests/Scripted database Package.swift ":!$STAMP" ":!Tests/Scripted/*.md")
       if ! git diff --quiet "$ran_commit" HEAD -- "${watched[@]}" 2>/dev/null; then
         problems="$problems
   - the app or the checks have changed since that run:

@@ -36,30 +36,6 @@ for something is to write it down where the other will look.
 
 ---
 
-## 7. A decision: should the gate watch `Package.swift`?
-
-**It does not today, and the manifest decides what gets built.** The staleness check is
-`git diff "$ran_commit" HEAD -- Sources Tests/Scripted database`, so a commit that changes only
-`Package.swift` leaves the stamp looking fresh while the app it describes has changed -- a target's file
-list, an exclusion, a dependency, or on this branch the whole `#if os(Linux)` graph. That is the same class
-of thing the watch exists to catch, arriving by a path it does not look at.
-
-**I have not changed it, because the cost is yours to weigh rather than mine.** Adding `Package.swift` to
-`watched` is one word and closes the hole. It would also mean every manifest edit forces another 36-minute
-run with the cube -- and during this port the manifest is edited often, mostly for things that cannot
-affect macOS at all, being inside `#if os(Linux)`. So the honest options are three, and the middle one is
-the one I would take:
-
-1. **Watch it.** Correct and blunt: any manifest edit costs a re-run, including Linux-only ones.
-2. **Watch it, but let the Linux branch of it be free.** Harder to express in a `git diff` pathspec than it
-   sounds, since the diff is textual and knows nothing about `#if os(Linux)` -- it would need the check to
-   diff the file and ask whether anything outside that branch moved.
-3. **Leave it, and write down that it is deliberate**, so the next person to notice the hole finds the
-   reasoning instead of re-deriving it.
-
-Nothing is blocked on this. It is worth a decision rather than a rediscovery, and `Package.swift` has not
-changed since run 172, so whichever way it goes it costs nothing today.
-
 ## 8. Run 173, and check the platform seam did not change what the Mac does
 
 **Blocking, and it is my doing.** `bf8f711` and `88e821d` put everything platform-specific behind
