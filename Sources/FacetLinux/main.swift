@@ -52,6 +52,10 @@ do {
 // again every time an answer is wanted, and caching nothing: see the first design rule in `CLAUDE.md`.
 let database = DatabaseConnection(databaseURL: databaseURL)
 let settings = SettingStore(connection: database)
+let categories = CategoryStore(connection: database)
+let faces = FaceStore(connection: database)
+let timezones = TimezoneStore(connection: database)
+let entries = TimeEntryStore(connection: database)
 
 // **The trace goes in its own file**, and both of the `debug` row's fields are read here, at launch, so
 // that a scripted check has something to poll for. `DebugLog` creates nothing until the first message it
@@ -69,18 +73,73 @@ let debugLog: DebugLog? = {
 debugLog?.record(.launch, "Facet started on Linux, with no radio yet")
 debugLog?.record(.launch, "Database at \(databaseURL.path)")
 
+// **The same readout the menu bar and the Faces tab share on the other platform**, built from the same
+// four collaborators. Its three cube-facing questions are left at their defaults, which is not a stub: a
+// cube that is not there is exactly what `nil` face and `nil` pause mean, and the readout already knows
+// how to describe that. `isCubePaired` is asked of the table rather than defaulted, because a cube paired
+// from the Mac is a row in this database and the reading should say so.
+let timeEntries = TimeEntryRecorder(connection: database, settings: settings, faces: faces, debugLog: debugLog)
+let deviceEvents = DeviceEventRecorder(connection: database, timezones: timezones,
+                                       timeEntries: timeEntries, debugLog: debugLog)
+let dayTotal = DayTotal(settings: settings, entries: entries, events: deviceEvents, faces: faces)
+let timingReadout = TimingReadout(categories: categories, faces: faces, events: deviceEvents, dayTotal: dayTotal)
+timingReadout.isCubePaired = { settings.flag("paired", field: "paired") == true }
+
 // **The bar, and then the run loop.** From here on quit is the only way out, exactly as the macOS launch
 // says: `gtk_main` does not return until something calls `gtk_main_quit`, and the only thing that does is
 // the menu item below.
-let menuBar = MenuBar(debugLog: debugLog)
-menuBar.setLabel("Facet", guide: "00:00:00")
+let menuBar = MenuBar(
+    debugLog: debugLog,
+    // **What is being timed, asked of the database every second.** `hoursMinutesSeconds` is the same
+    // formatter the other platform's status item uses, so the two read alike. The guide is the widest the
+    // figure gets, which is what stops the panel shuffling as the digits change.
+    label: {
+        let reading = timingReadout.read()
+        guard let category = reading.category else { return ("Facet", "00:00:00") }
+        let elapsed = DurationFormat.hoursMinutesSeconds(reading.seconds, rounding: .truncate, showingSeconds: true)
+        return ("\(category.name) \(elapsed)", "Category name 0:00:00")
+    },
+    // **Rebuilt from the tables as the menu opens.** Every category active *now*, with the total it has
+    // *now* -- so a category retired from the Mac while this menu sat closed is simply not in the list the
+    // next time it opens, which is the behaviour the read-at-the-point-of-use rule buys.
+    items: {
+        var items: [MenuBar.Item] = []
 
-// **One item, because one item works.** Settings and the timing readout are the next slices of item 11;
-// a menu of controls that do nothing would be worse than a short menu, and this app already has a rule
-// about things that quietly do not happen.
-menuBar.add("Quit Facet") {
-    debugLog?.record(.quit, "Quit was chosen from the menu bar")
-    MenuBar.quit()
-}
+        let reading = timingReadout.read()
+        if let category = reading.category {
+            items.append(MenuBar.Item("Timing \(category.name)"))
+        } else {
+            items.append(MenuBar.Item("Not timing"))
+        }
+        items.append(.separator)
+
+        // **Today, per category, read now.** Listed rather than offered: starting a category by hand is
+        // manual mode, which is a control this platform has not built yet, so these say what the day looks
+        // like without pretending to change it.
+        //
+        // The window is `DayTotal`'s, not midnight: the day the app counts by is a setting, and asking the
+        // thing that owns that question is what stops this list disagreeing with the Report tab.
+        let now = Date()
+        let totals = entries.totals(from: dayTotal.windowStart(at: now), to: now)
+        let byCategory = Dictionary(totals.map { ($0.categoryID, $0.seconds) }, uniquingKeysWith: +)
+        let today = categories.activeCategories()
+        if today.isEmpty {
+            items.append(MenuBar.Item("No categories yet"))
+        } else {
+            for category in today {
+                let seconds = byCategory[category.id] ?? 0
+                let figure = DurationFormat.hoursMinutesSeconds(seconds, rounding: .truncate, showingSeconds: true)
+                items.append(MenuBar.Item("\(category.name)   \(figure)"))
+            }
+        }
+
+        items.append(.separator)
+        items.append(MenuBar.Item("Quit Facet") {
+            debugLog?.record(.quit, "Quit was chosen from the menu bar")
+            MenuBar.quit()
+        })
+        return items
+    }
+)
 
 menuBar.run()

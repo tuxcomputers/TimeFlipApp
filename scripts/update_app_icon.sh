@@ -19,6 +19,28 @@ if [[ ! -f "$FULL_SVG" ]]; then
   exit 1
 fi
 
+# **The Linux menu bar icon, kept in step here rather than left to drift.**
+#
+# GTK draws the tray icon from the SVG directly, so unlike the macOS side there is nothing to render -- but
+# it has to be a resource of the `FacetLinux` target, because `Bundle.module` resolves beside the executable
+# and a shipped binary has no repository root to reach back into.
+#
+# **A copy, and not a symlink, which was tried first.** SwiftPM copies a symlinked *file* into the resource
+# bundle as a symlink, and its relative target no longer resolves from where it lands -- so the icon
+# silently became a stock one. (A symlinked *directory* is followed, which is why the DDL can do it; see
+# `Sources/FacetCore/Resources/Database`.) So the copy is derived rather than a second source, exactly as
+# `AppIcon.icns` is, and this is the line that derives it.
+#
+# Before the rendering below, so it works on Linux too: everything after this point needs `rsvg-convert`
+# and `iconutil`, and only a Mac has the second.
+LINUX_ICON="$ROOT_DIR/Sources/FacetLinux/Resources/facet.svg"
+if ! cmp -s "$SMALL_SVG" "$LINUX_ICON"; then
+  cp "$SMALL_SVG" "$LINUX_ICON"
+  echo "Updated $LINUX_ICON from Facet.small.svg"
+else
+  echo "$LINUX_ICON is already up to date"
+fi
+
 RENDERER=""
 if command -v rsvg-convert >/dev/null 2>&1; then
   RENDERER="rsvg"

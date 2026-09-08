@@ -38,3 +38,12 @@ static inline gulong facet_on_activate(GtkWidget *item,
                                        gpointer data) {
     return g_signal_connect(item, "activate", G_CALLBACK(handler), data);
 }
+
+/* The menu being opened. What it is for is rebuilding the items at the moment somebody looks at them,
+   rather than on a timer that would be rewriting a menu while it is on screen -- which is `CLAUDE.md`'s
+   first rule applied to a menu: the totals are read when they are wanted, not held and refreshed. */
+static inline gulong facet_on_show(GtkWidget *menu,
+                                   void (*handler)(GtkWidget *, gpointer),
+                                   gpointer data) {
+    return g_signal_connect(menu, "show", G_CALLBACK(handler), data);
+}

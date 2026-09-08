@@ -219,7 +219,18 @@ let appTarget: Target = .executableTarget(
 let linuxAppTarget: Target = .executableTarget(
     name: "FacetLinux",
     dependencies: ["FacetCore", "CGtk"],
-    path: "Sources/FacetLinux"
+    path: "Sources/FacetLinux",
+    resources: [
+        // The logo the menu bar draws, derived from `Facet.small.svg` at the repository root by
+        // `scripts/update_app_icon.sh` -- the same script and the same relationship as `AppIcon.icns`.
+        //
+        // **A copy rather than a symlink, and that is measured.** A symlinked file was tried first:
+        // SwiftPM copies it into the resource bundle *as a symlink*, whose relative target no longer
+        // resolves from where it lands, so the icon silently fell back to a stock one. A symlinked
+        // *directory* is followed, which is why the DDL can do it (`Sources/FacetCore/Resources/Database`)
+        // and a single file cannot.
+        .process("Resources")
+    ]
 )
 
 let testsTarget: Target = .testTarget(
