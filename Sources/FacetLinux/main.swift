@@ -5,16 +5,16 @@ import Foundation
 // same order as the macOS `main.swift` and for the same reasons: prove this is the only instance, bring
 // the database up, then start the trace. Every step is ahead of the one that would be wrong to do twice.
 //
-// **What is missing here is missing on purpose, not forgotten.** There is no window and no radio, because
-// the toolkit is undecided (item 11 of `docs/linux-port.md`) and the BlueZ backend is item 10. This exists
-// so that the thing above it can be true: `Package.swift` declares a product on this platform, so
-// `swift build` has something to build and `Tests/Scripted/` can build and launch it the way it does on
-// the Mac. It is the boot, and the boot alone.
+// **What is missing here is missing on purpose, not forgotten.** There is a menu bar item and there is no
+// radio and no Settings window: the radio is item 10 of `docs/linux-port.md` and the rest of the UI is the
+// remainder of item 11. What this file settles is that the app exists on this platform at all --
+// `Package.swift` declares a product, so `swift build` has something to build and `Tests/Scripted/` builds
+// and launches it exactly as it does on the Mac.
 //
-// **Nothing in here is Linux-specific.** Every line below is `FacetCore`, and it is a near-transcription
-// of lines 14 to 72 of `Sources/FacetApp/main.swift`, which is AppKit-free until line 110. That is the
-// point: whichever way the toolkit goes, this prefix is what runs before it -- the `main` of a headless
-// daemon in the two-process design, and the part before `Gtk.main()` in the one-process design.
+// **The boot is not Linux-specific and the bar is.** Everything down to the debug log is `FacetCore` and
+// a near-transcription of lines 14 to 72 of `Sources/FacetApp/main.swift`, which is AppKit-free until line
+// 110 -- the two platforms start the same way because there is only one way to start. What differs begins
+// at `MenuBar`, which is GTK where the other is AppKit.
 
 // Kept for the life of the process, which is the whole of what it does: the lock lives on an open file
 // descriptor, so letting this go would hand the app's identity to the next launch mid-run.
@@ -66,14 +66,21 @@ let debugLog: DebugLog? = {
     )
 }()
 
-debugLog?.record(.launch, "Facet started on Linux, with no window and no radio yet")
+debugLog?.record(.launch, "Facet started on Linux, with no radio yet")
 debugLog?.record(.launch, "Database at \(databaseURL.path)")
 
-// **It stays up, because an app that exits is an app no check can find.** `is_running` in
-// `Tests/Scripted/lib.sh` asks whether the process is there, and every step after it assumes it is.
-//
-// **Quit is a signal until there is a menu to quit from.** `platform_kill_app` is what stops it, and the
-// default disposition of SIGTERM is what makes that work. When item 11 brings a menu bar, this loop is
-// what its event loop replaces -- so there is nothing here to unpick, only something to swap.
-FileHandle.standardError.write(Data("facet: up. No window and no radio yet -- see docs/linux-port.md items 10 and 11.\n".utf8))
-dispatchMain()
+// **The bar, and then the run loop.** From here on quit is the only way out, exactly as the macOS launch
+// says: `gtk_main` does not return until something calls `gtk_main_quit`, and the only thing that does is
+// the menu item below.
+let menuBar = MenuBar(debugLog: debugLog)
+menuBar.setLabel("Facet", guide: "00:00:00")
+
+// **One item, because one item works.** Settings and the timing readout are the next slices of item 11;
+// a menu of controls that do nothing would be worse than a short menu, and this app already has a rule
+// about things that quietly do not happen.
+menuBar.add("Quit Facet") {
+    debugLog?.record(.quit, "Quit was chosen from the menu bar")
+    MenuBar.quit()
+}
+
+menuBar.run()

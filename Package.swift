@@ -137,6 +137,22 @@ let sqliteTarget: Target = .systemLibrary(
 // **The whole of what this app needs from it is non-variadic**, which is why it can be reached at all:
 // `dbus_message_append_args` is variadic and so uncallable from Swift, exactly as libsecret's simple API
 // turned out to be (item 7), but the `dbus_message_iter_*` family that replaces it is not.
+// **GTK3 and the app indicator, for Linux only.** The third of these, after `SQLite3` and `CDBus`, and
+// for the same reason as both: a C library the platform already has, named as a module so Swift can call
+// it, rather than a Swift binding to keep in step with somebody else's release schedule.
+//
+// **One `pkgConfig`, not two.** `ayatana-appindicator3-0.1` declares GTK as a dependency, so asking
+// pkg-config for it yields GTK's include directories as well -- which matters because there are four of
+// them and two are arch-dependent.
+let cgtkTarget: Target = .systemLibrary(
+    name: "CGtk",
+    path: "Sources/CGtk",
+    pkgConfig: "ayatana-appindicator3-0.1",
+    providers: [
+        .apt(["libgtk-3-dev", "libayatana-appindicator3-dev"])
+    ]
+)
+
 let cdbusTarget: Target = .systemLibrary(
     name: "CDBus",
     path: "Sources/CDBus",
@@ -202,7 +218,7 @@ let appTarget: Target = .executableTarget(
 // long as it takes to check. `Tests/Scripted/platform.sh` holds the name in one place.
 let linuxAppTarget: Target = .executableTarget(
     name: "FacetLinux",
-    dependencies: ["FacetCore"],
+    dependencies: ["FacetCore", "CGtk"],
     path: "Sources/FacetLinux"
 )
 
@@ -226,7 +242,7 @@ let allProducts: [Product] = [
         targets: ["FacetLinux"]
     )
 ]
-let allTargets: [Target] = [sqliteTarget, cdbusTarget, coreTarget, linuxAppTarget, testsTarget]
+let allTargets: [Target] = [sqliteTarget, cdbusTarget, cgtkTarget, coreTarget, linuxAppTarget, testsTarget]
 #else
 let allProducts: [Product] = [
     .executable(

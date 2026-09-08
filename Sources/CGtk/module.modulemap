@@ -1,0 +1,17 @@
+// GTK3 and the Ayatana app indicator, as a module Swift can import. **Linux only**, and absent from the
+// build graph on Darwin, which puts its status item in AppKit and needs neither.
+//
+// Named `CGtk` rather than `Gtk` for the reason `CDBus` is not `DBus`: it is the C library rather than
+// this app's view of it. The Swift side that wraps it is `MenuBar` in `FacetLinux`.
+//
+// **One module for both**, because they arrive together: `app-indicator.h` includes GTK's headers and an
+// indicator without a `GtkMenu` is an icon that does nothing. Splitting them would mean two modules that
+// may never be imported apart.
+module CGtk [system] {
+    header "shim.h"
+    link "gtk-3"
+    link "gobject-2.0"
+    link "glib-2.0"
+    link "ayatana-appindicator3"
+    export *
+}
