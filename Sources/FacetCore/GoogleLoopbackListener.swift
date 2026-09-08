@@ -131,11 +131,17 @@ package final class GoogleLoopbackListener: @unchecked Sendable {
             } else {
                 body = "Facet is not connected."
             }
+            // The redirect is delivered from inside the completion, not beside the send. `deliver` cancels every
+            // connection it holds, this one among them, so delivering before the send has been processed discards
+            // the response: the app takes the code and the browser is left on an empty tab. `.contentProcessed`
+            // arrives on `queue`, which is where every mutable field here is already touched.
             connection.send(
                 content: Data(GoogleOAuthRules.redirectResponse(body).utf8),
-                completion: .contentProcessed { _ in connection.cancel() }
+                completion: .contentProcessed { [weak self] _ in
+                    connection.cancel()
+                    self?.deliver(result)
+                }
             )
-            self.deliver(result)
         }
     }
 
