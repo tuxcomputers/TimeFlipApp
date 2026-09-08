@@ -24,7 +24,8 @@ moving is a finding that will be measured twice.
 | Can Swift talk to BlueZ? | **Yes, in process, over libdbus.** `SystemBus` calls methods, marshals arguments both ways and receives signals with typed values; seven tests drive it against the real system bus | 2026-09-07, Linux |
 | Can it discover? | **Yes**, and the cube is found by `DeviceScanRules` -- the app's own rule, unchanged | 2026-09-07, Linux |
 | Can it drive the cube from Swift? | **Yes, every stage the app needs.** Connect, resolve, 16 characteristics by UUID, log in on the vendor PIN, read, the `0x10` status read-back parsed by the app's own rules, and **face turns arriving as notifications -- ten pushes over seven distinct faces**. Nothing but the PIN and `0x10` has been written | 2026-09-07, Linux |
-| Is there a UI? | Not started, and the toolkit is undecided | -- |
+| Is there a UI? | **A menu bar item, and that settles the toolkit.** Swift calling GTK3 and `AyatanaAppIndicator3` through a modulemap, one process, one language. No Settings window yet | 2026-09-09, Linux |
+| Does the app run on Linux? | **Yes.** It boots, takes the instance lock, applies the DDL, puts an icon in the bar and quits from its own menu | 2026-09-09, Linux |
 | Can a GTK3 app be driven by a test harness? | **Yes, and the tray over D-Bus rather than AT-SPI.** Press, type, toggle and read back, all without a mouse and while the window is covered. Measured against a stand-in, not against Facet | 2026-09-08, Linux |
 | Is there a `FacetCore` target? | **Yes.** 86 files, no AppKit, and `FacetApp` builds on it. 589 access-level edits | 2026-09-07, Mac |
 | ~~What is left before Linux can try the core?~~ | **Nothing. All four are done**: `SQLite3` has a modulemap target, `CoreGraphics` a `package typealias`, `Security` the login keyring through `secret-tool`, `CryptoKit` a written SHA-256 | 2026-09-07, Linux |
@@ -844,7 +845,13 @@ Roughly in dependency order. Nothing here is started.
    the same bytes over typed. That is the opposite conclusion to the keyring's in item 7, and for a
    consistent reason: there the subprocess won because the swap was contained in one file and the values
    were strings; here the values are the point.
-11. **The UI**, once the toolkit is decided.
+11. **The UI.** **The toolkit is decided and the first two slices are done**: Swift calling GTK3 and the
+    Ayatana indicator through `Sources/CGtk`, which is a `systemLibrary` modulemap exactly as `SQLite3` and
+    `CDBus` are, so it is one process and one language and no Swift bindings to keep in step with. What
+    exists is `Sources/FacetLinux` -- the boot, and a menu bar item whose one working control is Quit. What
+    is left is the rest of it: the timing readout in the label (`TimingReadout` is already in `FacetCore`,
+    and the label carries a `00:00:00` guide for it), the Settings window and its five tabs, and the Report
+    tab. Those are the 31 AppKit files, and they are the bulk of the port.
 12. **The scripted suite on AT-SPI.** The largest single piece, and the only thing that can say the app
     works. `Tests/Methods.md` techniques survive; the locator layer is new. **The mechanism is no longer a
     question** -- the section above drove a GTK3 window and an AppIndicator menu end to end, including
@@ -881,18 +888,25 @@ Open questions, with what would answer each.
 | **What is the state of Swift GTK3 bindings?** MATE 1.26 is GTK3, and the binding work known to exist targets GTK4 | Survey before committing to a single-process design |
 | **Does `swift build` work with real `libsqlite3-dev`?** The spike used a hand-written 25-symbol header | Install the package and drop the shim |
 
-## Decisions outstanding
+## Decided: one process, Swift calling GTK3 through a modulemap
 
-**The UI architecture, which is the owner's call.** Two candidates:
+**Settled 2026-09-09 by the owner, and the first two slices are built.** The candidates were one process in
+Swift + GTK3, or two processes with a Python/GTK3 tray over SQLite as the IPC; this file recommended the
+second on the grounds that Swift GTK *bindings* target GTK4 while MATE is GTK3.
 
-- **One process, Swift + GTK3.** Keeps everything in one language. Risk: the binding maturity question above.
-- **Two processes, Swift core plus a Python/GTK3 tray and settings UI, with SQLite as the IPC.** No
-  protocol to invent, and it fits the app's own architecture -- nothing holds state, everything reads the
-  database at the point of use, so a second reader is free. PyGObject and the appindicator bindings are
-  already installed on this machine. Needs care over WAL mode with a busy timeout, and `InstanceLock`
-  becomes per-process rather than per-app.
+**What retired that risk is that no binding is involved.** `Sources/CGtk` is a `systemLibrary` target over
+the system's own GTK3 and `libayatana-appindicator3`, which is the pattern this package already uses twice
+-- for `SQLite3` and for `CDBus` -- so there is nothing to keep in step with anybody's release schedule.
+The awkwardness C imposes is real but small and already answered: GTK's casts and `g_signal_connect` are
+macros, which Swift's importer leaves behind, so three `static inline` helpers in `shim.h` do them in C
+where the macro works and the type check survives.
 
-The second is the lower-risk recommendation, and it is not yet decided.
+**What the two-process design would have cost, now that it is not being paid**: a second language, a second
+process for `Tests/Scripted/` to launch and quit, `InstanceLock` becoming per-process rather than per-app,
+and care over WAL mode with a busy timeout. `platform.sh` assumes one `BINARY`, and it is right to.
+
+It needed `libgtk-3-dev` and `libayatana-appindicator3-dev`, which `Package.swift` names in the target's
+`providers` so the next machine is told rather than left to work it out.
 
 ---
 
