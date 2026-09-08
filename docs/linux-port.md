@@ -29,6 +29,7 @@ moving is a finding that will be measured twice.
 | Is there a `FacetCore` target? | **Yes.** 86 files, no AppKit, and `FacetApp` builds on it. 589 access-level edits | 2026-09-07, Mac |
 | ~~What is left before Linux can try the core?~~ | **Nothing. All four are done**: `SQLite3` has a modulemap target, `CoreGraphics` a `package typealias`, `Security` the login keyring through `secret-tool`, `CryptoKit` a written SHA-256 | 2026-09-07, Linux |
 | What is left before Linux can **run** anything? | The suite (item 6, swift-testing) to know it behaves; then item 9 for sign-in and item 10 for the radio. Both of those are in `FacetApp`, not the core | 2026-09-07, Linux |
+| Does the core actually run outside `swift test`? | **Yes.** A real binary linked against it resolves the XDG data directory, applies the DDL through the bundle, takes the instance lock against a second process and reaches the keyring. One fault found: the resource bundle (below) | 2026-09-08, Linux |
 
 **The strategy this settles: port the core, do not reimplement it.** The Swift is portable, so the
 11,000 lines of decision logic and the hermetic suite come across rather than being rewritten against the
@@ -437,6 +438,70 @@ The four probes are not committed, being a measurement rather than an artefact. 
 window and indicator up; enumerate `pyatspi.Registry.getDesktop(0)`; walk the tree comparing
 `node.name`; and drive `com.canonical.dbusmenu` through `dbus.SessionBus()`. `python3-pyatspi` 2.46.1
 and `at-spi2-core` 2.52.0 were already installed, and nothing was added to the machine.
+
+---
+
+## Found: the core runs from a real binary, and the resource bundle would ship broken
+
+**Measured on the Linux box, 2026-09-08.** Until tonight nothing on this platform had ever *run*
+`FacetCore` outside `swift test`. A 45-line executable was linked against the built core -- the first
+Linux binary this project has had -- and told to do what a launch does. Four of the five answers are
+good; the fifth is a fault that would have shipped.
+
+Nothing under `Sources/` was touched to get it. The probe compiles against the objects SwiftPM had
+already built:
+
+```sh
+B=.build/x86_64-unknown-linux-gnu/debug
+swiftc boot_probe.swift -I "$B/Modules" -package-name timeflipapp \
+  -Xcc -fmodule-map-file=Sources/SQLite3/module.modulemap \
+  -Xcc -fmodule-map-file=Sources/CDBus/module.modulemap \
+  $B/FacetCore.build/*.o -lsqlite3 -ldbus-1 -o boot_probe
+```
+
+`-package-name timeflipapp` is the part worth keeping: it is what makes `package` declarations visible
+from outside the module, and it is the package identity lowercased, which `description.json` is where to
+read off. Without it every `package` symbol is simply not in scope.
+
+### What works
+
+| | |
+|---|---|
+| **The data directory** | `.applicationSupportDirectory` answers `/home/harry/.local/share`, so the app's own path comes out as `~/.local/share/Facet/appdata.sqlite`. **No code change**: corelibs does the XDG layout, and `DebugTraceRules` already documented both |
+| **The DDL through the bundle** | `ensureDatabase(at:)` with no `ddlDirectory` succeeded and applied the schema. **This path had never run on Linux** -- every test passes `TemporaryDatabase.ddlDirectory` explicitly, so the bundle lookup was untested by all 906 of them |
+| **The single-instance lock** | Two real processes: the first claimed it, the second was refused `heldByAnotherInstance`. `~/.local/share/Facet/singleinstance.lock` is created on the way |
+| **The keyring** | `SecretToolStore.lookUp` for an absent secret answered `missing` rather than `unavailable`, so `secret-tool` is reachable and the two cases are being told apart as designed |
+
+### And the fault: a shipped binary dies on its resources
+
+**`Bundle.module` on Linux is generated code with a hardcoded absolute build path in it.** SwiftPM writes
+`FacetCore.build/DerivedSources/resource_bundle_accessor.swift`, and it tries two places:
+
+```swift
+let mainPath = Bundle.main.bundleURL.appendingPathComponent("FacetApp_FacetCore.resources").path
+let buildPath = "/home/harry/git/TimeFlipApp/.build/x86_64-unknown-linux-gnu/debug/FacetApp_FacetCore.resources"
+guard let bundle = Bundle(path: mainPath) ?? Bundle(path: buildPath) else { Swift.fatalError(...) }
+```
+
+So **on the machine that built it, every binary works wherever it is run** -- the fallback answers, and the
+first probe run from `/tmp` was in fact answered by that hardcoded path rather than by anything beside the
+executable. Move the same binary to a machine without that directory and it does not degrade, it dies:
+
+```
+FacetCore/resource_bundle_accessor.swift:12: Fatal error: could not load resource bundle:
+from .../deploy-bare/FacetApp_FacetCore.resources or /home/harry/git/TimeFlipApp/.build/...
+```
+
+Measured by hiding the build directory for the length of one run. **Two things make this worse than a
+missing file.** It is a `fatalError`, so `DatabaseBootstrap.Failure.ddlDirectoryNotFound` -- written
+precisely for "the DDL is not where it should be" -- never gets the chance to report it, and none of the
+careful error handling around it runs. And it is invisible on the build machine, which is the one place
+anybody would test it.
+
+**What it costs is one packaging rule**: `FacetApp_FacetCore.resources` goes beside the executable.
+Confirmed working -- with the directory copied next to the binary and the build path hidden, the same
+probe applied the schema without complaint. Whatever item 11 produces, its install layout has to carry
+that directory, and something should check it rather than trusting it.
 
 ---
 
