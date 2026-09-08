@@ -12,7 +12,7 @@ import Foundation
 // and launches it exactly as it does on the Mac.
 //
 // **The boot is not Linux-specific and the bar is.** Everything down to the debug log is `FacetCore` and
-// a near-transcription of lines 14 to 72 of `Sources/FacetApp/main.swift`, which is AppKit-free until line
+// a near-transcription of lines 14 to 72 of `Sources/FacetMac/main.swift`, which is AppKit-free until line
 // 110 -- the two platforms start the same way because there is only one way to start. What differs begins
 // at `MenuBar`, which is GTK where the other is AppKit.
 
@@ -42,7 +42,7 @@ do {
 } catch {
     // The app is refusing to start, so the reason has to reach whoever launched it. On this platform that
     // is more than a formality: the DDL is found through `Bundle.module`, which resolves beside the
-    // executable, so a binary installed without `FacetApp_FacetCore.resources` next to it fails here.
+    // executable, so a binary installed without `Facet_FacetCore.resources` next to it fails here.
     let message = (error as? DatabaseBootstrap.Failure)?.description ?? error.localizedDescription
     FileHandle.standardError.write(Data("facet: \(message)\n".utf8))
     exit(EXIT_FAILURE)

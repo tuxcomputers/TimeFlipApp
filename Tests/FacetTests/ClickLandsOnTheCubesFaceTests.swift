@@ -1,0 +1,599 @@
+@testable import FacetMac
+@testable import FacetCore
+import AppKit
+import XCTest
+
+/// Clicking a category with a cube connected: the face the cube is resting on takes it, and no clock starts.
+///
+/// **Two gestures sharing one control**, which is why this is a file of its own rather than more cases in
+/// `CreateStartsTimingTests`. With no cube, a click is "start timing this", and it rotates a manual face and opens a
+/// segment. With a cube, the same click is "this face is that", and it writes one column of one row. The only thing
+/// they share is where they start.
+///
+/// Against a real database, for the reason every test around this is: what is being checked is not that a method was
+/// called, it is that `face` now names a different category and `device_event` does not. Those are rows.
+@MainActor
+final class ClickLandsOnTheCubesFaceTests: XCTestCase, @unchecked Sendable {
+    private var database: TemporaryDatabase!
+    private var categories: CategoryStore!
+    private var faces: FaceStore!
+    private var events: DeviceEventRecorder!
+    private var readout: TimingReadout!
+    private var settings: SettingStore!
+    private var controller: SettingsWindowController!
+
+    /// Face 5, which `008_face.sql` seeds *Unassigned* and unlocked. A cube face that will take a category, unlike
+    /// the two the DDL seeds with one.
+    private let freeFace = 5
+    /// Face 2, seeded with Meeting **and locked**. The ordinary case on a fresh database, not an edge of it.
+    private let lockedFace = 2
+    /// Face 8, seeded holding **Break** and locked, which is the face the whole-journey test below is driven on: a
+    /// cube resting on a face that already means something and is being kept that way.
+    private let breakFace = 8
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        try MainActor.assumeIsolated {
+            database = TemporaryDatabase()
+            _ = try database.bootstrap()
+            let connection = database.connection()
+            categories = CategoryStore(connection: connection)
+            faces = FaceStore(connection: connection)
+            settings = SettingStore(connection: connection)
+            let entries = TimeEntryStore(connection: connection)
+            events = DeviceEventRecorder(
+                connection: connection,
+                timezones: TimezoneStore(connection: connection),
+                timeEntries: nil,
+                debugLog: nil
+            )
+            readout = TimingReadout(
+                categories: categories,
+                faces: faces,
+                events: events,
+                dayTotal: DayTotal(settings: settings, entries: entries, events: events, faces: faces)
+            )
+            // **One controller for the whole file, whichever state the test wants.** It asks the table what the app
+            // is, exactly as the app does, so a test that wants a paired app writes the row rather than building a
+            // different window -- which is the change this file is mostly about.
+            let store = settings!
+            controller = SettingsWindowController(
+                debugLog: nil,
+                categories: categories,
+                faces: faces,
+                deviceEvents: events,
+                timing: readout,
+                entries: entries,
+                settings: settings,
+                isManualMode: { store.flag("paired", field: "paired") != true }
+            )
+        }
+    }
+
+    override func tearDown() {
+        MainActor.assumeIsolated {
+            // Put down rather than left on the run loop for the rest of the suite: the timer outlives the controller,
+            // whose deallocation it does not notice.
+            controller?.stopTicking()
+            controller = nil
+            settings = nil
+            readout = nil
+            events = nil
+            faces = nil
+            categories = nil
+            database.remove()
+        }
+        super.tearDown()
+    }
+
+    /// A cube resting on `face`, answered per reading exactly as the radio answers it.
+    private func cubeIsOn(_ face: Int) {
+        readout.cubeFace = { face }
+    }
+
+    /// A row of the Faces tab's list being clicked, through the closure the row actually calls.
+    private func click(_ name: String) {
+        controller.select(.faces)
+        guard let pane = controller.panes.selectedTabViewItem?.view as? FacesPane else {
+            return XCTFail("the Faces tab is not on show")
+        }
+        guard let category = categories.matching(name: name).first else {
+            return XCTFail("there is no category called \(name)")
+        }
+        pane.categoryList.onSelect?(category)
+    }
+
+    private func id(_ name: String) -> Int? {
+        categories.matching(name: name).first?.id
+    }
+
+    private var openSegments: Int {
+        Int(database.string("SELECT COUNT(*) FROM device_event WHERE finalised = 0;") ?? "0") ?? 0
+    }
+
+    /// A cube's own segment on `face`, which is what `HistoryIngestor` writes on every fetch: open, and as long as
+    /// the cube has said it is.
+    private func cubeHasBeenTiming(on face: Int, forSeconds seconds: Double, since: Date, paused: Bool = false) {
+        events.record(
+            DeviceEventSegment(
+                eventNumber: 40,
+                face: face,
+                startedAt: since,
+                durationSeconds: seconds,
+                isPaused: paused
+            )
+        )
+    }
+
+    // MARK: - the Faces tab keeps up with a cube's clock
+
+    func testTheTabTicksWhileACubeIsTiming() {
+        // **The fix this exists for.** A followed cube leaves `state` idle for the whole session, and the tick was
+        // started on `state` -- so the Timing column stood still while a cube timed and jumped a whole history
+        // interval whenever a fetch redrew it. The figure was growing on every read the entire time.
+        controller.isOnScreen = { true }
+        controller.select(.faces)
+        cubeIsOn(freeFace)
+        XCTAssertTrue(faces.assign(categoryID: id("Break") ?? 0, toFace: freeFace))
+        cubeHasBeenTiming(on: freeFace, forSeconds: 60, since: Date().addingTimeInterval(-60))
+
+        controller.redrawTiming()
+
+        XCTAssertTrue(controller.isRepaintTicking)
+    }
+
+    func testAPausedCubeStopsTheTick() {
+        // A double tap on the cube arrives as a paused interval in the next fetch, and that fetch redraws this --
+        // which is the moment the clock has to stop, not the next time somebody opens the window.
+        controller.isOnScreen = { true }
+        controller.select(.faces)
+        cubeIsOn(freeFace)
+        XCTAssertTrue(faces.assign(categoryID: id("Break") ?? 0, toFace: freeFace))
+        cubeHasBeenTiming(on: freeFace, forSeconds: 60, since: Date().addingTimeInterval(-60))
+        controller.redrawTiming()
+        XCTAssertTrue(controller.isRepaintTicking, "precondition")
+
+        cubeHasBeenTiming(on: freeFace, forSeconds: 60, since: Date().addingTimeInterval(-60), paused: true)
+        controller.redrawTiming()
+
+        XCTAssertFalse(controller.isRepaintTicking)
+    }
+
+    func testAWindowThatIsNotOnScreenDoesNotTick() {
+        // A cube being turned redraws this whether or not anybody has the window open, and the figure is worked out
+        // when it is drawn rather than counted up in here -- so a closed window misses nothing by standing still, and
+        // a tick for it would be a wake-up a second for a view nobody can see.
+        controller.isOnScreen = { false }
+        controller.select(.faces)
+        cubeIsOn(freeFace)
+        XCTAssertTrue(faces.assign(categoryID: id("Break") ?? 0, toFace: freeFace))
+        cubeHasBeenTiming(on: freeFace, forSeconds: 60, since: Date().addingTimeInterval(-60))
+
+        controller.redrawTiming()
+
+        XCTAssertFalse(controller.isRepaintTicking)
+    }
+
+    // MARK: - the face takes it
+
+    func testTheFaceTheCubeIsOnTakesTheCategory() {
+        cubeIsOn(freeFace)
+
+        click("Break")
+
+        XCTAssertEqual(faces.categoryID(forFace: freeFace), id("Break"))
+    }
+
+    func testTheReadingThenNamesIt() {
+        // The whole point of writing the face rather than anything else: both surfaces draw the reading, and the
+        // reading is the face's category, so the tab and the menu bar follow with nothing being told.
+        cubeIsOn(freeFace)
+
+        click("Break")
+
+        XCTAssertEqual(readout.read().category?.id, id("Break"))
+        XCTAssertEqual(readout.read().cubeFace, freeFace)
+    }
+
+    func testNoClockStarts() {
+        // The cube is doing the timing and this app does not read its history yet, so a segment opened here would be
+        // the app recording a stretch it never measured.
+        cubeIsOn(freeFace)
+
+        click("Break")
+
+        XCTAssertEqual(openSegments, 0)
+        XCTAssertEqual(readout.read().timingState, .idle)
+        XCTAssertEqual(readout.read().seconds, 0)
+    }
+
+    func testTheManualFacesAreLeftAlone() {
+        // The rotation exists so a finished manual segment cannot be reassigned underneath it. A click that landed on
+        // the cube's face *and* on a manual face would put the category in two places at once.
+        cubeIsOn(freeFace)
+
+        click("Break")
+
+        for face in ManualFace.all {
+            XCTAssertNil(faces.categoryID(forFace: face), "manual face \(face) was written to")
+        }
+    }
+
+    func testAnotherClickMovesTheSameFaceToTheNewCategory() {
+        // One face is being said something about, repeatedly. It is not a rotation: there is one cube face in front of
+        // the user and the second click is a correction of the first.
+        cubeIsOn(freeFace)
+
+        click("Break")
+        click("Meeting")
+
+        XCTAssertEqual(faces.categoryID(forFace: freeFace), id("Meeting"))
+        XCTAssertEqual(openSegments, 0)
+    }
+
+    func testClickingWhatTheFaceAlreadyHoldsChangesNothing() {
+        cubeIsOn(freeFace)
+        click("Break")
+
+        click("Break")
+
+        XCTAssertEqual(faces.categoryID(forFace: freeFace), id("Break"))
+        XCTAssertEqual(openSegments, 0)
+    }
+
+    // MARK: - a locked face keeps what it has
+
+    func testALockedFaceRefusesTheCategory() {
+        // Face 2 is seeded locked, holding Meeting. Locking is the user saying this face keeps what it has, and a
+        // click is not an instruction strong enough to undo that.
+        cubeIsOn(lockedFace)
+
+        click("Break")
+
+        XCTAssertEqual(faces.categoryID(forFace: lockedFace), id("Meeting"))
+    }
+
+    func testARefusedClickStartsNothingEither() {
+        // The failure that would matter: falling through to the manual path and opening a segment, so a refused click
+        // recorded time anyway.
+        cubeIsOn(lockedFace)
+
+        click("Break")
+
+        XCTAssertEqual(openSegments, 0)
+        for face in ManualFace.all {
+            XCTAssertNil(faces.categoryID(forFace: face), "manual face \(face) was written to by a refused click")
+        }
+    }
+
+    func testUnlockingTheFaceLetsTheSameClickThrough() {
+        // Read at the point of use, so nothing has to be told the face was unlocked: the next click asks the table.
+        cubeIsOn(lockedFace)
+        click("Break")
+        XCTAssertEqual(faces.categoryID(forFace: lockedFace), id("Meeting"), "precondition")
+
+        XCTAssertTrue(database.execute("UPDATE face SET locked = 0 WHERE face_id = \(lockedFace);"))
+        click("Break")
+
+        XCTAssertEqual(faces.categoryID(forFace: lockedFace), id("Break"))
+    }
+
+    // MARK: - and without a cube, nothing changes
+
+    func testWithNoCubeTheClickStillStartsTheClock() {
+        // The manual path is untouched: this is a branch taken only when there is a face to take it, and the whole of
+        // `CreateStartsTimingTests` still describes what happens otherwise.
+        click("Break")
+
+        XCTAssertEqual(openSegments, 1)
+        XCTAssertEqual(readout.read().timingState, .running)
+        XCTAssertTrue(ManualFace.all.contains { faces.categoryID(forFace: $0) == id("Break") })
+    }
+
+    // MARK: - a paired app does not start timing by hand
+
+    /// A launch that found a device on record: the table says so, and the mode it decided on is `.device`.
+    ///
+    /// **Both, and set together at the start rather than flipped part way**, because the app reads both -- `paired`
+    /// is what a launch decides the mode from, and the mode is what a click asks. Setting one without the other would
+    /// be testing a state no launch reaches.
+    ///
+    /// **The row is written and nothing is told**, which is the point: the window in front of somebody follows the
+    /// pairing because it asks, so a cube paired mid-session is a cube this app is following from the next read on.
+    private func pairADevice() {
+        XCTAssertTrue(
+            database.execute("UPDATE setting SET setting_value = '{\"paired\":true}' WHERE setting_name = 'paired';")
+        )
+    }
+
+    func testAPairedAppDoesNotStartTimingByHand() {
+        // The state this rule is about: a cube on record, out of reach at this moment, and nobody has said to get on
+        // without it. A click that started the clock here would record against a category while the cube records
+        // against whatever face it is sitting on, and whichever was read later would look like the answer.
+        pairADevice()
+
+        click("Break")
+
+        XCTAssertEqual(openSegments, 0)
+        for face in ManualFace.all {
+            XCTAssertNil(faces.categoryID(forFace: face), "manual face \(face) was written to")
+        }
+    }
+
+    func testADeviceLaunchThatGaveUpLookingStillDoesNotTimeByHand() {
+        // **What the offer used to change, and no longer does.** Answering "Stop Looking" settles the reconnect loop
+        // and nothing else: there is still a cube on record, so the click is still refused, and the way to the other
+        // answer is to forget the device -- which takes effect at once, and is the test above.
+        //
+        // The old version of this test pressed the offer's second button and expected the same click to go through.
+        // That was one launch being two things in turn, decided by a dialog; giving up on a cube and giving one up
+        // are different facts and this is the one that is not about what the app has.
+        pairADevice()
+
+        click("Break")
+
+        XCTAssertEqual(openSegments, 0)
+        for face in ManualFace.all {
+            XCTAssertNil(faces.categoryID(forFace: face), "manual face \(face) was written to")
+        }
+    }
+
+    func testPairingADeviceStopsTheAppTimingByHandWithoutARestart() {
+        // **The other direction, and the whole of what this change is for.** A window that has been up all day, on an
+        // app that started with no cube: a device is paired on the Device tab, and the very next click is refused
+        // rather than starting the app's own clock. Nothing was told -- the click asks the table, as everything here
+        // does -- which is why there is no restart in it any more.
+        click("Break")
+        XCTAssertEqual(openSegments, 1, "precondition: with no cube, a click is the app's own clock")
+
+        pairADevice()
+        click("Meeting")
+
+        XCTAssertEqual(openSegments, 1, "no second manual segment: this app is following a cube now")
+        XCTAssertFalse(
+            ManualFace.all.contains { faces.categoryID(forFace: $0) == id("Meeting") },
+            "and nothing was assigned to one of the app's own faces"
+        )
+    }
+
+    func testThePairingBeingRefusedIsNotACubeAssignmentEither() {
+        // Neither branch: no face means nothing to assign to, and paired means nothing to start. The click does
+        // nothing at all, which is the point -- there is no third thing for it to fall through to.
+        pairADevice()
+
+        click("Break")
+
+        XCTAssertNil(readout.read().category)
+        XCTAssertEqual(readout.read().timingState, .idle)
+    }
+
+    func testAPairedAppWithItsCubeInFrontOfItStillTakesTheClick() {
+        // The ordinary paired case, and the reason the cube branch is ahead of this guard: there *is* somewhere for
+        // the click to land, and it is the face on screen.
+        pairADevice()
+        cubeIsOn(freeFace)
+
+        click("Break")
+
+        XCTAssertEqual(faces.categoryID(forFace: freeFace), id("Break"))
+        XCTAssertEqual(openSegments, 0)
+    }
+
+    func testTheLinkDroppingLeavesAPairedAppRefusing() {
+        // Asked per click, so nothing has to be told: the cube going away stops being the answer, and what is left is
+        // a paired app that has not been told to get on without one.
+        pairADevice()
+        var face: Int? = freeFace
+        readout.cubeFace = { face }
+        click("Break")
+        XCTAssertEqual(faces.categoryID(forFace: freeFace), id("Break"), "precondition: the cube's face took it")
+
+        face = nil
+        click("Meeting")
+
+        XCTAssertEqual(openSegments, 0, "the clock started by hand under a pairing")
+        XCTAssertEqual(faces.categoryID(forFace: freeFace), id("Break"), "the cube's face kept what it was given")
+    }
+
+    func testCreatingOneOnTheFacesTabIsRefusedWhilePairedToo() {
+        // The create shares the path, so it shares the rule. A category is still made -- the list is a list -- but
+        // nothing is timed against it.
+        pairADevice()
+        controller.select(.faces)
+        guard let pane = controller.panes.selectedTabViewItem?.view as? FacesPane else {
+            return XCTFail("the Faces tab is not on show")
+        }
+
+        pane.createControl.onSave?("Drafting")
+
+        XCTAssertNotNil(id("Drafting"), "the category was not created at all")
+        XCTAssertEqual(openSegments, 0)
+    }
+
+    // MARK: - creating one lands the same way
+
+    func testCreatingACategoryOnTheFacesTabLandsOnTheCubesFace() {
+        // Creating on this tab is saying what you are doing now, so it goes where a click goes -- which the archive
+        // gave as the reason the create lives on this tab at all rather than in the shared control.
+        cubeIsOn(freeFace)
+        controller.select(.faces)
+        guard let pane = controller.panes.selectedTabViewItem?.view as? FacesPane else {
+            return XCTFail("the Faces tab is not on show")
+        }
+
+        pane.createControl.onSave?("Drafting")
+
+        XCTAssertEqual(faces.categoryID(forFace: freeFace), id("Drafting"))
+        XCTAssertEqual(openSegments, 0, "a create with a cube connected started a clock")
+    }
+
+    // MARK: - the list says what the click will do
+
+    /// Brings the Faces tab up **and makes it reload**.
+    ///
+    /// Away and back, deliberately. Faces is the tab a controller starts on, so selecting it changes nothing and the
+    /// tab view's delegate never fires -- which is what fills the list and applies the rule to it. A real window gets
+    /// there by being opened; a test has to ask for a switch that is actually a switch.
+    private func showFacesTab() -> FacesPane? {
+        controller.select(.categories)
+        controller.select(.faces)
+        return controller.panes.selectedTabViewItem?.view as? FacesPane
+    }
+
+    /// Every category row currently drawn on the Faces tab.
+    private func rows() -> [CategoryRowView] {
+        guard let pane = showFacesTab() else { return [] }
+        func walk(_ view: NSView) -> [CategoryRowView] {
+            (view as? CategoryRowView).map { [$0] } ?? view.subviews.flatMap(walk)
+        }
+        return walk(pane.categoryList)
+    }
+
+    private func timingView() -> TimingView? {
+        showFacesTab()?.timingView
+    }
+
+    func testAnUnlockedFaceLeavesTheRowsLive() {
+        cubeIsOn(freeFace)
+
+        XCTAssertFalse(rows().isEmpty, "no rows to check")
+        XCTAssertTrue(rows().allSatisfy(\.isEnabled))
+    }
+
+    func testALockedFaceDrawsTheRowsDead() {
+        // The whole point of the rule being a value: the refusal was invisible, so a click that did nothing read as a
+        // list that had stopped responding. Watched happening on hardware before this existed.
+        cubeIsOn(lockedFace)
+
+        XCTAssertFalse(rows().isEmpty, "no rows to check")
+        XCTAssertTrue(rows().allSatisfy { !$0.isEnabled })
+    }
+
+    func testAPairedAppStillLookingDrawsThemDeadToo() {
+        // The other refusal, and it has to look the same: in both cases a click does nothing, and the reason is
+        // elsewhere on the screen rather than in the list.
+        pairADevice()
+
+        XCTAssertTrue(rows().allSatisfy { !$0.isEnabled })
+    }
+
+    func testTimingByHandLeavesThemLive() {
+        XCTAssertTrue(rows().allSatisfy(\.isEnabled))
+    }
+
+    func testUnlockingTheFaceBringsTheRowsBack() {
+        cubeIsOn(lockedFace)
+        XCTAssertTrue(rows().allSatisfy { !$0.isEnabled }, "precondition")
+
+        XCTAssertTrue(faces.setLocked(false, face: lockedFace))
+        controller.redrawTiming()
+
+        XCTAssertTrue(rows().allSatisfy(\.isEnabled))
+    }
+
+    // MARK: - the lock in the corner
+
+    func testTheLockIsDrawnForTheFaceOnShow() {
+        cubeIsOn(lockedFace)
+        controller.redrawTiming()
+
+        XCTAssertEqual(timingView()?.lockButton.isHidden, false)
+        XCTAssertEqual(timingView()?.lockButton.contentTintColor, .systemRed)
+    }
+
+    func testThereIsNoLockWithoutACube() {
+        controller.redrawTiming()
+
+        XCTAssertEqual(timingView()?.lockButton.isHidden, true)
+    }
+
+    func testPressingTheLockLocksTheFaceTheCubeIsOn() {
+        cubeIsOn(freeFace)
+        controller.redrawTiming()
+        XCTAssertEqual(faces.isFaceLocked(face: freeFace), false, "precondition")
+
+        timingView()?.onToggleLock?()
+
+        XCTAssertEqual(faces.isFaceLocked(face: freeFace), true)
+    }
+
+    func testPressingItAgainUnlocksIt() {
+        cubeIsOn(lockedFace)
+        controller.redrawTiming()
+
+        timingView()?.onToggleLock?()
+
+        XCTAssertEqual(faces.isFaceLocked(face: lockedFace), false)
+    }
+
+    func testLockingImmediatelyRefusesTheNextClick() {
+        // The two halves meeting: the lock is written, the tab is redrawn from the table, and the click that follows
+        // reads the same answer. Nothing is told -- both ends ask.
+        cubeIsOn(freeFace)
+        controller.redrawTiming()
+
+        timingView()?.onToggleLock?()
+        click("Break")
+
+        XCTAssertNil(faces.categoryID(forFace: freeFace), "a locked face took a category")
+        XCTAssertTrue(rows().allSatisfy { !$0.isEnabled })
+    }
+
+    func testTheLockDecidesEveryClickAlongOneJourney() throws {
+        // **Each step here has a test of its own; what this adds is that they share a face and a control.** A
+        // reassignment that left the lock behind, or a redraw that did not follow the second toggle, would pass every
+        // one of those and fail here -- which is the shape of fault a sequence catches and a case does not.
+        //
+        // Face 8 is seeded holding Break and locked, so this is a cube resting on a face that already means something
+        // and is being kept that way. Nothing is told at any point: the lock is written, the tab is redrawn from the
+        // table, and each click reads the table again.
+        cubeIsOn(breakFace)
+        controller.redrawTiming()
+        let breakID = try XCTUnwrap(id("Break"))
+        let meetingID = try XCTUnwrap(id("Meeting"))
+        XCTAssertEqual(faces.categoryID(forFace: breakFace), breakID, "precondition: the face holds Break")
+        XCTAssertEqual(faces.isFaceLocked(face: breakFace), true, "precondition: and is locked")
+
+        // 1. Locked, so another category is refused and the rows say so before anybody presses one.
+        XCTAssertTrue(rows().allSatisfy { !$0.isEnabled }, "a locked face should draw its rows dead")
+        click("Meeting")
+        XCTAssertEqual(faces.categoryID(forFace: breakFace), breakID, "a locked face took a category")
+
+        // 2. Unlocked from the tab, which is the only way a person has.
+        timingView()?.onToggleLock?()
+        XCTAssertEqual(faces.isFaceLocked(face: breakFace), false)
+        XCTAssertTrue(rows().allSatisfy(\.isEnabled), "and the rows come back with it")
+
+        // 3. The same click that was refused a moment ago now lands.
+        click("Meeting")
+        XCTAssertEqual(faces.categoryID(forFace: breakFace), meetingID)
+
+        // 4. And the face goes back, which is a reassignment rather than a first assignment: the interesting half,
+        //    since it is where a face that remembered what it used to hold would show it.
+        click("Break")
+        XCTAssertEqual(faces.categoryID(forFace: breakFace), breakID)
+
+        // 5. Locked again from the same control, and the same click is refused again.
+        timingView()?.onToggleLock?()
+        XCTAssertEqual(faces.isFaceLocked(face: breakFace), true)
+        click("Meeting")
+
+        XCTAssertEqual(faces.categoryID(forFace: breakFace), breakID, "the lock did not take the second time")
+        XCTAssertTrue(rows().allSatisfy { !$0.isEnabled })
+        XCTAssertEqual(openSegments, 0, "and no click along the way started the app's own clock")
+    }
+
+    func testTheLockFollowsTheFaceRatherThanWhatWasDrawn() {
+        // The cube can be turned between the tab being drawn and the click landing, so the toggle reads the face now
+        // rather than acting on the one the button was drawn for.
+        var face = freeFace
+        readout.cubeFace = { face }
+        controller.redrawTiming()
+
+        face = 6
+        timingView()?.onToggleLock?()
+
+        XCTAssertEqual(faces.isFaceLocked(face: 6), true, "the face the cube is on now")
+        XCTAssertEqual(faces.isFaceLocked(face: freeFace), false, "not the one the lock was drawn for")
+    }
+}

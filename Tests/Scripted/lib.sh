@@ -1160,7 +1160,7 @@ ensure_app_running() {
     fi
 
     # **Asked before building rather than discovered by a failing build.** On Linux there is no executable
-    # product in the manifest yet (item 11), and "no product named FacetApp" reported as a build failure
+    # product in the manifest yet (item 11), and "no product named FacetMac" reported as a build failure
     # reads as something broken rather than as something not written.
     platform_app_is_declared
     case $? in

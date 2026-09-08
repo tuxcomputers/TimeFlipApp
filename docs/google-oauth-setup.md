@@ -196,7 +196,7 @@ is `public/images/facet-logo-120.png` in the site repo, at the 120x120 the conso
 third travels with the binary**, which is why it exists.
 
 `scripts/generate-credentials.sh` is what fills it. It copies the console's download to
-`Sources/FacetApp/Resources/google-client.json`, which is gitignored, so neither value is committed. Not because
+`Sources/FacetMac/Resources/google-client.json`, which is gitignored, so neither value is committed. Not because
 either is confidential -- under a Desktop client neither is, see Part 1 step 5 -- but so a release build and a
 developer build can point at different projects without editing code, and so the repo stays publishable without a
 second thought. `scripts/run.sh` and the scripted suite's build both run it, so it is not a step anybody has to
@@ -218,7 +218,7 @@ cache to defeat. Confirmed both directions against a warm `.build`.
 also CI's case, so `swift build` needs no secret.
 
 **Removing credentials prunes the build too.** SwiftPM does not delete a resource that has gone from the source
-directory -- measured: delete it, `swift build`, and the copy under `.build/.../FacetApp_FacetApp.bundle/` is still
+directory -- measured: delete it, `swift build`, and the copy under `.build/.../Facet_FacetMac.bundle/` is still
 there -- and swift-bundler builds the `.app` from those products. So the generator clears them itself rather than
 leaving a build carrying a client somebody has just taken away.
 

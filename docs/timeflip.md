@@ -1,6 +1,6 @@
 # TimeFlip Device Engineering Notes
 
-This document captures how the TimeFlip2 puck exposes its BLE surface and how the macOS driver in `Sources/FacetApp/` uses it. Use this as the architectural source when evolving the driver or building test doubles.
+This document captures how the TimeFlip2 puck exposes its BLE surface and how the macOS driver in `Sources/FacetMac/` uses it. Use this as the architectural source when evolving the driver or building test doubles.
 
 ## 1. High-level model
 

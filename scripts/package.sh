@@ -59,7 +59,7 @@ echo
 # The only source of the Google client that travels with a binary. A build sent to somebody else
 # without it can do everything except sign in, so this is reported rather than assumed.
 scripts/generate-credentials.sh
-if [ -f Sources/FacetApp/Resources/google-client.json ]; then
+if [ -f Sources/FacetMac/Resources/google-client.json ]; then
     CREDENTIALS="bundled"
 else
     CREDENTIALS="absent"
@@ -105,7 +105,7 @@ echo
 echo "What Gatekeeper makes of it on this machine:"
 spctl --assess --type execute --verbose=4 "$BUNDLE" 2>&1 | sed 's/^/  /' || true
 
-# The executable is named for the app (Facet), not for the SwiftPM product (FacetApp), so it is read
+# The executable is named for the app (Facet), not for the SwiftPM product (FacetMac), so it is read
 # off the plist rather than guessed at.
 PLIST="$BUNDLE/Contents/Info.plist"
 EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$PLIST")"

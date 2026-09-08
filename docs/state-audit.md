@@ -25,7 +25,7 @@ produce it.
 - **Names** is every identifier the fact travels under today, including parameter labels.
 - **Traps** is where the obvious reading is wrong.
 
-Counts in brackets are occurrences of the identifier across `Sources/FacetApp/`, doc comments included.
+Counts in brackets are occurrences of the identifier across `Sources/FacetMac/`, doc comments included.
 
 ---
 

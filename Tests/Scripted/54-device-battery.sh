@@ -2,7 +2,7 @@
 # The cube's charge: read once on connecting, then pushed, and drawn as one steady figure.
 #
 # **What needs a real cube here is the traffic, not the arithmetic.** Which figure a run of readings should show is
-# `BatteryRules`, and it is pinned in `Tests/FacetAppTests/BatteryRulesTests.swift` with no radio in sight. What cannot
+# `BatteryRules`, and it is pinned in `Tests/FacetTests/BatteryRulesTests.swift` with no radio in sight. What cannot
 # be tested there is that the cube is asked at all, that it answers, and that it then goes on volunteering values
 # nobody asked for -- which is the whole reason this feature is a read *and* a subscription rather than either one.
 #

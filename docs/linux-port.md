@@ -20,16 +20,16 @@ moving is a finding that will be measured twice.
 | Does the app's core compile on Linux? | **Yes -- `FacetCore` entire**, 89 files, 0 errors, 0 warnings, from a deleted `.build` in 13s | 2026-09-07, Linux |
 | Does the logic behave? | **Yes**, 432 tests pass | 2026-09-06 |
 | Can the whole test suite run? | **Under XCTest no**, `@MainActor` blocks ~60%. **Under swift-testing yes** | 2026-09-06 |
-| Does any of the suite run on Linux? | **Yes. `swift test` passes 891 of 1743 tests** across 55 suites in 49s -- 540 under XCTest, 351 under swift-testing. The rest need AppKit, CoreBluetooth or a `FacetApp` type, and come back with items 10 and 11 | 2026-09-07, Linux |
+| Does any of the suite run on Linux? | **Yes. `swift test` passes 891 of 1743 tests** across 55 suites in 49s -- 540 under XCTest, 351 under swift-testing. The rest need AppKit, CoreBluetooth or a `FacetMac` type, and come back with items 10 and 11 | 2026-09-07, Linux |
 | Can Swift talk to BlueZ? | **Yes, in process, over libdbus.** `SystemBus` calls methods, marshals arguments both ways and receives signals with typed values; seven tests drive it against the real system bus | 2026-09-07, Linux |
 | Can it discover? | **Yes**, and the cube is found by `DeviceScanRules` -- the app's own rule, unchanged | 2026-09-07, Linux |
 | Can it drive the cube from Swift? | **Yes, every stage the app needs.** Connect, resolve, 16 characteristics by UUID, log in on the vendor PIN, read, the `0x10` status read-back parsed by the app's own rules, and **face turns arriving as notifications -- ten pushes over seven distinct faces**. Nothing but the PIN and `0x10` has been written | 2026-09-07, Linux |
 | Is there a UI? | **A menu bar item, and that settles the toolkit.** Swift calling GTK3 and `AyatanaAppIndicator3` through a modulemap, one process, one language. No Settings window yet | 2026-09-09, Linux |
 | Does the app run on Linux? | **Yes.** It boots, takes the instance lock, applies the DDL, puts an icon in the bar and quits from its own menu | 2026-09-09, Linux |
 | Can a GTK3 app be driven by a test harness? | **Yes, and the tray over D-Bus rather than AT-SPI.** Press, type, toggle and read back, all without a mouse and while the window is covered. Measured against a stand-in, not against Facet | 2026-09-08, Linux |
-| Is there a `FacetCore` target? | **Yes.** 86 files, no AppKit, and `FacetApp` builds on it. 589 access-level edits | 2026-09-07, Mac |
+| Is there a `FacetCore` target? | **Yes.** 86 files, no AppKit, and `FacetMac` builds on it. 589 access-level edits | 2026-09-07, Mac |
 | ~~What is left before Linux can try the core?~~ | **Nothing. All four are done**: `SQLite3` has a modulemap target, `CoreGraphics` a `package typealias`, `Security` the login keyring through `secret-tool`, `CryptoKit` a written SHA-256 | 2026-09-07, Linux |
-| What is left before Linux can **run** anything? | The suite (item 6, swift-testing) to know it behaves; then item 9 for sign-in and item 10 for the radio. Both of those are in `FacetApp`, not the core | 2026-09-07, Linux |
+| What is left before Linux can **run** anything? | The suite (item 6, swift-testing) to know it behaves; then item 9 for sign-in and item 10 for the radio. Both of those are in `FacetMac`, not the core | 2026-09-07, Linux |
 | Does the core actually run outside `swift test`? | **Yes.** A real binary linked against it resolves the XDG data directory, applies the DDL through the bundle, takes the instance lock against a second process and reaches the keyring. One fault found: the resource bundle (below) | 2026-09-08, Linux |
 
 **The strategy this settles: port the core, do not reimplement it.** The Swift is portable, so the
@@ -93,7 +93,7 @@ The `Locale(identifier: "en_US_POSIX")` discipline throughout the codebase is wh
 **What this does and does not mean.** The portable half compiles and links its own module; nothing here
 says it *behaves*, because `swift test` still cannot run on Linux -- that is item 6, and it is now the
 single thing standing between a compiling core and a verified one. Nor is there anything to run: the
-executable is `FacetApp`, which is AppKit, so a Linux binary waits on items 9, 10 and 11.
+executable is `FacetMac`, which is AppKit, so a Linux binary waits on items 9, 10 and 11.
 
 ### The three genuine Foundation gaps
 
@@ -195,8 +195,9 @@ Darwin follows the link. Measured 2026-09-06, same directory, same process:
 | **through a symlink** | **0** | 15 | 15 |
 | the real path | 15 | 15 | 15 |
 
-`database/` at the root of this repository **used to be** the symlink, pointing into
-`Sources/FacetApp/Resources/Database`. **Fixed 2026-09-06 by flipping it**: `database/` is now the real
+`database/` at the root of this repository **used to be** the symlink, pointing into what was then
+`Sources/FacetApp/Resources/Database` (that target is called `FacetMac` now, and the link has since moved
+to `FacetCore` anyway). **Fixed 2026-09-06 by flipping it**: `database/` is now the real
 directory and the path under `Sources/` is the symlink, because the schema is shared and neither platform
 owns it -- the only reason it ever lived inside the macOS target is that SwiftPM requires a target's
 resources to sit inside the target, and SwiftPM does follow the link when bundling (verified on Linux;
@@ -234,7 +235,7 @@ rather than asking for a directory -- the code already expects this, and its com
 
 After the split the link lives at `Sources/FacetCore/Resources/Database` and its text is unchanged,
 `../../../database` reaching the repository root from the new depth exactly as it did from the old.
-The bundle is `FacetApp_FacetCore.bundle` and holds the same 13 files.
+The bundle is `Facet_FacetCore.bundle` and holds the same 13 files.
 
 ## Found: a real module split needs 589 access-level edits, and it is done
 
@@ -242,7 +243,7 @@ The bundle is `FacetApp_FacetCore.bundle` and holds the same 13 files.
 section replaces an estimate taken from a script on the Linux side; the estimate is left in the table
 below so the two can be compared.
 
-**`FacetCore` is real and the whole package builds on it.** 86 files in the core, 35 in `FacetApp`,
+**`FacetCore` is real and the whole package builds on it.** 86 files in the core, 35 in `FacetMac`,
 **nothing in the core importing AppKit**, `swift build` clean with no warnings, and **1718 tests passing
 with none skipped**.
 
@@ -252,15 +253,15 @@ with none skipped**.
 | Members that had to be widened | ~511 (upper bound) | **437** |
 | **Total `package` declarations** | ~614 | **589** |
 | `public` keywords anywhere | 0 | **0**, still |
-| `package` keywords in `FacetApp` | -- | **0** |
+| `package` keywords in `FacetMac` | -- | **0** |
 
 **The type count was low by half, and the reason is worth knowing before estimating this kind of change
-again.** The script counted the types `FacetApp` names directly. What the compiler asks for is those
+again.** The script counted the types `FacetMac` names directly. What the compiler asks for is those
 plus everything that comes with them: a type used in a `package` signature, a nested type behind a
 `package` enum case, and a parent that has to widen so its own nested type is reachable at all. The
 member count came in **under** its upper bound, which is what an upper bound is for.
 
-**It cannot be read off one build.** The first build of `FacetApp` against `FacetCore` reported 4,801
+**It cannot be read off one build.** The first build of `FacetMac` against `FacetCore` reported 4,801
 error lines naming 94 types; widening those exposed the next layer, and so on for a dozen rounds. Until
 a type is visible the compiler cannot say which of its members are wanted.
 
@@ -479,8 +480,8 @@ read off. Without it every `package` symbol is simply not in scope.
 `FacetCore.build/DerivedSources/resource_bundle_accessor.swift`, and it tries two places:
 
 ```swift
-let mainPath = Bundle.main.bundleURL.appendingPathComponent("FacetApp_FacetCore.resources").path
-let buildPath = "/home/harry/git/TimeFlipApp/.build/x86_64-unknown-linux-gnu/debug/FacetApp_FacetCore.resources"
+let mainPath = Bundle.main.bundleURL.appendingPathComponent("Facet_FacetCore.resources").path
+let buildPath = "/home/harry/git/TimeFlipApp/.build/x86_64-unknown-linux-gnu/debug/Facet_FacetCore.resources"
 guard let bundle = Bundle(path: mainPath) ?? Bundle(path: buildPath) else { Swift.fatalError(...) }
 ```
 
@@ -490,7 +491,7 @@ executable. Move the same binary to a machine without that directory and it does
 
 ```
 FacetCore/resource_bundle_accessor.swift:12: Fatal error: could not load resource bundle:
-from .../deploy-bare/FacetApp_FacetCore.resources or /home/harry/git/TimeFlipApp/.build/...
+from .../deploy-bare/Facet_FacetCore.resources or /home/harry/git/TimeFlipApp/.build/...
 ```
 
 Measured by hiding the build directory for the length of one run. **Two things make this worse than a
@@ -499,7 +500,7 @@ precisely for "the DDL is not where it should be" -- never gets the chance to re
 careful error handling around it runs. And it is invisible on the build machine, which is the one place
 anybody would test it.
 
-**What it costs is one packaging rule**: `FacetApp_FacetCore.resources` goes beside the executable.
+**What it costs is one packaging rule**: `Facet_FacetCore.resources` goes beside the executable.
 Confirmed working -- with the directory copied next to the binary and the build path hidden, the same
 probe applied the schema without complaint. Whatever item 11 produces, its install layout has to carry
 that directory, and something should check it rather than trusting it.
@@ -520,12 +521,12 @@ Roughly in dependency order. Nothing here is started.
      five of the six `NSColor` files carry `Colour`; `DeviceReconnector` depends on a `CubeRadio`
      protocol. A fourth was needed and is done with them: `GoogleCredentials` out of
      `GoogleOAuthClient.swift`.
-   - ~~The target, and the files into it.~~ Done. 86 files in `FacetCore`, 35 in `FacetApp`,
+   - ~~The target, and the files into it.~~ Done. 86 files in `FacetCore`, 35 in `FacetMac`,
      `FacetCore` compiling with 0 errors and no AppKit, the DDL and `google-client.json` moved to its
      resources.
    - ~~Stage 3, the access-level loop.~~ Done 2026-09-07. **589 `package` declarations**, 152 types and
      437 members, every one of them named by the compiler.
-   - ~~Stage 5, the test target.~~ Done. `@testable import FacetCore` beside `FacetApp` in 100 files,
+   - ~~Stage 5, the test target.~~ Done. `@testable import FacetCore` beside `FacetMac` in 100 files,
      one target still. `ActivityIconTests` is the exception and says why in a comment: both targets
      generate a `Bundle.module`, so importing both makes every use of it ambiguous.
    - **The scripted suite has been run against the split and passed in full**, 2026-09-07 on the Mac,
@@ -570,7 +571,7 @@ Roughly in dependency order. Nothing here is started.
    emptied, and **873 of the 1725 tests pass on Linux**: 333 under swift-testing in 45s beside 540 still
    under XCTest in 1.9s.
 
-   The 48 files still excluded are excluded for needing AppKit, CoreBluetooth or a `FacetApp` type, not
+   The 48 files still excluded are excluded for needing AppKit, CoreBluetooth or a `FacetMac` type, not
    for their testing framework, and they migrate when their platform arrives.
 
    **Under way. 14 suites migrated, and 832 of the 1725 tests now run on Linux** (2026-09-07): 292
@@ -580,17 +581,17 @@ Roughly in dependency order. Nothing here is started.
    The structure it needed came first, and what made it possible was not the migration but getting the
    package to build tests at all on Linux:
 
-   - `FacetApp` is no longer in the package on Linux, and neither is the executable product. `swift test`
+   - `FacetMac` is no longer in the package on Linux, and neither is the executable product. `swift test`
      builds *every* target rather than only what the tests depend on, so a declared AppKit executable
      killed every run.
    - The test target's dependencies are chosen by the host rather than carrying `.when(platforms:)`.
      **SwiftPM resolves a dependency by name before it applies the condition**, so merely *naming*
-     `FacetApp` from the test target made it hunt for sources that are not there and fail the manifest.
+     `FacetMac` from the test target made it hunt for sources that are not there and fail the manifest.
    - `Package.swift` carries two lists of test files to exclude on Linux, with the reason attached to
-     each: **48 platform-bound** (AppKit, CoreBluetooth or a `FacetApp` type) and **17 `@MainActor`
+     each: **48 platform-bound** (AppKit, CoreBluetooth or a `FacetMac` type) and **17 `@MainActor`
      XCTestCases**. The second list is this item's work queue, 333 tests, and it shrinks as they migrate.
      An isolated *helper* is not affected and is not listed -- only an XCTestCase subclass aborts a run.
-   - 36 files stopped importing `FacetApp`, and one carried a vestigial `import AppKit`
+   - 36 files stopped importing `FacetMac`, and one carried a vestigial `import AppKit`
      (`DeviceFaceRulesTests`). Neither was needed; the Linux build is what proved it, since a file that
      compiles without a module needs nothing from it on either platform.
 
@@ -878,8 +879,8 @@ Open questions, with what would answer each.
 | **Is `contentsOfDirectory(at:)` on a symlink a known corelibs bug or intended?** Worth reporting upstream if the former. **Narrowed 2026-09-07, Linux**: it is specific to a symlinked *directory*. A symlinked **file** inside a real directory is listed by both `at:` and `atPath:` and read straight through by `String(contentsOf:)` -- measured on `database/500_timezone.sql`, 13 of 13 `.sql` files found either way. So a report has a smaller and sharper case than the original finding suggested | Check the swift-corelibs-foundation tracker |
 | ~~**Does SwiftPM follow the symlinked resources directory on macOS?**~~ **Yes**, before and after the split: 13 `.sql` files in the built bundle, flattened to its root | Answered 2026-09-06, Mac |
 | ~~Does `Thread.isMainThread` matter?~~ **No.** It reads `false` inside a `@MainActor` test on Linux -- isolation holds, the OS thread simply is not thread 1 -- and nothing in `Sources/` calls it | Answered 2026-09-06 |
-| ~~**What do the 41 platform files actually need?**~~ **35 of them, and now assessed by the compiler.** `FacetApp` is what did not move: the panes and views, `BluetoothRadio`, `DeviceLogin`, `BLETrace`, `TimeFlipUUIDs`, `MenuBarController`, `MainMenu`, `ActivityIcon`, `GoogleOAuthClient`, `QuitSequence`, `StatusItemTitle`, `ColourDrawing` and `main.swift` | Answered 2026-09-06, Mac |
-| ~~**How many members does stage 3 actually have to widen?**~~ **437 members, over 152 types, 589 `package` declarations in total.** The loop was run and the section above carries the working; the type count of 94 this row quoted was low by more than half, because what the compiler asks for is the types `FacetApp` names *plus* everything that comes with them | Answered 2026-09-07, Mac |
+| ~~**What do the 41 platform files actually need?**~~ **35 of them, and now assessed by the compiler.** `FacetMac` is what did not move: the panes and views, `BluetoothRadio`, `DeviceLogin`, `BLETrace`, `TimeFlipUUIDs`, `MenuBarController`, `MainMenu`, `ActivityIcon`, `GoogleOAuthClient`, `QuitSequence`, `StatusItemTitle`, `ColourDrawing` and `main.swift` | Answered 2026-09-06, Mac |
+| ~~**How many members does stage 3 actually have to widen?**~~ **437 members, over 152 types, 589 `package` declarations in total.** The loop was run and the section above carries the working; the type count of 94 this row quoted was low by more than half, because what the compiler asks for is the types `FacetMac` names *plus* everything that comes with them | Answered 2026-09-07, Mac |
 | ~~**Does the scripted suite still pass after the split?**~~ **Yes, in full**, reported by the owner from a shakedown run on the Mac. Not a stamped run and not evidence for CI, which still wants one -- but it answers the question this row was asking, which was whether moving `Sources/` wholesale had broken the app on hardware. It had not | Answered 2026-09-07, Mac |
 | **Does the rename apply immediately or is it deferred?** Open since August; finding 1 wants a second BLE central with no cached record, and this box is one | Rename from the Mac, read the GAP name from Linux |
 | **Does the `T.Flip` manufacturer data survive a rename?** If it does, a renamed cube has two stable markers | Rename, then re-read `ManufacturerData` |

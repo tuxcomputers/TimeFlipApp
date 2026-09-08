@@ -69,11 +69,11 @@ case "$PLATFORM" in
         SUPPORT="$HOME/.local/share/Facet"
         # **There is no bundle**, so there is no `.app` and the binary is the whole of it. `swift build`
         # puts an executable product straight into the bin directory, and `.build/debug` is a symlink to
-        # the triple's copy of it -- which matters for more than tidiness: `FacetApp_FacetCore.resources`
+        # the triple's copy of it -- which matters for more than tidiness: `Facet_FacetCore.resources`
         # lands in that same directory, and a binary run from anywhere else dies on a `fatalError` the
         # first time it wants the DDL. Measured 2026-09-08; see linux-port.md.
         APP=""
-        # **Derived from the product rather than invented.** `FacetApp` is what `Package.swift` already
+        # **Derived from the product rather than invented.** `FacetMac` is what `Package.swift` already
         # calls the executable product on the other platform, so it is what a Linux one would be called
         # too -- and nothing here trusts that: `platform_app_is_declared` asks SwiftPM whether the product
         # exists at all, and `platform_build_app` checks the binary actually appeared where this says.
@@ -198,7 +198,7 @@ platform_app_is_declared() {
         linux)
             platform_swift_is_available || return 2
             # **The products list, read as JSON rather than grepped.** A grep for the name matches the
-            # *package*, which is also called `FacetApp`, so it answered yes on a platform with no products
+            # *package*, which is also called `FacetMac`, so it answered yes on a platform with no products
             # at all. Nothing else in the file would have caught it: the wrong answer was the encouraging one.
             swift package describe --type json 2>/dev/null | python3 -c '
 import json, sys

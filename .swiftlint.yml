@@ -1,8 +1,8 @@
 swiftlint_version: 0.62.1
 
 included:
-  - Sources/FacetApp
-  - Tests/FacetAppTests
+  - Sources/FacetMac
+  - Tests/FacetTests
 
 excluded:
   - .build
@@ -11,7 +11,7 @@ excluded:
   - refapp
   - reflib
   - scripts
-  - Sources/FacetApp/Resources
+  - Sources/FacetMac/Resources
 
 cache_path: .swiftlint.cache
 

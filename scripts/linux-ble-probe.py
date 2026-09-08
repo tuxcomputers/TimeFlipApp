@@ -37,7 +37,7 @@ DEVICE_IFACE = "org.bluez.Device1"
 SERVICE_IFACE = "org.bluez.GattService1"
 CHARACTERISTIC_IFACE = "org.bluez.GattCharacteristic1"
 
-# From `Sources/FacetApp/TimeFlipUUIDs.swift`, lowercased because BlueZ reports them that way.
+# From `Sources/FacetMac/TimeFlipUUIDs.swift`, lowercased because BlueZ reports them that way.
 # The names match `TimeFlipUUIDs.name(for:)` so a trace here reads like a trace there, and an
 # unnamed UUID falls through to its full form for the same reason the app does it: a characteristic
 # nothing has a name for is a finding, not noise.

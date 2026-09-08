@@ -86,7 +86,7 @@ final class MenuBar {
         // without it the icon silently falls back to nothing at all.
         //
         // **Falling back out loud.** `Bundle.module` resolves beside the executable, so a binary installed
-        // without `FacetApp_FacetLinux.resources` next to it has no logo to show. That is the same trap the
+        // without `Facet_FacetLinux.resources` next to it has no logo to show. That is the same trap the
         // DDL sits behind, and it is the kind of thing that would otherwise be noticed as "the icon looks
         // wrong" months later rather than as a missing file now.
         if let resources = Bundle.module.resourcePath,

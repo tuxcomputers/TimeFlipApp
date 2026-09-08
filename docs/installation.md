@@ -73,7 +73,7 @@ carries is absent too. Useful for compiling and for `swift test`, not for runnin
 
 ```bash
 swift build -c release
-.build/release/FacetApp
+.build/release/FacetMac
 ```
 
 ## Sending somebody a build

@@ -236,7 +236,7 @@ for it and nothing needs to be. Agent sessions are pinned to bash 5 as well, thr
 `~/.claude/settings.json`. **Write for bash 5 on both machines.**
 
 **`swift-bundler` is not installed**, although `Bundler.toml` exists and describes the `.app`
-(identifier `au.com.tux.facet`, product `FacetApp`, `LSUIElement = 1`). Day-to-day work is
+(identifier `au.com.tux.facet`, product `FacetMac`, `LSUIElement = 1`). Day-to-day work is
 `swift build` / `swift test` / `scripts/run.sh`, which do not need it.
 
 ### Filesystem
@@ -741,7 +741,7 @@ to-do item 12 rather than a piece of work in it.
 
 | | |
 |---|---|
-| `swift test` | **Runs. 906 tests, 0 failures, 48s** (2026-09-07) -- 540 under XCTest and 366 under swift-testing. That is 57 suites; the 48 files excluded by name in `Package.swift` are excluded for needing AppKit, CoreBluetooth or a `FacetApp` type |
+| `swift test` | **Runs. 906 tests, 0 failures, 48s** (2026-09-07) -- 540 under XCTest and 366 under swift-testing. That is 57 suites; the 48 files excluded by name in `Package.swift` are excluded for needing AppKit, CoreBluetooth or a `FacetMac` type |
 | `Tests/Scripted/` | **cannot run today**: no app binary to drive, and toolkit accessibility is off. The `sqlite3` half of that is fixed as of 2026-09-07 |
 | `swift build` | **Succeeds**, and builds no app -- the whole of why is below (2026-09-08) |
 | `swift build --target FacetCore` | **Succeeds**, 0.16s from a warm `.build` (2026-09-08) |
@@ -754,7 +754,7 @@ compiles here yet. The figure to compare them against is 1725, the whole suite o
 **`swift build` succeeds on Linux, and what it does not do is build an app.** Both rows above said it
 failed until 2026-09-08, when both were measured returning 0 on this machine. The explanation was already
 sitting in the sentence beside the claim: `Package.swift` gives this platform `allProducts: [Product] = []`
-and a target list without `FacetApp`, so there is no executable in the graph for AppKit to fail on. **A
+and a target list without `FacetMac`, so there is no executable in the graph for AppKit to fail on. **A
 green build here means the core built and says nothing whatever about the app** -- which is the reading
 that matters, because the obvious one is the opposite.
 

@@ -2,7 +2,7 @@
 
 **You are the macOS half of a two-machine piece of work.** The other half runs on Linux, where this
 repository is also checked out, and it has gone as far as it can: there is no AppKit there, so
-`FacetApp` cannot be compiled at all, and the change described below is mostly a conversation with the
+`FacetMac` cannot be compiled at all, and the change described below is mostly a conversation with the
 compiler about access levels. That is why it is waiting for you.
 
 ## Read these first, in this order

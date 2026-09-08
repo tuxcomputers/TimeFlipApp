@@ -6,8 +6,8 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 SMALL_SVG="$ROOT_DIR/Facet.small.svg"
 FULL_SVG="$ROOT_DIR/Facet.svg"
-ICONSET_DIR="$ROOT_DIR/Sources/FacetApp/Resources/AppIcon.iconset"
-ICNS_PATH="$ROOT_DIR/Sources/FacetApp/Resources/AppIcon.icns"
+ICONSET_DIR="$ROOT_DIR/Sources/FacetMac/Resources/AppIcon.iconset"
+ICNS_PATH="$ROOT_DIR/Sources/FacetMac/Resources/AppIcon.icns"
 
 if [[ ! -f "$SMALL_SVG" ]]; then
   echo "Missing $SMALL_SVG" >&2

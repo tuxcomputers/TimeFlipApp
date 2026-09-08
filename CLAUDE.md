@@ -436,7 +436,7 @@ it.
    behind each claim. Check it before trusting the spec on anything to do with the device name, with whether
    a command is acknowledged, or with double tap. Add to it only from an actual device run, citing the
    evidence rows, and never from reasoning about the protocol.
-2. **This app's own driver** (`Sources/FacetApp/DeviceLogin.swift`, `BluetoothRadio.swift`). It talks to this
+2. **This app's own driver** (`Sources/FacetMac/DeviceLogin.swift`, `BluetoothRadio.swift`). It talks to this
    hardware and is checked against a real cube by `Tests/Scripted/50`-`66` on every full run, so where it
    departs from a document it is because the document was wrong and the code had to work anyway. Its comments
    say which measurement forced each departure.
@@ -517,7 +517,7 @@ The two honest exceptions, and both have to earn it in a comment at the call sit
   13:25:38 [history] Fetched 12 segments, newest event_number=112
   13:25:39 [entry  ] Segment 4213 became tracked time, filed under Meeting
   ```
-- Use `debugLog?.record(_ tag: DebugLog.Tag, _:)` (in `Sources/FacetApp/DebugLog.swift`) rather than a
+- Use `debugLog?.record(_ tag: DebugLog.Tag, _:)` (in `Sources/FacetCore/DebugLog.swift`) rather than a
   bare `print(...)` call. It prepends the timestamp, and it writes a `debug_log` row as well as
   printing, which is the half that matters: a terminal transcript is whatever happened to still be in
   a scrollback buffer, while a row outlives the session and is what every scripted check polls for.

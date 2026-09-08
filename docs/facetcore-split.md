@@ -3,7 +3,7 @@
 [← Back to README](../README.md) · [Linux port status →](linux-port.md) · [The two systems →](systems-info.md)
 
 **Instructions for work that cannot be done from the Linux machine.** There is no AppKit there, so
-`FacetApp` cannot be compiled at all, and this change is mostly a conversation with the compiler. Read
+`FacetMac` cannot be compiled at all, and this change is mostly a conversation with the compiler. Read
 [linux-port.md](linux-port.md) for why the split is wanted; this file is only how to do it.
 
 **The whole method is: let the compiler enumerate the work.** Do not go through the sources making
@@ -76,10 +76,10 @@ should change behaviour.
 
 ```sh
 mkdir -p Sources/FacetCore
-git mv Sources/FacetApp/<file>.swift Sources/FacetCore/     # for each file below
+git mv Sources/FacetMac/<file>.swift Sources/FacetCore/     # for each file below
 ```
 
-Add to `Package.swift`, before the `FacetApp` target:
+Add to `Package.swift`, before the `FacetMac` target:
 
 ```swift
 .target(
@@ -89,9 +89,9 @@ Add to `Package.swift`, before the `FacetApp` target:
 ),
 ```
 
-and give `FacetApp` `dependencies: ["FacetCore"]`.
+and give `FacetMac` `dependencies: ["FacetCore"]`.
 
-`main.swift` stays in `FacetApp`: an executable target needs it, and a library target may not have one.
+`main.swift` stays in `FacetMac`: an executable target needs it, and a library target may not have one.
 
 ### The files that move
 
@@ -205,8 +205,8 @@ automatically, and this is the single most common error in this stage.
 `Bundle.module.url(forResource: "001_event_type", …)`, which after the move resolves to *FacetCore's*
 bundle. If the DDL stays behind, that call returns nil and the fallback path is all that is left.
 
-So `Sources/FacetApp/Resources/Database` -- the symlink to the real `database/` at the repository root --
-moves to `Sources/FacetCore/Resources/Database`, and its target is `../../../database` from there too,
+So `Sources/FacetApp/Resources/Database` -- the symlink to the real `database/` at the repository root,
+in the target since renamed to `FacetMac` -- moves to `Sources/FacetCore/Resources/Database`, and its target is `../../../database` from there too,
 so the link text does not change. Verify it resolves after moving:
 
 ```sh
@@ -215,8 +215,8 @@ readlink -f Sources/FacetCore/Resources/Database    # must print <repo>/database
 
 Carry the two `exclude:` entries for `CLAUDE.md` and `ER-diagram.md` across to the `FacetCore` target.
 
-**The icons stay with `FacetApp`.** `ActivityIcon` is AppKit and does not move, so `Resources/Icons` and
-`AppIcon.icns` stay where they are. `FacetApp` keeps its own `resources:` declaration for them.
+**The icons stay with `FacetMac`.** `ActivityIcon` is AppKit and does not move, so `Resources/Icons` and
+`AppIcon.icns` stay where they are. `FacetMac` keeps its own `resources:` declaration for them.
 
 **`google-client.json` does move**, which this file did not anticipate. `GoogleCredentials.builtIn`
 reads it through `Bundle.module` and that type belongs in the core, so the file goes to
@@ -227,7 +227,7 @@ reads it through `Bundle.module` and that type belongs in the core, so the file 
 
 ## Stage 5: the test target
 
-`Tests/FacetAppTests` currently does `@testable import FacetApp` in 99 files. After the split, a test
+`Tests/FacetTests` currently does `@testable import FacetMac` in 99 files. After the split, a test
 of a moved type needs `@testable import FacetCore` instead, and a few will need both.
 
 The cheapest correct approach is to leave the target as one and add the second import where the compiler
@@ -237,7 +237,7 @@ asks for it:
 swift build --build-tests 2>&1 | grep "cannot find" | sort -u
 ```
 
-Splitting the tests into `FacetCoreTests` and `FacetAppTests` is tidier and is what eventually lets the
+Splitting the tests into `FacetCoreTests` and `FacetTests` is tidier and is what eventually lets the
 Linux build run the core's tests without AppKit -- but it is a second change, not part of this one, and
 it interacts with the swift-testing migration (`linux-port.md`, to-do item 6). Do not do both at once.
 

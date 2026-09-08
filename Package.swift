@@ -15,7 +15,7 @@ import PackageDescription
 // wholesale means each platform mentions only what it has.
 //
 // **The macOS side of every pair below is exactly what this manifest said before Linux existed in it**:
-// `FacetCore` with no dependencies, the tests against `FacetApp` and `FacetCore`, the executable
+// `FacetCore` with no dependencies, the tests against `FacetMac` and `FacetCore`, the executable
 // product, and no `SQLite3` target anywhere.
 #if os(Linux)
 let coreDependencies: [Target.Dependency] = ["SQLite3", "CDBus"]
@@ -25,7 +25,7 @@ let coreDependencies: [Target.Dependency] = ["SQLite3", "CDBus"]
 let testDependencies: [Target.Dependency] = ["FacetCore", "SQLite3", "CDBus"]
 #else
 let coreDependencies: [Target.Dependency] = []
-let testDependencies: [Target.Dependency] = ["FacetApp", "FacetCore"]
+let testDependencies: [Target.Dependency] = ["FacetMac", "FacetCore"]
 #endif
 
 // MARK: - the test files Linux cannot run yet
@@ -38,7 +38,7 @@ let testDependencies: [Target.Dependency] = ["FacetApp", "FacetCore"]
 // `@MainActor` XCTestCase does worse, aborting the run at load time however well everything else
 // behaves. A file that cannot run has to be absent from the build rather than inert within it.
 
-// **Needs AppKit, CoreBluetooth or a `FacetApp` type**, so it waits on items 9, 10 and 11 of
+// **Needs AppKit, CoreBluetooth or a `FacetMac` type**, so it waits on items 9, 10 and 11 of
 // `docs/linux-port.md`: the OAuth listener, the BlueZ radio, and a UI. 48 files.
 let platformBoundTests = [
     "ActivityIconTests.swift",
@@ -180,16 +180,16 @@ let coreTarget: Target = .target(
     ],
     resources: [
         // The DDL travels with `DatabaseBootstrap`, which reads it through `Bundle.module`. That
-        // accessor is per-target, so leaving the schema behind in FacetApp would have it resolve to a
+        // accessor is per-target, so leaving the schema behind in FacetMac would have it resolve to a
         // bundle the DDL is not in.
         .process("Resources")
     ]
 )
 
 let appTarget: Target = .executableTarget(
-    name: "FacetApp",
+    name: "FacetMac",
     dependencies: ["FacetCore"],
-    path: "Sources/FacetApp",
+    path: "Sources/FacetMac",
     exclude: [
         // Carried across with the icon itself: Swift Bundler copies AppIcon.icns into the bundle from
         // Bundler.toml, so processing it here as well would ship two copies. (The archived package
@@ -213,7 +213,7 @@ let appTarget: Target = .executableTarget(
 // app the way it does on the Mac. Every line in it is `FacetCore`; the window and the radio are items 11
 // and 10 of `docs/linux-port.md`.
 //
-// **Named `FacetLinux` rather than `FacetApp`** because the two cannot share `Sources/FacetApp`, which is
+// **Named `FacetLinux` rather than `FacetMac`** because the two cannot share `Sources/FacetMac`, which is
 // the AppKit one, and a target pointed at a directory it is not named after reads as a mistake for as
 // long as it takes to check. `Tests/Scripted/platform.sh` holds the name in one place.
 let linuxAppTarget: Target = .executableTarget(
@@ -234,7 +234,7 @@ let linuxAppTarget: Target = .executableTarget(
 )
 
 let testsTarget: Target = .testTarget(
-    name: "FacetAppTests",
+    name: "FacetTests",
     dependencies: testDependencies,
     exclude: testsThatCannotRunOnLinuxYet
 )
@@ -257,15 +257,20 @@ let allTargets: [Target] = [sqliteTarget, cdbusTarget, cgtkTarget, coreTarget, l
 #else
 let allProducts: [Product] = [
     .executable(
-        name: "FacetApp",
-        targets: ["FacetApp"]
+        name: "FacetMac",
+        targets: ["FacetMac"]
     )
 ]
 let allTargets: [Target] = [coreTarget, appTarget, testsTarget]
 #endif
 
 let package = Package(
-    name: "FacetApp",
+    // **`Facet`, not the name of either platform's app.** This is the project, and it holds three targets
+    // that are peers: `FacetCore` which both platforms share, `FacetMac`, and `FacetLinux`. It was called
+    // `FacetApp` while there was only one app, which quietly made the macOS one the default and the other
+    // an addition to it -- and the name leaked, `Bundle.module` deriving `FacetApp_FacetCore.resources`
+    // from it on both platforms.
+    name: "Facet",
     platforms: [
         .macOS(.v14)
     ],

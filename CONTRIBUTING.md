@@ -73,7 +73,7 @@ or `database/` does.
 ## Security
 
 - Never commit Google credentials, API tokens, or device passwords. `.gitignore` covers
-  `client_secret_*.json`, `config.*` and `Sources/FacetApp/Resources/google-client.json`; the OAuth client JSON
+  `client_secret_*.json`, `config.*` and `Sources/FacetMac/Resources/google-client.json`; the OAuth client JSON
   belongs at `~/.config/facet/google-client.json`, outside the repository.
 - `scripts/generate-credentials.sh` copies that file into the build so a distributed app can sign in. It runs from
   `scripts/run.sh` and from the scripted suite's build, and it exits 0 with nothing to copy -- **you do not need a
