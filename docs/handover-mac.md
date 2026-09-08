@@ -137,37 +137,3 @@ database, and an unknown `uname` is refused rather than guessed.
 
 `run.sh` needs no new argument -- it writes `last-run-mac.md` on the Mac exactly as before, because that is
 what `platform.sh` names there.
-
-## 9. Build `FacetMac` — the rename is unverified on macOS by construction
-
-**`b693245` renamed `FacetApp` to `FacetMac`, the tests to `FacetTests`, and the package to `Facet`.** The
-Linux app is not an addition to the macOS one and the naming said otherwise; the package name was the same
-fault, and it leaked into `Bundle.module`, which derived `FacetApp_FacetCore.resources` from it on *both*
-platforms.
-
-**I cannot compile any of it.** `FacetMac` is absent from the Linux target list by design -- that is what
-lets `swift test` run here at all -- so nothing on this machine builds it. `swift build`, `swift test` (906)
-and the scripted gate all pass on Linux, and none of that is evidence about the half you have.
-
-**What I can tell you is what the rename actually touched inside `Sources/FacetMac/`: comments, and
-nothing else.** No identifier was renamed there. The one substantive line is `ActivityIcon.swift:75`, whose
-comment now names `Facet_FacetMac.bundle` -- worth an eye, because that file reads a bundle by a derived
-name and is the one place in the macOS sources where the package name is described rather than computed.
-
-Where it could still bite, in the order I would check:
-
-1. **`swift build`.** The product is `FacetMac` and `Bundler.toml`'s `product` follows it. `[apps.Facet]` is
-   unchanged, so the built app is still `Facet.app` and `platform.sh`'s `BINARY` path is untouched.
-2. **The resource bundle.** `Facet_FacetCore.resources` and `Facet_FacetMac.resources` are what SwiftPM
-   generates now. On Linux the equivalent renamed cleanly and the app still found its icon; on macOS the
-   `.app` is assembled by `swift-bundler`, which is a different path to the same question.
-3. **`scripts/package.sh`** reads `Sources/FacetMac/Resources/google-client.json`, and its comment about the
-   executable being named for the app rather than the product is still true.
-4. **`swift test`** on the Mac, where none of the 48 Linux exclusions apply, so 47 files' `@testable import
-   FacetMac` all compile for the first time.
-
-Stale build products are worth clearing first: `.build/debug/` here still had `FacetApp_*.resources`
-directories beside the new `Facet_*` ones until a clean build, which is harmless but confusing to read.
-
-**This costs no extra cube time.** Run 172 was already stale from the platform seam (item 8), so items 8 and
-9 are one run between them.

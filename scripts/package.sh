@@ -57,16 +57,11 @@ echo "Packaging Facet $VERSION from $COMMIT$DIRTY, $ARCH_LABEL."
 echo
 
 # The only source of the Google client that travels with a binary. A build sent to somebody else
-# without it can do everything except sign in, so this is reported rather than assumed.
+# without it can do everything except sign in. Whether it made it is read out of the built app below
+# rather than decided from here: the resource is written into whichever target owns it, and a check
+# against a source path answers about the wrong file the moment that target is renamed or the resource
+# moves between targets. Both have happened on this branch.
 scripts/generate-credentials.sh
-if [ -f Sources/FacetMac/Resources/google-client.json ]; then
-    CREDENTIALS="bundled"
-else
-    CREDENTIALS="absent"
-    echo
-    echo "WARNING: no Google OAuth client is going into this build, so whoever you send it to"
-    echo "         cannot connect a Google account. Everything else works. See docs/google-oauth-setup.md."
-fi
 echo
 
 # Ad-hoc where there is no certificate, exactly as scripts/run.sh does it. An ad-hoc signature is
@@ -93,6 +88,18 @@ rm -rf "$BUNDLE"
 mint run stackotter/swift-bundler@main bundle Facet \
     --configuration release "${ARCH_ARGS[@]}" ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"}
 [ -d "$BUNDLE" ] || { echo "error: the build produced no bundle at $BUNDLE" >&2; exit 1; }
+
+# Read back rather than assumed: the question is whether this app can sign in, and the app is the thing
+# that answers it. Anywhere under Contents/Resources counts, wrapped in a target's bundle or flattened
+# beside it, both layouts being Swift Bundler's to choose.
+if find "$BUNDLE/Contents/Resources" -name google-client.json -print -quit 2>/dev/null | grep -q .; then
+    CREDENTIALS="bundled"
+else
+    CREDENTIALS="absent"
+    echo
+    echo "WARNING: no Google OAuth client is in this build, so whoever you send it to"
+    echo "         cannot connect a Google account. Everything else works. See docs/google-oauth-setup.md."
+fi
 
 echo
 echo "Checking the signature that came out:"
