@@ -36,26 +36,6 @@ for something is to write it down where the other will look.
 
 ---
 
-## 2. Check the symlinked DDL file survives the bundle
-
-**Why:** `database/500_timezone.sql` is a **symlink** to `002_timezone.sql` now, so the debug database's
-`timezone` table cannot drift from the app's. It was verified on Linux -- SwiftPM copies it into the
-resource bundle *as a link*, and it resolves because `.process` flattens the target into the same
-directory -- but **macOS SwiftPM has never been asked to do it**. `502_timezone_alias.sql` and
-`503_timezone_lookup.sql` are the same arrangement.
-
-```sh
-ls -l .build/arm64-apple-macosx/debug/FacetApp_FacetCore.bundle/Contents/Resources/*timezone*
-ls .build/arm64-apple-macosx/debug/FacetApp_FacetCore.bundle/Contents/Resources/*.sql | wc -l
-```
-
-Wanted: whether the three arrive as links, as real files, or dangling -- and **17**, which is the file
-count now. Any of the first two is fine; a dangling link means the debug database comes up without a
-`timezone` table.
-
-**If it dangles**, say so and stop there: the fix is to make those three real files again and accept the
-drift risk the link removed, and that is a decision rather than a repair.
-
 ## 3. Answer question 4 in `systems-info.md`
 
 **Why:** it is the last thing outstanding in that file's queue, it costs about a minute, and it explains
