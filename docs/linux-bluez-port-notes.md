@@ -68,11 +68,36 @@ seconds after disconnecting the same cube is refused with it, because BlueZ is s
 previous link, and the next attempt succeeds. `BlueZRadio.attemptConnect` retries it four times over six
 seconds and throws everything else -- which matters because a reconnect is exactly when it happens.
 
-**8. The events data characteristic carries ASCII status text.** `F1196F51`, one of the four the app names
-and has never read, pushes human-readable lines: `password OK` on a successful login, and `New Side: 0x00`
-on every face change. **The side number in it is always `0x00`**, so it is no substitute for `faces` --
-but the login line is a second, independent confirmation of the PIN being accepted, alongside the `0x02`
-on the command result.
+**8. Two strings on the events data characteristic that the ASCII table does not have.**
+
+**Not that it carries ASCII**, which the vendor spec says outright -- *"Notifications about events in
+TimeFlip, saved to events log. Sent in ASCI text format"* -- and which
+[timeflip2-firmware-observations.md](timeflip2-firmware-observations.md) finding 3 already enumerates a
+table of. This was written up here as a discovery on first pass and it was not one.
+
+What those two documents do not have is these:
+
+| Bytes | Text | When |
+|---|---|---|
+| `70 61 73 73 77 6F 72 64 20 4F 4B` | `password OK` | a correct PIN written to the password characteristic |
+| `4E 65 77 20 53 69 64 65 3A 20 30 78 30 30` | `New Side: 0x00` | every face change |
+
+The observations table has `password set`, which is the answer to `0x30` rather than to the login check,
+and nothing at all for a face change -- and every string in it is command narration where `New Side` is
+an actual event, which is what the characteristic is nominally for.
+
+**The side number is always `0x00`**, whichever face the cube is turned to, measured across seven faces in
+one listen. So it is no substitute for the `faces` characteristic, and finding 3's warning applies to
+both of these as much as to the rest: presumably debug output the firmware never stopped emitting, and a
+fragile thing to depend on.
+
+**No `debug_log` evidence rows for either**, because the probe that saw them is not the app. That is why
+they are written here rather than added to finding 3's table, whose own rule is that additions cite rows.
+
+**9. And finding 4 holds through a second stack.** `0x02` on the command result after a correct PIN, not
+the `0x01` the spec promises -- measured here over BlueZ and libdbus, where finding 4 measured it over
+CoreBluetooth in August. Two different hosts, two different Bluetooth stacks, same inverted byte. The
+events data line above says `password OK` at the same moment, which is a second signal agreeing with it.
 
 ## The mapping
 

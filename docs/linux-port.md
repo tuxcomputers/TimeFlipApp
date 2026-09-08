@@ -644,9 +644,16 @@ Roughly in dependency order. Nothing here is started.
    - **`le-connection-abort-by-local` is a transient**, answered when a `Connect` comes a few seconds
      after disconnecting the same cube, and the next attempt succeeds. `BlueZRadio` retries it four times
      and throws everything else -- it matters because a reconnect is precisely when it happens.
-   - **The events data characteristic carries ASCII status text**: `password OK` on login and
-     `New Side: 0x00` on every face change. The side number is always `0x00`, so it is no substitute for
-     `faces`, but the login line is a second independent confirmation of the PIN.
+   - **Two strings on the events data characteristic that are not in the recorded table.** That it carries
+     ASCII is in the vendor spec and finding 3 enumerates a table of them -- this was written up as a
+     discovery on first pass and was not one. What is new is `password OK` on a correct login and
+     `New Side: 0x00` on every face change, neither of which is in that table, and the side number is
+     always `0x00` whichever face it is.
+
+   And **finding 4 holds through a second stack**: `0x02` on the command result means a correct PIN, not
+   the `0x01` the spec promises. Finding 4 measured that over CoreBluetooth in August; this measured it
+   over BlueZ and libdbus. Two hosts, two Bluetooth stacks, the same inverted byte -- which is worth
+   having, because that byte decides whether the right cube is let in.
 
    **Neither `BlueZRadio` nor `BlueZGatt` has a hermetic test**, and cannot: both are I/O against a daemon
    and a device. The suite covers everything they are built on -- the bus, the value tree, the object tree,
