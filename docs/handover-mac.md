@@ -121,6 +121,15 @@ So what run 173 is really testing is that the seam is invisible on the Mac. The 
   app expands the tilde. It should be byte-identical to what was there.
 - `platform_app_instances` in `01-launch` -- was `pgrep -x Facet | wc -l | tr -d ' '`, same pipeline now
   behind a name.
+- **`ensure_app_running`, which was restructured rather than only re-spelled** (`0ea9fb5`). It is now the
+  step alone -- up? declared? stale? build, launch, wait -- with `platform_build_app`,
+  `platform_launch_app` and `platform_warn_if_unsigned` under it. The macOS build inside
+  `platform_build_app` is the same `mint run stackotter/swift-bundler@main bundle Facet --codesign
+  --identity "$identity"`, with `generate-credentials.sh` before it and the identity still passed as its
+  own argument. **The one behavioural change on the Mac is a new check before the build**: it asks whether
+  a product is declared at all, which on the Mac is `[ -f Bundler.toml ]` and should never fire. And
+  `platform_build_app` now refuses if the build reports success but leaves no executable at `$BINARY` --
+  new, and it should never fire either, but it is the read-back rule and it is worth knowing it is there.
 
 **Everything else was checked here as far as it can be**: all 35 files parse under the gate, `lib.sh`
 sources cleanly, `run.sh` on Linux refuses at the top with exit 2 and writes no log, no stamp and no
