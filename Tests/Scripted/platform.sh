@@ -77,6 +77,11 @@ case "$PLATFORM" in
         ;;
 esac
 
+# **The same directory written the way a person writes it**, for the one place it is stored rather than
+# used: `00-setup` puts the debug trace's directory into a `setting` row, and the app expands the tilde on
+# its way back out. Kept beside the absolute form so the two cannot name different places.
+SUPPORT_TILDE="${SUPPORT/#$HOME/\~}"
+
 DB="$SUPPORT/appdata.sqlite"
 # The trace, in its own file beside the app's. See `lib.sh` for why the two are separate.
 DEBUG_DB="$SUPPORT/debug.sqlite"
@@ -89,6 +94,13 @@ platform_app_is_running() {
         mac)   pgrep -x "$PROCESS_NAME" >/dev/null 2>&1 ;;
         linux) [ -n "$PROCESS_NAME" ] && pgrep -x "$PROCESS_NAME" >/dev/null 2>&1 ;;
     esac
+}
+
+# **How many copies of it are up.** `01-launch` asks because a second launch must hand over to the first
+# rather than join it, and "one" is the answer that says so.
+platform_app_instances() {
+    [ -n "$PROCESS_NAME" ] || { echo 0; return 0; }
+    pgrep -x "$PROCESS_NAME" | wc -l | tr -d ' '
 }
 
 # The last resort, when a tidy quit did not work.

@@ -156,7 +156,7 @@ done
 
 if is_running; then
     fail "the app is still running 15s after Quit"
-    pkill -x Facet
+    platform_kill_app
     finish
     exit 1
 fi

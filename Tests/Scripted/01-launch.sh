@@ -106,6 +106,6 @@ rm -f "$refusal"
 check "and it never opened the database" "0" \
     "$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Launch mode%';")"
 
-check "the original is still the only one running" "1" "$(pgrep -x Facet | wc -l | tr -d ' ')"
+check "the original is still the only one running" "1" "$(platform_app_instances)"
 
 finish

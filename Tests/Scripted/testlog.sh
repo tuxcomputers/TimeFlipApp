@@ -526,7 +526,8 @@ PYTHON
 
 # ---------------------------------------------------------------------------- the committed record
 
-# Writes `Tests/Scripted/last-run-mac.md`, the one part of this that goes into the repository.
+# Writes this machine's stamp -- `last-run-mac.md` or `last-run-linux.md`, whichever `platform.sh` named --
+# the one part of this that goes into the repository.
 #
 # **Named for the platform that produced it.** The scripted suite drives a real app on a real screen, so a
 # run says only what works on the machine it ran on. Linux will write `last-run-linux.md` beside this, and

@@ -95,7 +95,7 @@ fi
 #
 # **Written with the folder alongside it**, because a row holding only `enabled` would leave the trace to fall back
 # to the seeded folder while the rest of this file addresses `$DEBUG_DB`. The two must name the same place.
-sql "UPDATE setting SET setting_value = '{\"enabled\":true,\"directory\":\"~/Library/Application Support/Facet\"}' WHERE setting_name = 'debug';"
+sql "UPDATE setting SET setting_value = '{\"enabled\":true,\"directory\":\"$SUPPORT_TILDE\"}' WHERE setting_name = 'debug';"
 if [ "$(setting debug enabled)" != "1" ]; then
     trouble "debug logging would not stay on, so nothing below can poll for a row"
 else

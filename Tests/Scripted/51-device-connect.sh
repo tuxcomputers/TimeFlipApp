@@ -165,7 +165,7 @@ check_contains "the accepted answer is 0x02, as measured and not as documented" 
 # trip and a second login to change nothing. Both are correct outcomes, so both are checked rather than one being
 # arranged for -- the alternative would be taking the batteries out before every run.
 
-CONFIG="$HOME/Library/Application Support/Facet/config.json"
+CONFIG="$SUPPORT/config.json"
 config_pin() {
     python3 - "$CONFIG" <<'PY' 2>/dev/null || true
 import json, sys

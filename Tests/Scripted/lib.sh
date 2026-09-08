@@ -1145,6 +1145,15 @@ is_running() { platform_app_is_running; }
 # **The build is not optional and not a convenience.** A binary older than the change under test passes
 # and proves nothing; that has cost this project an hour once already (see Tests/Methods.md, Method 1).
 ensure_app_running() {
+    # **This whole function is macOS-shaped**, and not by an oversight that a variable would fix:
+    # `swift-bundler` produces a `.app`, `codesign` decides whether the Keychain will answer, and `open`
+    # is what launches a bundle. The Linux equivalent is a different sequence rather than a different
+    # spelling, and it cannot be written before item 11 says what it launches. `platform.sh` leaves
+    # `BINARY` empty there, so this says so rather than building nothing and launching it.
+    if [ -z "$BINARY" ]; then
+        platform_not_yet "building and launching the app" 11
+        exit 2
+    fi
     if is_running; then
         step "app: already running"
         # Captured and matched rather than piped into `grep -q`: see `tree_has` for why a pipeline cannot answer
@@ -1200,7 +1209,7 @@ ensure_app_running() {
             exit 2
         fi
     fi
-    step "launching $(stat -f '%Sm' "$BINARY")"
+    step "launching $(platform_binary_built_at)"
     open "$APP"
     local waited=0
     while [ "$waited" -lt 100 ]; do
@@ -1316,7 +1325,7 @@ quit_app() {
         waited=$((waited + 1))
     done
     step "the menu quit did not take; killing"
-    pkill -x Facet
+    platform_kill_app
 }
 
 # ---------------------------------------------------------------------------- driving the window
