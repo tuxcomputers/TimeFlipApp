@@ -18,11 +18,11 @@ import PackageDescription
 // `FacetCore` with no dependencies, the tests against `FacetApp` and `FacetCore`, the executable
 // product, and no `SQLite3` target anywhere.
 #if os(Linux)
-let coreDependencies: [Target.Dependency] = ["SQLite3"]
+let coreDependencies: [Target.Dependency] = ["SQLite3", "CDBus"]
 // Four test files open a database with the C API directly, and a Swift module is not re-exported by
 // whatever depends on it -- so importing `FacetCore` does not hand them `SQLite3`, and they need it in
 // their own right.
-let testDependencies: [Target.Dependency] = ["FacetCore", "SQLite3"]
+let testDependencies: [Target.Dependency] = ["FacetCore", "SQLite3", "CDBus"]
 #else
 let coreDependencies: [Target.Dependency] = []
 let testDependencies: [Target.Dependency] = ["FacetApp", "FacetCore"]
@@ -125,6 +125,27 @@ let sqliteTarget: Target = .systemLibrary(
     ]
 )
 
+// **libdbus, for Linux only.** The radio reaches the cube through BlueZ, which is a D-Bus service, where
+// Darwin reaches the same hardware through CoreBluetooth and needs no D-Bus at all -- so this target is
+// not in `allTargets` on that platform any more than `SQLite3` is.
+//
+// **`pkgConfig` is doing real work here rather than being tidy.** libdbus needs *two* include
+// directories: the arch-dependent `dbus-arch-deps.h` lives under `/usr/lib/<triple>/dbus-1.0/include`
+// while everything else is in `/usr/include/dbus-1.0`. A modulemap naming a path would have to name both
+// and would be wrong on any machine that moved either.
+//
+// **The whole of what this app needs from it is non-variadic**, which is why it can be reached at all:
+// `dbus_message_append_args` is variadic and so uncallable from Swift, exactly as libsecret's simple API
+// turned out to be (item 7), but the `dbus_message_iter_*` family that replaces it is not.
+let cdbusTarget: Target = .systemLibrary(
+    name: "CDBus",
+    path: "Sources/CDBus",
+    pkgConfig: "dbus-1",
+    providers: [
+        .apt(["libdbus-1-dev"])
+    ]
+)
+
 // The half that does not know what a window is: the stores, the rules, the database and the device
 // protocol. It links no UI framework, which is the property worth protecting -- adding an
 // `import AppKit` to a file in here stops compiling on Linux, and the compiler says so at the point
@@ -186,7 +207,7 @@ let testsTarget: Target = .testTarget(
 // literals inside the call, `#if` not being allowed inside an array literal.
 #if os(Linux)
 let allProducts: [Product] = []
-let allTargets: [Target] = [sqliteTarget, coreTarget, testsTarget]
+let allTargets: [Target] = [sqliteTarget, cdbusTarget, coreTarget, testsTarget]
 #else
 let allProducts: [Product] = [
     .executable(

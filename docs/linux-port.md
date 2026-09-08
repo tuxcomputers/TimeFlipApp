@@ -20,7 +20,8 @@ moving is a finding that will be measured twice.
 | Does the app's core compile on Linux? | **Yes -- `FacetCore` entire**, 89 files, 0 errors, 0 warnings, from a deleted `.build` in 13s | 2026-09-07, Linux |
 | Does the logic behave? | **Yes**, 432 tests pass | 2026-09-06 |
 | Can the whole test suite run? | **Under XCTest no**, `@MainActor` blocks ~60%. **Under swift-testing yes** | 2026-09-06 |
-| Does any of the suite run on Linux? | **Yes. `swift test` passes 884 of 1736 tests** across 54 suites in 47s -- 540 under XCTest, 344 under swift-testing. The rest need AppKit, CoreBluetooth or a `FacetApp` type, and come back with items 10 and 11 | 2026-09-07, Linux |
+| Does any of the suite run on Linux? | **Yes. `swift test` passes 891 of 1743 tests** across 55 suites in 49s -- 540 under XCTest, 351 under swift-testing. The rest need AppKit, CoreBluetooth or a `FacetApp` type, and come back with items 10 and 11 | 2026-09-07, Linux |
+| Can Swift talk to BlueZ? | **Yes, in process, over libdbus.** `SystemBus` calls methods, marshals arguments both ways and receives signals with typed values; seven tests drive it against the real system bus | 2026-09-07, Linux |
 | Is there a UI? | Not started, and the toolkit is undecided | -- |
 | Is there a `FacetCore` target? | **Yes.** 86 files, no AppKit, and `FacetApp` builds on it. 589 access-level edits | 2026-09-07, Mac |
 | ~~What is left before Linux can try the core?~~ | **Nothing. All four are done**: `SQLite3` has a modulemap target, `CoreGraphics` a `package typealias`, `Security` the login keyring through `secret-tool`, `CryptoKit` a written SHA-256 | 2026-09-07, Linux |
@@ -577,7 +578,34 @@ Roughly in dependency order. Nothing here is started.
    spelling BlueZ prints on this machine. Without it every characteristic lookup would find nothing,
    silently.
 
-   ### The transport is undecided, and here is what was measured before deciding
+   ### The transport is decided: libdbus, in process
+
+   **`SystemBus` in `FacetCore` is the whole of the C interop, and nothing above it sees libdbus.** It
+   answers `DBusValue`, a plain Swift tree, so the BlueZ layer will be written against Swift values.
+
+   `CDBus` is a `systemLibrary` target over `dbus/dbus.h`, Linux-only in the graph exactly as `SQLite3`
+   is. **`pkgConfig: "dbus-1"` is load-bearing rather than tidy**: libdbus needs *two* include
+   directories, the arch-dependent `dbus-arch-deps.h` living under `/usr/lib/<triple>/dbus-1.0/include`
+   while the rest is in `/usr/include/dbus-1.0`.
+
+   **What made it possible is that none of the API this app needs is variadic.** `dbus_message_append_args`
+   is, and would have been uncallable from Swift exactly as libsecret's simple API turned out to be
+   (item 7) -- but the `dbus_message_iter_*` family that replaces it is not, and that family is all of it.
+
+   **One thing the importer cannot read**: the type constants are `#define DBUS_TYPE_STRING ((int) 's')`,
+   a cast it does not follow, so `SystemBus.Kind` spells them out by value.
+
+   Proven against the real bus, seven tests: a call answering `as`, a string argument going out and a
+   boolean coming back, a refusal keeping its D-Bus error name (`org.bluez.Error.NotConnected` says what a
+   message string does not), the nested `a{oa{sa{sv}}}` object tree walked to the adapter's `Address`, a
+   byte array and an options dictionary marshalled cleanly enough that BlueZ refuses the *object* rather
+   than the arguments, and a `PropertiesChanged` signal arriving with `Discovering` as a boolean inside a
+   variant. That last one triggers its own signal by toggling discovery, so it needs nothing in range.
+
+   **A caller filters signals by what it asked for**, because not everything arriving is a match hit: the
+   bus sends `NameAcquired` to a new connection whatever it has subscribed to. Measured, not assumed.
+
+   ### What was measured before deciding, kept because it is what the decision rests on
 
    | Route | Works? | Cost |
    |---|---|---|
@@ -587,12 +615,12 @@ Roughly in dependency order. Nothing here is started.
    | **`libdbus-1` with a modulemap** (the `SQLite3` pattern) | Untried | Needs `libdbus-1-dev`, which is **not installed** -- only the runtime `libdbus-1-3` 1.14.10. Its simple append API is variadic and so uncallable from Swift, but the `dbus_message_iter_*` API is not |
    | **The D-Bus wire protocol in Swift** | Untried | No dependency at all, and the most work: SASL EXTERNAL, then marshalling, including reading `a{oa{sa{sv}}}` |
 
-   **The thing that decides it is where the notification values are read.** Face turns arrive as signals
-   carrying a byte array, which is the app's core function, so the route that leaves that path depending on
-   a hand-written parser of human-readable output is the one to be most careful about -- and it is also the
-   only route available without installing anything. `libdbus` is the better engineering for the same
-   reason the keyring's `secret-tool` was the worse one, and there the subprocess won because the swap was
-   contained in one file. Whether it is contained here depends on that parser.
+   **What decided it was where the notification values are read.** Face turns arrive as signals carrying a
+   byte array, which is the app's core function, and every subprocess route leaves that path depending on a
+   parser of human-readable output -- `{'Value': <[byte 0x38, 0x00]>}` picked apart by hand. libdbus hands
+   the same bytes over typed. That is the opposite conclusion to the keyring's in item 7, and for a
+   consistent reason: there the subprocess won because the swap was contained in one file and the values
+   were strings; here the values are the point.
 11. **The UI**, once the toolkit is decided.
 12. **The scripted suite on AT-SPI.** The largest single piece, and the only thing that can say the app
     works. `Tests/Methods.md` techniques survive; the locator layer is new.

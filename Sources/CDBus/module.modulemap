@@ -1,0 +1,11 @@
+// libdbus, as a module Swift can import. **Linux only**, and absent from the build graph on Darwin,
+// which reaches the same hardware through CoreBluetooth and needs no D-Bus at all.
+//
+// Named `CDBus` rather than `DBus` because it is the C library rather than this app's view of it: the
+// Swift side that wraps it is `DBusConnection` in FacetCore, and two things called `DBus` would be one
+// too many.
+module CDBus [system] {
+    header "shim.h"
+    link "dbus-1"
+    export *
+}

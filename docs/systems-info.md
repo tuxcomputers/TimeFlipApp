@@ -602,6 +602,7 @@ abbreviation. Whatever produced it, corelibs on this box is not it. Asked as que
 | Collections | `/org/freedesktop/secrets/collection/login` and `.../session` |
 | Keyring files | `~/.local/share/keyrings/login.keyring`, plus `user.keystore` |
 | `libsecret-1-0` | 0.21.4-1build3, `/usr/lib/x86_64-linux-gnu/libsecret-1.so.0` |
+| `libdbus-1-dev` | 1.14.10-4ubuntu4.1, **installed 2026-09-07**, and what `CDBus` is built against. `pkg-config --cflags dbus-1` gives the two include directories libdbus needs |
 | `libsecret-1-dev` | 0.21.4-1build3, **installed 2026-09-07**. `pkg-config --modversion libsecret-1` answers 0.21.4 and the header is at `/usr/include/libsecret-1/libsecret/secret.h` |
 | `libsecret-tools` (`secret-tool`) | 0.21.4-1build3, **installed 2026-09-07** |
 | `seahorse` | 43.0-3build2, for looking inside it by hand |
@@ -708,11 +709,11 @@ to-do item 12 rather than a piece of work in it.
 
 | | |
 |---|---|
-| `swift test` | **Runs. 884 tests, 0 failures, 47s** (2026-09-07) -- 540 under XCTest and 344 under swift-testing. That is 54 suites; the 48 files excluded by name in `Package.swift` are excluded for needing AppKit, CoreBluetooth or a `FacetApp` type |
+| `swift test` | **Runs. 891 tests, 0 failures, 49s** (2026-09-07) -- 540 under XCTest and 351 under swift-testing. That is 55 suites; the 48 files excluded by name in `Package.swift` are excluded for needing AppKit, CoreBluetooth or a `FacetApp` type |
 | `Tests/Scripted/` | **cannot run today**: no app binary to drive, and toolkit accessibility is off. The `sqlite3` half of that is fixed as of 2026-09-07 |
 | `swift build --target FacetCore` | fails, and the whole of why is below |
 
-**What the 884 are and are not.** They are the rules, the stores, the database layer and the device
+**What the 891 are and are not.** They are the rules, the stores, the database layer and the device
 protocol -- the half of the app that does not know what a window is -- exercised against real
 bootstrapped databases on this machine. They are not the UI, the radio or Google sign-in, none of which
 compiles here yet. The figure to compare them against is 1725, the whole suite on the Mac.
