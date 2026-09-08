@@ -49,10 +49,50 @@ shorter list and one that empties.
 
 ---
 
-> **Nothing outstanding.** The Mac has asked the Linux box for nothing yet.
->
-> This is the finished state for this direction, not an oversight: everything the Mac needed from here so
-> far has been a fact rather than a task, and those went through *Information required about the Linux
-> system* in [systems-info.md](systems-info.md), which is now empty as well.
->
-> **Delete this note when there is something here.**
+## 1. `GoogleLoopbackListenerTests` fails on macOS, on the `Network` path only
+
+**Why:** it is the only thing red in `swift test` on this branch, it is one of the suites that migrated
+to swift-testing, and the Darwin half of `GoogleLoopbackListener` is code the Linux box has never been
+able to run. Measured 2026-09-08 on the merge of `main` into this branch, deterministic over four runs:
+
+```
+✘ theCodeArrivesAndTheBrowserIsToldItWorked() recorded an issue at
+  GoogleLoopbackListenerTests.swift:57:9: Expectation failed:
+  (body?.contains("Facet is connected.") -> nil) == true
+✘ aRefusalArrivesAsDeniedAndSaysSo() recorded an issue at
+  GoogleLoopbackListenerTests.swift:69:9: Expectation failed:
+  (body?.contains("Facet is not connected.") -> nil) == true
+```
+
+Everything else in the suite passes, and so does everything else in the package: 1392 XCTest and 357 of
+359 swift-testing.
+
+**The parsing is fine and the redirect is fine.** Both tests assert `redirect == .code("the-code")` and
+`redirect == .denied("access_denied")` on the line above the failing one, and both of those pass. What is
+nil is the HTTP body reaching the client. So the listener accepts, reads the request line, resolves the
+right `Redirect` and hands it to whoever is waiting; the response just never arrives.
+
+**Not triaged into a fix, because item 1 of `handover-mac.md` asked for the output raw.** But the
+ordering worth looking at first is in `accept(_:)` under `#if canImport(Network)`, and it is a real
+difference between the two implementations rather than a guess:
+
+```swift
+connection.send(
+    content: Data(GoogleOAuthRules.redirectResponse(body).utf8),
+    completion: .contentProcessed { _ in connection.cancel() }
+)
+self.deliver(result)
+```
+
+`send` is asynchronous and `.contentProcessed` has not fired yet when `deliver(result)` runs on the same
+queue, and `deliver` cancels the listener and then every connection in `connections`. The Berkeley
+sockets path does not have this shape: its `write(_:_:)` loops until the whole `Data` has gone down the
+descriptor before anything else happens, so the same ordering is harmless there.
+
+**If that reading is right it is not only a test failure**, which is why it is worth your eyes rather
+than a quick patch here: it would mean a real sign-in on macOS leaves the browser on an empty tab after
+Google redirects back, with the app itself having taken the code correctly.
+
+**What would settle it:** whether these two tests pass on Linux. If they do, the suite is fine and the
+Darwin path is wrong; if they fail there too, the expectation or `redirectResponse` is.
+
