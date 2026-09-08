@@ -57,28 +57,41 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# Overridable so this script can be exercised against a stamp that is not the real one. Nothing in CI
-# sets it: writing a stamp by hand is the thing this exists to catch.
-# One stamp per platform, because a run only says what works on the machine that made it. The Linux suite
-# will write `last-run-linux.md` beside this one and both will have to pass; today only the Mac runs it.
-STAMP="${SCRIPTED_STAMP:-Tests/Scripted/last-run-mac.md}"
+# **One stamp per platform, because a run only says what works on the machine that made it.** The Mac
+# writes `last-run-mac.md` and the Linux box will write `last-run-linux.md` beside it, and each is read
+# by the same rules: right branch, commit in this history, nothing under `Sources/` changed since.
+#
+# **Only the Mac one can fail this script today**, and that is deliberate rather than an oversight. There
+# is no Linux app to drive yet -- the UI is item 11 of `docs/linux-port.md` and the suite item 12 -- so a
+# Linux stamp cannot exist, and demanding one would paint every branch red on a check nobody could clear.
+# The Linux half is read and reported all the same, so the day it starts passing is visible before it is
+# enforced. **`LINUX_IS_ADVISORY=0` is the whole of turning it on**, and it belongs in the same change
+# that lands the first real Linux run.
+#
+# Both are overridable so this script can be exercised against stamps that are not the real ones. Nothing
+# in CI sets either: writing a stamp by hand is the thing this exists to catch.
+MAC_STAMP="${SCRIPTED_STAMP:-Tests/Scripted/last-run-mac.md}"
+LINUX_STAMP="${SCRIPTED_STAMP_LINUX:-Tests/Scripted/last-run-linux.md}"
+LINUX_IS_ADVISORY="${LINUX_IS_ADVISORY:-1}"
 
-# Reads one `    key:   value` line out of the stamp.
+# Reads one `    key:   value` line out of the stamp named by `$STAMP`, which the caller sets.
 stamp_field() {
   sed -n "s/^ *$1: *//p" "$STAMP" | head -1
 }
 
-# `$1` is how many scripted checks exist on disk, so the stamp can be asked whether it covered them.
+# `$1` names the platform, `$2` is the stamp to read, `$3` is how many scripted checks exist on disk so
+# the stamp can be asked whether it covered them. `$STAMP` is local to this call and is what
+# `stamp_field` reads.
 check_the_suite_was_run() {
-  local on_disk="${1:-0}"
+  local platform="$1" STAMP="$2" on_disk="${3:-0}"
   echo ""
-  echo "Checking the suite was run on this branch:"
+  echo "Checking the suite was run on this branch, on the $platform:"
 
   if [ ! -f "$STAMP" ]; then
     echo "  no $STAMP"
     echo ""
-    echo "Nothing records that these checks were ever run. Run Tests/Scripted/run.sh and commit the"
-    echo "stamp it writes."
+    echo "Nothing records that these checks were ever run on the $platform. Run Tests/Scripted/run.sh"
+    echo "there and commit the stamp it writes."
     return 1
   fi
 
@@ -275,4 +288,19 @@ echo ""
 echo "All scripted checks are runnable."
 echo "CI cannot run them: they drive a real window and read a real database."
 
-check_the_suite_was_run "${#scripts[@]}" || exit 1
+# **The Mac decides the exit status; the Linux half only speaks.** See the LINUX_IS_ADVISORY comment at
+# the top for why, and for the one variable that changes it.
+gate=0
+check_the_suite_was_run "Mac" "$MAC_STAMP" "${#scripts[@]}" || gate=1
+
+if check_the_suite_was_run "Linux box" "$LINUX_STAMP" "${#scripts[@]}"; then
+  :
+elif [ "$LINUX_IS_ADVISORY" = "1" ]; then
+  echo ""
+  echo "  ^ reported, not enforced. There is no Linux app to drive yet (linux-port.md items 11 and 12),"
+  echo "    so this cannot be cleared. Set LINUX_IS_ADVISORY=0 in this script once it can."
+else
+  gate=1
+fi
+
+exit "$gate"
