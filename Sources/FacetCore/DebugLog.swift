@@ -135,6 +135,11 @@ package final class DebugLog {
         case transmit = "ble-tx"
         /// Bytes received from it, whether asked for or notified.
         case receive = "ble-rx"
+        /// The app coming up: what a launch proved before there was anything on screen to show for it --
+        /// the instance lock, the database, and on Linux the fact that it got that far at all. Its own tag
+        /// rather than `info`, which is what a *cube* says it is, and rather than `status`, which is a
+        /// connection changing. Six characters, so it re-pads nothing.
+        case launch
 
         private static let width = allCases.map(\.rawValue.count).max() ?? 0
 

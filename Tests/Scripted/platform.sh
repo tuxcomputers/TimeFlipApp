@@ -77,7 +77,7 @@ case "$PLATFORM" in
         # calls the executable product on the other platform, so it is what a Linux one would be called
         # too -- and nothing here trusts that: `platform_app_is_declared` asks SwiftPM whether the product
         # exists at all, and `platform_build_app` checks the binary actually appeared where this says.
-        LINUX_PRODUCT="FacetApp"
+        LINUX_PRODUCT="FacetLinux"
         BINARY=".build/debug/$LINUX_PRODUCT"
         PROCESS_NAME="$LINUX_PRODUCT"
         STAMP="Tests/Scripted/last-run-linux.md"

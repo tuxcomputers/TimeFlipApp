@@ -192,6 +192,20 @@ let appTarget: Target = .executableTarget(
     ]
 )
 
+// **The Linux app, which is the boot and nothing else yet.** It exists so this platform has a product at
+// all: without one `swift build` has nothing to build, and `Tests/Scripted/` cannot build and launch the
+// app the way it does on the Mac. Every line in it is `FacetCore`; the window and the radio are items 11
+// and 10 of `docs/linux-port.md`.
+//
+// **Named `FacetLinux` rather than `FacetApp`** because the two cannot share `Sources/FacetApp`, which is
+// the AppKit one, and a target pointed at a directory it is not named after reads as a mistake for as
+// long as it takes to check. `Tests/Scripted/platform.sh` holds the name in one place.
+let linuxAppTarget: Target = .executableTarget(
+    name: "FacetLinux",
+    dependencies: ["FacetCore"],
+    path: "Sources/FacetLinux"
+)
+
 let testsTarget: Target = .testTarget(
     name: "FacetAppTests",
     dependencies: testDependencies,
@@ -206,8 +220,13 @@ let testsTarget: Target = .testTarget(
 // condition, never targets -- which is also why the four targets above are named values rather than
 // literals inside the call, `#if` not being allowed inside an array literal.
 #if os(Linux)
-let allProducts: [Product] = []
-let allTargets: [Target] = [sqliteTarget, cdbusTarget, coreTarget, testsTarget]
+let allProducts: [Product] = [
+    .executable(
+        name: "FacetLinux",
+        targets: ["FacetLinux"]
+    )
+]
+let allTargets: [Target] = [sqliteTarget, cdbusTarget, coreTarget, linuxAppTarget, testsTarget]
 #else
 let allProducts: [Product] = [
     .executable(
