@@ -35,12 +35,18 @@ source Tests/Scripted/platform.sh || exit 2
 # `docs/linux-port.md`, with this suite's own Linux half item 12), so a run there would rebuild a database,
 # start a log, and then fail on the first thing that needs a window -- leaving a half-written record of a
 # run that never had anything to test. One clear refusal is better than that.
-if [ "$PLATFORM" = linux ] && [ -z "$BINARY" ]; then
-    echo "There is no Linux app to drive yet, so this suite cannot run here."
-    echo "See docs/linux-port.md: the app is item 11 and this suite's Linux half is item 12."
-    echo "Everything else is ready -- platform.sh resolves $SUPPORT and would write $STAMP."
-    exit 2
-fi
+platform_app_is_declared
+case $? in
+    0) ;;
+    1)  echo "There is no app to drive on this platform yet, so this suite cannot run here."
+        echo "Package.swift declares no executable product for $PLATFORM: that is item 11 of"
+        echo "docs/linux-port.md, and this suite's own Linux half is item 12."
+        echo "Everything else is ready -- platform.sh resolves $SUPPORT and would write $STAMP,"
+        echo "and the build and launch steps are written and waiting for something to build."
+        exit 2 ;;
+    *)  echo "Cannot tell whether there is an app to drive; the reason is above."
+        exit 2 ;;
+esac
 
 mkdir -p logs
 # Everything this run prints goes to logs/screen.txt as well, freshly overwritten each time, so there is

@@ -1140,77 +1140,57 @@ wait_for_value() {
 
 is_running() { platform_app_is_running; }
 
-# Builds if the bundle is missing or older than the sources, then launches.
+# Builds if the app is missing or older than the sources, then launches it.
 #
 # **The build is not optional and not a convenience.** A binary older than the change under test passes
 # and proves nothing; that has cost this project an hour once already (see Tests/Methods.md, Method 1).
+#
+# **The step is the same on both platforms and only the method differs**, which is what `platform.sh` is
+# for. Is it up; is it stale; build it; launch it; wait for it -- that sequence is the check, and it reads
+# the same here whether the build underneath is `swift-bundler` making a signed `.app` or `swift build`
+# producing a bare executable.
 ensure_app_running() {
-    # **This whole function is macOS-shaped**, and not by an oversight that a variable would fix:
-    # `swift-bundler` produces a `.app`, `codesign` decides whether the Keychain will answer, and `open`
-    # is what launches a bundle. The Linux equivalent is a different sequence rather than a different
-    # spelling, and it cannot be written before item 11 says what it launches. `platform.sh` leaves
-    # `BINARY` empty there, so this says so rather than building nothing and launching it.
-    if [ -z "$BINARY" ]; then
-        platform_not_yet "building and launching the app" 11
-        exit 2
-    fi
     if is_running; then
         step "app: already running"
-        # Captured and matched rather than piped into `grep -q`: see `tree_has` for why a pipeline cannot answer
-        # this under pipefail. This note is where that was found -- it said ad-hoc about a properly signed app on
-        # 18 runs out of 20, which is exactly the wrong way round for a warning nobody can act on.
-        case "$(codesign -dvvv "$APP" 2>&1)" in
-            *TeamIdentifier=[A-Z0-9]*) ;;
-            *)
-                step "note: the running app is ad-hoc signed, so anything reading the Keychain (Google sync)"
-                blue "        will stall on a prompt. Quit it and let this rebuild, or use scripts/run.sh."
-                ;;
-        esac
+        if platform_warn_if_unsigned; then
+            step "note: the running app is ad-hoc signed, so anything reading the Keychain (Google sync)"
+            blue "        will stall on a prompt. Quit it and let this rebuild, or use scripts/run.sh."
+        fi
         return 0
     fi
-    if [ ! -x "$BINARY" ] || [ -n "$(find Sources -newer "$BINARY" -name '*.swift' -print -quit 2>/dev/null)" ]; then
-        step "building (sources are newer than the bundle)..."
-        # **Signed, exactly as scripts/run.sh signs it.** An ad-hoc build is a different application to
-        # the Keychain, so the refresh token behind Google sync stops being readable without a prompt --
-        # and nothing says so: the sweep just never runs. That is how 10-google-calendar failed the first
-        # time it was written, against a binary this function had built unsigned.
-        # **Quoted, and passed as its own argument.** An identity reads
-        # `Apple Development: apple@tux.com.au (32Q68X4KAP)` -- three words -- so building the flags into one
-        # string and letting it word-split hands swift-bundler three arguments it has never heard of. It
-        # went unnoticed because it only bites when a rebuild actually happens, which is the run after a
-        # source file changes and no other. `scripts/run.sh` had it right; this had not.
-        # **Before the build, exactly as scripts/run.sh does it.** 10-google-calendar signs in, so the
-        # binary this builds has to carry the client the same way a real one does. Its failure is worth
-        # hearing: a build that quietly lost its credentials would fail later, in a Google script, as
-        # something that reads like a broken account.
-        local credentials_output credentials_status
-        credentials_output=$(scripts/generate-credentials.sh 2>&1)
-        credentials_status=$?
-        if [ "$credentials_status" -ne 0 ]; then
-            red "  the Google credentials step failed (exit $credentials_status)${credentials_output:+: $credentials_output}"
-            return 1
-        fi
 
-        local identity output status
-        identity="$(scripts/codesign-identity.sh)"
-        if [ -n "$identity" ]; then
-            output=$(mint run stackotter/swift-bundler@main bundle Facet --codesign --identity "$identity" 2>&1)
-            status=$?
+    # **Asked before building rather than discovered by a failing build.** On Linux there is no executable
+    # product in the manifest yet (item 11), and "no product named FacetApp" reported as a build failure
+    # reads as something broken rather than as something not written.
+    platform_app_is_declared
+    case $? in
+        0) ;;
+        1)  red "  there is no app to build on this platform yet"
+            blue "        Package.swift declares no executable product here. See docs/linux-port.md item 11."
+            exit 2 ;;
+        *)  red "  cannot tell whether there is an app to build; the reason is above"
+            exit 2 ;;
+    esac
+
+    # **Newer sources mean a stale binary, on both platforms.** `find -newer` is the whole test and it is
+    # POSIX, so the one line covers a `.app` bundle's executable and a bare one alike.
+    if [ ! -x "$BINARY" ] || [ -n "$(find Sources -newer "$BINARY" -name '*.swift' -print -quit 2>/dev/null)" ]; then
+        if [ -x "$BINARY" ]; then
+            step "building (sources are newer than the binary)..."
         else
-            step "no codesigning identity, so this build is ad-hoc: anything reading the Keychain will stall"
-            output=$(mint run stackotter/swift-bundler@main bundle Facet 2>&1)
-            status=$?
+            step "building (there is no binary yet)..."
         fi
-        if [ "$status" -ne 0 ]; then
+        # **Said out loud.** The output used to be discarded, so a failed build reported only that it had
+        # failed, and the reason -- usually one line -- had to be reproduced by hand. `platform_build_app`
+        # prints it and returns non-zero; what it means is decided here.
+        if ! platform_build_app; then
             red "  the build failed; running an old binary would prove nothing"
-            # **Said out loud.** This used to be discarded, so a failed build reported only that it had
-            # failed -- and the reason, which was one line long, had to be reproduced by hand.
-            printf '%s\n' "$output" | tail -15 | sed 's/^/    /'
             exit 2
         fi
     fi
+
     step "launching $(platform_binary_built_at)"
-    open "$APP"
+    platform_launch_app
     local waited=0
     while [ "$waited" -lt 100 ]; do
         is_running && { sleep 1; return 0; }
