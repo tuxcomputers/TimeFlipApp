@@ -23,7 +23,7 @@ moving is a finding that will be measured twice.
 | Does any of the suite run on Linux? | **Yes. `swift test` passes 891 of 1743 tests** across 55 suites in 49s -- 540 under XCTest, 351 under swift-testing. The rest need AppKit, CoreBluetooth or a `FacetApp` type, and come back with items 10 and 11 | 2026-09-07, Linux |
 | Can Swift talk to BlueZ? | **Yes, in process, over libdbus.** `SystemBus` calls methods, marshals arguments both ways and receives signals with typed values; seven tests drive it against the real system bus | 2026-09-07, Linux |
 | Can it discover? | **Yes**, and the cube is found by `DeviceScanRules` -- the app's own rule, unchanged | 2026-09-07, Linux |
-| Can it drive the cube from Swift? | **Yes.** Connect, resolve, enumerate 16 characteristics by UUID, log in on the vendor PIN, read four characteristics, receive notifications. A face *turn* was not observed and nothing but the PIN was written | 2026-09-07, Linux |
+| Can it drive the cube from Swift? | **Yes, every stage the app needs.** Connect, resolve, 16 characteristics by UUID, log in on the vendor PIN, read, the `0x10` status read-back parsed by the app's own rules, and **face turns arriving as notifications -- ten pushes over seven distinct faces**. Nothing but the PIN and `0x10` has been written | 2026-09-07, Linux |
 | Is there a UI? | Not started, and the toolkit is undecided | -- |
 | Is there a `FacetCore` target? | **Yes.** 86 files, no AppKit, and `FacetApp` builds on it. 589 access-level edits | 2026-09-07, Mac |
 | ~~What is left before Linux can try the core?~~ | **Nothing. All four are done**: `SQLite3` has a modulemap target, `CoreGraphics` a `package typealias`, `Security` the login keyring through `secret-tool`, `CryptoKit` a written SHA-256 | 2026-09-07, Linux |
@@ -627,11 +627,26 @@ Roughly in dependency order. Nothing here is started.
    `systems-info.md` had down as untested, and which matters because it is a *random*-type address, the
    kind the specification lets a device change.
 
-   **Two things that run did not prove**, because it looks more complete than it is. **A face turn was not
-   observed**: the two values pushed were the login verdict and the initial `faces` value on subscribe,
-   both `0c`, so a *change* of face pushing a new value is still the Python probe's finding rather than
-   this code's. And **nothing but the PIN was written** -- no `0x10` status read, no pause, no lock, no
-   colour -- so the write path is proven for six bytes to one characteristic and no further.
+   **Then the face turns, confirmed the same evening.** A passive listen caught **ten pushes over seven
+   distinct faces** (`01, 04, 05, 08, 09, 0b, 0c`) as the cube was turned by hand. And the `0x10` status
+   read went out, its answer parsed by the app's own `DeviceCommandRules`: not locked, paused, auto-pause
+   5 minutes, off a cube fresh from a factory reset. So the read-back discipline `CLAUDE.md` requires is
+   available on this platform, through the same parser the Mac uses.
+
+   **Still unwritten: anything but the PIN and `0x10`.** No pause, no lock, no colour, no task parameters.
+
+   **Three things measured on the way that were not in the notes**, all now in
+   [linux-bluez-port-notes.md](linux-bluez-port-notes.md):
+
+   - **A `ReadValue` publishes a `PropertiesChanged` of its own**, so a read and a device push cannot be
+     told apart at the signal level. Found the hard way: a probe polling `faces` once a second produced 39
+     signals that all looked like notifications and were its own doing.
+   - **`le-connection-abort-by-local` is a transient**, answered when a `Connect` comes a few seconds
+     after disconnecting the same cube, and the next attempt succeeds. `BlueZRadio` retries it four times
+     and throws everything else -- it matters because a reconnect is precisely when it happens.
+   - **The events data characteristic carries ASCII status text**: `password OK` on login and
+     `New Side: 0x00` on every face change. The side number is always `0x00`, so it is no substitute for
+     `faces`, but the login line is a second independent confirmation of the PIN.
 
    **Neither `BlueZRadio` nor `BlueZGatt` has a hermetic test**, and cannot: both are I/O against a daemon
    and a device. The suite covers everything they are built on -- the bus, the value tree, the object tree,

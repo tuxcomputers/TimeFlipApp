@@ -148,15 +148,7 @@ package final class BlueZRadio {
             throw Failure.notFound(address)
         }
         if !device.isConnected {
-            do {
-                try bus.call(
-                    destination: "org.bluez", path: device.path,
-                    interface: BlueZObjectTree.deviceInterface, method: "Connect",
-                    timeoutMilliseconds: 30_000
-                )
-            } catch let failure as SystemBus.Failure {
-                throw Failure.refused(Self.describe(failure))
-            }
+            try attemptConnect(to: device.path)
         }
 
         let deadline = Date().addingTimeInterval(resolveTimeout)
@@ -167,6 +159,34 @@ package final class BlueZRadio {
             Thread.sleep(forTimeInterval: 0.2)
         }
         throw Failure.refused("connected but the services were not resolved within \(Int(resolveTimeout))s")
+    }
+
+    /// **`le-connection-abort-by-local` is a transient, and retrying is the answer.** Measured
+    /// 2026-09-07: a `Connect` made a few seconds after disconnecting the same cube is refused with it,
+    /// because BlueZ is still tidying up the previous link -- and the next attempt succeeds. Treating it
+    /// as a refusal would make a reconnect fail for the one reason a reconnect is most likely to happen.
+    ///
+    /// **Bounded, and everything else is thrown.** A retry loop that swallowed every error would turn a
+    /// cube that is out of range into a thirty-second pause with no explanation.
+    private func attemptConnect(to path: String, attempts: Int = 4) throws {
+        for attempt in 1 ... attempts {
+            do {
+                try bus.call(
+                    destination: "org.bluez", path: path,
+                    interface: BlueZObjectTree.deviceInterface, method: "Connect",
+                    timeoutMilliseconds: 30_000
+                )
+                return
+            } catch let failure as SystemBus.Failure {
+                guard case let .callFailed(_, message) = failure,
+                      message.contains("le-connection-abort-by-local"),
+                      attempt < attempts
+                else {
+                    throw Failure.refused(Self.describe(failure))
+                }
+                Thread.sleep(forTimeInterval: 2)
+            }
+        }
     }
 
     package func disconnect(address: String) throws {

@@ -46,14 +46,33 @@ subprocess and no Python.
 had recorded as untested -- and worth knowing because it is a *random*-type address, the kind the
 specification allows a device to change.
 
-**Two things this run did not prove**, said plainly because the run looks more complete than it is:
+**Face turns confirmed, same evening.** A passive listen -- not one read while listening -- caught ten
+pushes over seven distinct faces (`01, 04, 05, 08, 09, 0b, 0c`) as the cube was turned by hand, each
+arriving as a `PropertiesChanged` carrying `ay` and read as `[UInt8]`. The `0x10` status read was also
+sent and its answer parsed by the app's own `DeviceCommandRules`: **not locked, paused, auto-pause 5
+minutes**, off a fresh factory reset.
 
-- **A face turn was not observed.** The two values pushed were the login verdict and the initial `faces`
-  value on subscribe, both arriving immediately and both `0c`. So the notification path is proven with
-  real bytes from real hardware; that a *change* of face pushes a new value is still only the Python
-  probe's finding (sixteen turns, evidence rows above), not this code's.
-- **Nothing was written but the PIN.** No `0x10` status read, no pause, no lock, no colour. The write path
-  is proven for six bytes to the password characteristic and no further.
+**Still not written: anything but the PIN and `0x10`.** No pause, no lock, no colour, no task parameters.
+The write path is proven for six bytes to the password characteristic and one command byte, and no
+further.
+
+### Three things measured while doing it that are not in the traps above
+
+**6. A `ReadValue` publishes a `PropertiesChanged` of its own**, so a read and a device push are
+indistinguishable at the signal level. Measured the hard way: a probe polling `faces` once a second
+produced 39 signals that all looked like notifications and were its own doing. Anything counting pushes
+must not be reading the same characteristic while it counts.
+
+**7. `le-connection-abort-by-local` is a transient rather than a refusal.** A `Connect` made a few
+seconds after disconnecting the same cube is refused with it, because BlueZ is still tidying up the
+previous link, and the next attempt succeeds. `BlueZRadio.attemptConnect` retries it four times over six
+seconds and throws everything else -- which matters because a reconnect is exactly when it happens.
+
+**8. The events data characteristic carries ASCII status text.** `F1196F51`, one of the four the app names
+and has never read, pushes human-readable lines: `password OK` on a successful login, and `New Side: 0x00`
+on every face change. **The side number in it is always `0x00`**, so it is no substitute for `faces` --
+but the login line is a second, independent confirmation of the PIN being accepted, alongside the `0x02`
+on the command result.
 
 ## The mapping
 
