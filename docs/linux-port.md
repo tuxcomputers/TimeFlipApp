@@ -25,6 +25,7 @@ moving is a finding that will be measured twice.
 | Can it discover? | **Yes**, and the cube is found by `DeviceScanRules` -- the app's own rule, unchanged | 2026-09-07, Linux |
 | Can it drive the cube from Swift? | **Yes, every stage the app needs.** Connect, resolve, 16 characteristics by UUID, log in on the vendor PIN, read, the `0x10` status read-back parsed by the app's own rules, and **face turns arriving as notifications -- ten pushes over seven distinct faces**. Nothing but the PIN and `0x10` has been written | 2026-09-07, Linux |
 | Is there a UI? | Not started, and the toolkit is undecided | -- |
+| Can a GTK3 app be driven by a test harness? | **Yes, and the tray over D-Bus rather than AT-SPI.** Press, type, toggle and read back, all without a mouse and while the window is covered. Measured against a stand-in, not against Facet | 2026-09-08, Linux |
 | Is there a `FacetCore` target? | **Yes.** 86 files, no AppKit, and `FacetApp` builds on it. 589 access-level edits | 2026-09-07, Mac |
 | ~~What is left before Linux can try the core?~~ | **Nothing. All four are done**: `SQLite3` has a modulemap target, `CoreGraphics` a `package typealias`, `Security` the login keyring through `secret-tool`, `CryptoKit` a written SHA-256 | 2026-09-07, Linux |
 | What is left before Linux can **run** anything? | The suite (item 6, swift-testing) to know it behaves; then item 9 for sign-in and item 10 for the radio. Both of those are in `FacetApp`, not the core | 2026-09-07, Linux |
@@ -370,6 +371,75 @@ errors. Full working in the *What `FacetCore` does on this box* section of
 
 ---
 
+## Found: a GTK3 app is drivable, and the tray is easier than it is on the Mac
+
+**Measured on the Linux box, 2026-09-08, against a stand-in rather than against Facet** -- there is no
+Linux app yet, so this was a 90-line Python/GTK3 process shaped like the parts a scripted check has to
+reach: a window with named controls, an `AyatanaAppIndicator3` tray item with a menu, and an append-only
+event file standing in for `debug_log`. Every claim below was confirmed twice over: the action returned
+successfully **and** the app recorded that it happened.
+
+This is the question item 12 would otherwise discover last, and it is an input to the toolkit decision
+rather than a consequence of it.
+
+### What works
+
+| | |
+|---|---|
+| **AT-SPI sees a GTK3 app** | Yes -- 26 applications on the accessibility bus, the probe among them |
+| **`toolkit-accessibility` does not gate it** | The gsetting reads `false` on this machine and the app was visible anyway. GTK3 loads the atk-bridge on its own; that switch is a GNOME-era control this does not depend on. **Worth knowing because the obvious first move is to turn it on**, and doing so would have credited the wrong thing |
+| **Accessible name is the `AXIdentifier` equivalent** | `widget.get_accessible().set_name("probe-start-button")` comes back as the node's `name`, and a locator is one tree walk comparing it |
+| **Pressing** | `queryAction().doAction(0)` on a `push button`, action named `click`. **No mouse event, no coordinates** |
+| **Typing** | `queryEditableText().setTextContents(...)` on a `text` node; the app's `changed` handler fired with the new text |
+| **Toggling** | `doAction(0)` on a `check box`, read back as `STATE_CHECKED` |
+| **Reading for assertions** | Label text via `queryText().getText(0, -1)` -- `name` stays the identifier and the text is the value, which is the same split as `AXIdentifier` against `AXValue` |
+| **While unfocused and covered** | Yes. Another window was raised over it and made active, and the press still landed. **This is the difference that matters most for the suite** |
+
+### The tray is a D-Bus object, and that is better
+
+**The indicator is not in the AT-SPI tree at all** -- the application node has exactly one child, the
+frame. That is the same shape as the macOS status item, which `Tests/Methods.md` records as not being in
+`AXMenuBar`. What differs is what replaces it: on the Mac, real mouse events through
+`scripts/status-item-click.py`; here, a D-Bus object with stable ids.
+
+```sh
+# it registers itself, and the watcher lists it
+org.kde.StatusNotifierWatcher -> RegisteredStatusNotifierItems
+  :1.129/org/ayatana/NotificationItem/facet_probe
+
+# the menu is a property, and com.canonical.dbusmenu reads and drives it
+GetLayout(0, -1, [label]) -> id=2 Pause, id=3 Settings, id=4 Quit
+AboutToShow(0); Event(2, "clicked", "", 0)   -> the app recorded: a menu item was chosen, Pause
+```
+
+`Event(4, "clicked", ...)` on *Quit* ended the process cleanly, exit 0, no window left behind. So the
+whole menu-bar half of the suite is reachable without a mouse, without focus and without reading pixels
+-- which on macOS costs a real `CGEvent` and a frontmost app.
+
+**The tray label reads back too**: `XAyatanaLabel` on `org.kde.StatusNotifierItem` answered `00:00`,
+which is what `StatusItemTitle` produces on the other platform. A check can assert the menu-bar clock
+directly.
+
+### What this does not say
+
+- **It was a Python/GTK3 process.** For the one-process Swift+GTK3 candidate the bridge is GTK's work
+  rather than Python's, so the same should hold -- but that is reasoning, and this file does not count
+  reasoning as measurement. **Untested for Swift.**
+- **Nothing was run headless.** `xvfb` is not installed and this box has no passwordless `sudo`, so
+  whether the suite could run without a screen -- and therefore whether CI could ever run the Linux
+  half, which it can never do for the Mac -- is open. It is the single most valuable thing to try next.
+- **The screen was not locked.** Whether a locked session still answers is untested.
+- **No cube was involved**, so nothing here says anything about `50`-`66`.
+
+### Reproducing it
+
+The four probes are not committed, being a measurement rather than an artefact. They were: put the
+window and indicator up; enumerate `pyatspi.Registry.getDesktop(0)`; walk the tree comparing
+`node.name`; and drive `com.canonical.dbusmenu` through `dbus.SessionBus()`. `python3-pyatspi` 2.46.1
+and `at-spi2-core` 2.52.0 were already installed, and nothing was added to the machine.
+
+---
+
 ## To do
 
 Roughly in dependency order. Nothing here is started.
@@ -711,7 +781,10 @@ Roughly in dependency order. Nothing here is started.
    were strings; here the values are the point.
 11. **The UI**, once the toolkit is decided.
 12. **The scripted suite on AT-SPI.** The largest single piece, and the only thing that can say the app
-    works. `Tests/Methods.md` techniques survive; the locator layer is new.
+    works. `Tests/Methods.md` techniques survive; the locator layer is new. **The mechanism is no longer a
+    question** -- the section above drove a GTK3 window and an AppIndicator menu end to end, including
+    while the window was covered and unfocused, so what is left here is the locators and the checks
+    rather than whether either can be addressed at all.
 13. **Repo restructure and the `CLAUDE.md` split.** Agreed: one repo, shared core. About a third of the
     root `CLAUDE.md` is AppKit-specific and would be worse than noise in a GTK session. **The
     `database/` symlink is no longer part of this item**: it used to point into the macOS bundle
