@@ -743,16 +743,20 @@ to-do item 12 rather than a piece of work in it.
 |---|---|
 | `swift test` | **Runs. 906 tests, 0 failures, 48s** (2026-09-07) -- 540 under XCTest and 366 under swift-testing. That is 57 suites; the 48 files excluded by name in `Package.swift` are excluded for needing AppKit, CoreBluetooth or a `FacetApp` type |
 | `Tests/Scripted/` | **cannot run today**: no app binary to drive, and toolkit accessibility is off. The `sqlite3` half of that is fixed as of 2026-09-07 |
-| `swift build --target FacetCore` | fails, and the whole of why is below |
+| `swift build` | **Succeeds**, and builds no app -- the whole of why is below (2026-09-08) |
+| `swift build --target FacetCore` | **Succeeds**, 0.16s from a warm `.build` (2026-09-08) |
 
 **What the 906 are and are not.** They are the rules, the stores, the database layer and the device
 protocol -- the half of the app that does not know what a window is -- exercised against real
 bootstrapped databases on this machine. They are not the UI, the radio or Google sign-in, none of which
 compiles here yet. The figure to compare them against is 1725, the whole suite on the Mac.
 
-**`swift build` still fails on Linux and that is correct**: the executable product is AppKit, so
-building *everything* cannot work until item 11. `swift test` succeeds because the package no longer
-declares that target on this platform at all.
+**`swift build` succeeds on Linux, and what it does not do is build an app.** Both rows above said it
+failed until 2026-09-08, when both were measured returning 0 on this machine. The explanation was already
+sitting in the sentence beside the claim: `Package.swift` gives this platform `allProducts: [Product] = []`
+and a target list without `FacetApp`, so there is no executable in the graph for AppKit to fail on. **A
+green build here means the core built and says nothing whatever about the app** -- which is the reading
+that matters, because the obvious one is the opposite.
 
 **Nothing checks that `sqlite3` is on `PATH` before calling it**, which is worth knowing for the next
 fresh machine rather than this one: no script in `Tests/Scripted/` or `scripts/` tests for it, so
