@@ -279,24 +279,18 @@ testlog_run_start() {
 
     local branch commit dirty target built signing os
     branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-    # The full hash, not the short one: `last-run-mac.md` is checked against the branch's history, and an
+    # The full hash, not the short one: the stamp is checked against the branch's history, and an
     # abbreviation can stop being unique as a repository grows.
     commit=$(git rev-parse HEAD 2>/dev/null || echo "")
     dirty=$([ -n "$(git status --porcelain 2>/dev/null)" ] && echo 1 || echo 0)
-    target=$(readlink "$HOME/Library/Application Support/Facet/appdata.sqlite" 2>/dev/null || echo "")
-    built=$(stat -f '%Sm' -t '%Y-%m-%d %H:%M:%S' ".build/bundler/apps/Facet/Facet.app/Contents/MacOS/Facet" 2>/dev/null || echo "")
-    # Ad-hoc matters: it silently breaks anything that reads the Keychain, which is how a Google failure
-    # once looked like a Google failure and was actually a build flag.
-    #
-    # **Captured and matched, never piped into `grep -q`.** This is sourced by `run.sh` and `lib.sh`, both of which
-    # set `pipefail`, and a pipeline whose reader exits early reports the writer's SIGPIPE rather than the match --
-    # so this wrote `ad-hoc` for every run from 89 to 94 against an app signed with a real Apple Development
-    # certificate. See `tree_has` in lib.sh for the measurement.
-    case "$(codesign -dvvv ".build/bundler/apps/Facet/Facet.app" 2>&1)" in
-        *TeamIdentifier=[A-Z0-9]*) signing="signed" ;;
-        *) signing="ad-hoc" ;;
-    esac
-    os=$(sw_vers -productVersion 2>/dev/null || echo "")
+    target=$(readlink "$DB" 2>/dev/null || echo "")
+    # **`stat` takes opposite flags on the two systems**, and the BSD spelling produces nothing on Linux
+    # rather than failing -- which would have written an empty column and looked like an unbuilt app.
+    built=$(platform_binary_built_at)
+    # Both of these are a platform's answer, and the reasoning for each is in `platform.sh` beside the
+    # call -- including the pipefail measurement that made runs 89 to 94 claim ad-hoc signing wrongly.
+    signing=$(platform_signing)
+    os=$(platform_os_version)
 
     tlog "INSERT INTO run (started_at, started_epoch, branch, commit_sha, dirty, database_file, rebuilt,
                            filter, binary_built_at, signing, os_version, invocation, outcome)
@@ -549,7 +543,7 @@ PYTHON
 # It is generated from the recorded run rather than from shell variables, so what it claims is what the
 # database saw. See `scripts/check_interactive_checklists.sh` for what is enforced.
 testlog_stamp() {
-    local run="${1:-}" path="${2:-Tests/Scripted/last-run-mac.md}"
+    local run="${1:-}" path="${2:-$STAMP}"
     [ -z "$run" ] && return 0
 
     local row branch commit dirty rebuilt started finished outcome passed failed filter

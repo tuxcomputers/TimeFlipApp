@@ -244,7 +244,7 @@ fi
 echo "Checking ${#scripts[@]} scripted check(s) are runnable:"
 failed=0
 
-for f in Tests/Scripted/lib.sh Tests/Scripted/run.sh "${scripts[@]}"; do
+for f in Tests/Scripted/platform.sh Tests/Scripted/lib.sh Tests/Scripted/run.sh "${scripts[@]}"; do
   problems=""
 
   # A syntax error is invisible until the script is reached, which on a suite that stops at the first

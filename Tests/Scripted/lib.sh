@@ -20,17 +20,18 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
-SUPPORT="$HOME/Library/Application Support/Facet"
-DB="$SUPPORT/appdata.sqlite"
+# **`SUPPORT`, `DB`, `DEBUG_DB`, `APP` and `BINARY` all come from `platform.sh`**, along with the one
+# variable that decides them, because where the app keeps its database and what its binary is called are
+# facts about the machine rather than about this suite. A step written here says what it wants done; that
+# file says how this platform does it.
+#
 # **The trace lives in its own file**, beside the app's rather than inside it, so a check that waits on a `debug_log`
 # row reads a different database from one that reads `device_event`. `dsql` is that database's `sql`, and which one a
 # query wants is decided by which table it names -- see the two of them below.
 #
 # It is not a symlink like `appdata.sqlite` and does not need to be: it holds no data worth keeping between runs, and
 # `switch-database.sh` repoints the app's file without this one caring which side it lands on.
-DEBUG_DB="$SUPPORT/debug.sqlite"
-APP=".build/bundler/apps/Facet/Facet.app"
-BINARY="$APP/Contents/MacOS/Facet"
+source "$REPO_ROOT/Tests/Scripted/platform.sh" || exit 2
 
 PASSED=0
 FAILED=0
@@ -1137,7 +1138,7 @@ wait_for_value() {
 
 # ---------------------------------------------------------------------------- the app
 
-is_running() { pgrep -x Facet >/dev/null 2>&1; }
+is_running() { platform_app_is_running; }
 
 # Builds if the bundle is missing or older than the sources, then launches.
 #

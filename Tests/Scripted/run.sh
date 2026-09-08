@@ -26,6 +26,22 @@ set -uo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
+# **Which machine this is, before anything else.** Every path, every process name, the stamp this run
+# writes and the way the app is quit all come from here -- see `platform.sh` for why the step is shared and
+# only the method differs.
+source Tests/Scripted/platform.sh || exit 2
+
+# **Refused here rather than discovered halfway down.** There is no Linux app to drive yet (item 11 of
+# `docs/linux-port.md`, with this suite's own Linux half item 12), so a run there would rebuild a database,
+# start a log, and then fail on the first thing that needs a window -- leaving a half-written record of a
+# run that never had anything to test. One clear refusal is better than that.
+if [ "$PLATFORM" = linux ] && [ -z "$BINARY" ]; then
+    echo "There is no Linux app to drive yet, so this suite cannot run here."
+    echo "See docs/linux-port.md: the app is item 11 and this suite's Linux half is item 12."
+    echo "Everything else is ready -- platform.sh resolves $SUPPORT and would write $STAMP."
+    exit 2
+fi
+
 mkdir -p logs
 # Everything this run prints goes to logs/screen.txt as well, freshly overwritten each time, so there is
 # one file to read afterwards (or to watch with `tail -f` while it runs).
@@ -78,17 +94,15 @@ rm -f logs/device-gate
 
 # The app holds the database open, so it goes first whichever way this run is going: rebuilding under a
 # running app would leave it writing to a file nothing points at any more.
-if pgrep -x Facet >/dev/null; then
+if platform_app_is_running; then
     echo "Quitting the running app first."
     # **Said out loud when it does not work.** run.sh does not source lib.sh, so it has no `click_left`; what it
     # must not do is what every call site used to and throw the error away. A click that fails here is why the
-    # `pkill` below is reached, and knowing that is the difference between a tidy quit and a killed app whose
-    # quit sequence never ran.
-    python3 scripts/status-item-click.py 2>&1 || echo "  the status item would not click; falling back to a kill"
-    sleep 0.5
-    python3 scripts/ax-press.py quit-app 2>&1 || echo "  quit-app would not press; falling back to a kill"
+    # `platform_kill_app` below is reached, and knowing that is the difference between a tidy quit and a killed
+    # app whose quit sequence never ran. `platform_quit_app` keeps that reporting on both platforms.
+    platform_quit_app
     sleep 1.5
-    pgrep -x Facet >/dev/null && pkill -x Facet
+    platform_app_is_running && platform_kill_app
     sleep 0.5
 fi
 
@@ -114,10 +128,9 @@ else
     # calls `mark` before the app it is about to check has started, `sqlite3` creates the file it was pointed at, and
     # the query then fails with "no such table". Every check after that measured from an empty baseline and produced a
     # malformed query. The suite owns its databases; the app is what is being tested, not what prepares the ground.
-    debug_db="$HOME/Library/Application Support/Facet/debug.sqlite"
-    rm -f "$debug_db"
+    rm -f "$DEBUG_DB"
     for ddl in database/5*.sql; do
-        { echo "PRAGMA foreign_keys = ON;"; cat "$ddl"; } | sqlite3 "$debug_db"
+        { echo "PRAGMA foreign_keys = ON;"; cat "$ddl"; } | sqlite3 "$DEBUG_DB"
     done
 
     if [ ! -f "$HOME/.config/facet/scripted-seed.json" ]; then
@@ -130,9 +143,8 @@ echo "${#scripts[@]} script(s) to run"
 
 # The durable record, alongside screen.txt. See Tests/Scripted/testlog.sh for what it holds and why one
 # overwritten text file is not enough to work out why something failed.
-DB="$HOME/Library/Application Support/Facet/appdata.sqlite"
-# testlog.sh reads the app's log out of the trace's file, so it needs to know where that is before it is sourced.
-DEBUG_DB="$HOME/Library/Application Support/Facet/debug.sqlite"
+# `DB` and `DEBUG_DB` are `platform.sh`'s, sourced at the top: testlog.sh reads the app's log out of the
+# trace's file, so both have to be settled before it is sourced, and they are.
 source Tests/Scripted/testlog.sh
 TESTLOG_RUN_ID=$(testlog_run_start "$((1 - KEEP_DATABASE))" "$FILTER" "run.sh $*")
 export TESTLOG_RUN_ID
@@ -171,7 +183,9 @@ testlog_run_finish "$TESTLOG_RUN_ID" "$outcome" "$ran"
 
 # The committed half of the record. Written either way, because a stamp that only appeared on success
 # would let a failing branch keep an older passing one -- which is the staleness it exists to catch.
-testlog_stamp "$TESTLOG_RUN_ID" "Tests/Scripted/last-run-mac.md"
+# **Named for the machine that produced it**, because a run only says what works where it ran.
+# `platform.sh` decides which, and `check_interactive_checklists.sh` reads both.
+testlog_stamp "$TESTLOG_RUN_ID" "$STAMP"
 
 echo ""
 echo "=============================================================================="
@@ -187,12 +201,10 @@ echo "==========================================================================
 if [ "$KEEP_RUNNING" -eq 0 ]; then
     # Left running only when asked, so a failed run can be looked at. Otherwise the app goes away:
     # a status item left behind is a second instance's worth of confusion next time.
-    pgrep -x Facet >/dev/null && {
-        python3 scripts/status-item-click.py 2>&1 || echo "  the status item would not click; falling back to a kill"
-        sleep 0.5
-        python3 scripts/ax-press.py quit-app 2>&1 || echo "  quit-app would not press; falling back to a kill"
+    platform_app_is_running && {
+        platform_quit_app
         sleep 1
-        pgrep -x Facet >/dev/null && pkill -x Facet
+        platform_app_is_running && platform_kill_app
     }
 fi
 
