@@ -4,7 +4,7 @@ Behaviour measured on real hardware that the vendor spec does not describe, and 
 
 This is the third source in the hierarchy set out in the root `CLAUDE.md`: `docs/TimeFlip2 BLE Protocol v4.3.md` is authoritative, `docs/timeflip.md` describes this codebase's driver, and **this file records what the hardware actually does where the spec is silent**. Where this file and the spec disagree, the hardware wins, because these are measurements.
 
-**Device under test.** Manufacturer `DI_LABS`, model `2.0`, hardware `TFv4.1`, firmware `FW_v3.64`, read from the Device Information service. Host macOS, CoreBluetooth, **except finding 12 and the Linux notes in finding 8, which were measured from Linux Mint 22.3 on BlueZ 5.72 on 2026-09-06** -- the first measurements here taken through anything other than CoreBluetooth, and the reason they are worth having is that a second stack shows which of these facts were about the cube and which were about the host. Measured 2026-08-01/02, and findings 4 and 5 on the same cube on 2026-08-17. Finding 7 is older traffic from the same cube, 2026-07-28 to 2026-08-14, recorded by the archived app rather than this one. Those four values are no longer only the archive's: finding 5 is this app reading them itself, and they came back identical.
+**Device under test.** Manufacturer `DI_LABS`, model `2.0`, hardware `TFv4.1`, firmware `FW_v3.64`, read from the Device Information service. Host macOS, CoreBluetooth, **except finding 12, the Linux notes in findings 3, 4, 8 and 10, and the whole of finding 13, which were measured from Linux Mint 22.3 on BlueZ 5.72 -- the Python probe on 2026-09-06 and `FacetCore`'s own Swift over libdbus on 2026-09-07** -- the first measurements here taken through anything other than CoreBluetooth, and the reason they are worth having is that a second stack shows which of these facts were about the cube and which were about the host. Measured 2026-08-01/02, and findings 4 and 5 on the same cube on 2026-08-17. Finding 7 is older traffic from the same cube, 2026-07-28 to 2026-08-14, recorded by the archived app rather than this one. Those four values are no longer only the archive's: finding 5 is this app reading them itself, and they came back identical.
 
 ## The evidence file
 
@@ -21,6 +21,14 @@ Rows 340 to 356 and 384 to 399 are finding 6, from the same day: the `0xFF` writ
 Rows 14520 to 14534 and 19557 to 19580 are finding 7, and they are the odd ones out here: they come from the **archived app's own production database**, not from a scripted run of this one, because the charge is the one thing the rebuild had never read at the time the finding was written. Both stretches are unedited runs of consecutive ids. The first is a connect sequence with the battery read inside it; the second is seven minutes in which nothing was asked for and values arrived anyway.
 
 Rows 20001 to 20051 are finding 12 and the Linux paragraphs of finding 8, added on 2026-09-06. **They are the only rows here that no `debug_log` ever held**: they come from `scripts/linux-ble-probe.py` on a Linux host, which prints rather than writes rows, so they were transcribed from its output. The id range is deliberately clear of every other, so a query can exclude them and get only what this app and the archive recorded. They cover two scans filtered on the service UUID that saw nothing, the unfiltered scan that saw the cube at once, the advertisement's own properties, the whole GATT tree, a login on the vendor default PIN, and sixteen face notifications.
+
+Rows 20101 to 20125 are the Linux notes added on 2026-09-07, and they are the second set here that no
+`debug_log` ever held: they come from a Swift probe over **libdbus**, driving `FacetCore`'s own
+`SystemBus`, `BlueZRadio` and `BlueZGatt` rather than the Python of rows 20001 to 20051, and were
+transcribed from its output for the same reason. Their id range is again clear of every other. They cover
+a login on the vendor default and its answer, the `0x10` status read on a cube fresh from a factory reset,
+the two events-data strings finding 3's table does not have, and ten face pushes over seven faces from a
+passive listen -- no reads while listening, which matters here (see the note on finding 3).
 
 ```
 sqlite3 docs/timeflip2-firmware-evidence.sqlite \
@@ -140,6 +148,30 @@ The spec documents this characteristic as carrying event data, not command narra
 
 ---
 
+### Two more strings, and one of them is not command narration at all (Linux, 2026-09-07)
+
+Measured over libdbus, rows 20110 to 20124. Neither is in the table above:
+
+| Bytes | ASCII | When |
+|---|---|---|
+| `70 61 73 73 77 6F 72 64 20 4F 4B` | `password OK` | a correct PIN written to the password characteristic |
+| `4E 65 77 20 53 69 64 65 3A 20 30 78 30 30` | `New Side: 0x00` | every face change |
+
+**`password OK` is the login's own narration**, which the table did not have: its `password set` answers
+`0x30`, a different thing. So a login now has two independent signals -- this line, and the `0x02` of
+finding 4 -- which is worth knowing given how much rests on that byte.
+
+**`New Side` is an event rather than a command**, and it is the first entry here that is. This heading says
+"every command is narrated", and that is still true; what this adds is that the characteristic also
+narrates something nobody asked for, which is what the spec says it is actually for. **The side number is
+always `0x00`**, across seven different faces in one listen (rows 20112 to 20124), so it carries no usable
+face and the `faces` characteristic remains the only source of one.
+
+**A caution for anyone counting these on Linux.** A `ReadValue` on BlueZ publishes a `PropertiesChanged`
+of its own, so a poller sees its own reads as though the device had pushed them: a probe reading `faces`
+once a second produced 39 signals that all looked like notifications. The rows above come from a listen
+that read nothing.
+
 ## 4. The password check answers `0x02` for a correct PIN, not `0x01`
 
 The spec is explicit and it is wrong. Section 4, on the password characteristic:
@@ -160,6 +192,16 @@ The two are in one trace, from one cube, three seconds apart, so this is not a r
 The archive reached the same conclusion by logging both outcomes (see `TimeFlipBLEDevice.attemptLogin`, whose comment says "vendor doc v4.3 states 0x01=correct/0x02=wrong, but real hardware observed here does the opposite"). This is that claim measured again on a rebuilt driver, and written down where the other measurements are, because a comment in an archived class is not somewhere anybody would look.
 
 **Consequence for this app, and it is the most load-bearing byte in the feature.** Implemented from the spec, every correct PIN is refused and every wrong one accepted. `DeviceLoginRules.verdict` reads it the measured way round and `Tests/Scripted/51-device-connect.sh` asserts on the raw `commandResult: 02`, so a firmware release that ever moves to match the document fails a check rather than silently letting the wrong cube in.
+
+### The same answer through a second Bluetooth stack (Linux, 2026-09-07)
+
+Rows 20103 to 20106: the vendor default written to the password characteristic, `02` back on the command
+result, and every read and command afterwards working -- measured over **BlueZ and libdbus**, where the
+above was CoreBluetooth. Two hosts, two stacks, the same inverted byte.
+
+That is worth having beyond redundancy. Finding 8's point is that some of these facts are about the host
+rather than about the cube, and this is the byte the whole feature turns on: it being inverted in the
+same direction on a completely different stack says it is the firmware's doing and not CoreBluetooth's.
 
 ### What the characteristics report about themselves
 
@@ -289,6 +331,23 @@ Always the same two adjacent values, always about two seconds apart, in bursts w
 `device_uuid` in `setting` is therefore a hint and never a gate. It may be used to *prefer* one candidate over another
 within a scan, and it must not be used to decide that a candidate is or is not this app's cube.
 
+### A third identifier exists on Linux, and it survived a factory reset (2026-09-07)
+
+**BlueZ hands out the cube's real Bluetooth address where CoreBluetooth hides it behind a per-host
+mapping.** `E8:DB:D8:CF:F9:0F`, and unlike either identifier above it *is* specific to this unit.
+
+**It was the same address before and after a factory reset** (row 20102, against row 20006 of the day
+before), which is a fact neither of the two identifiers above can offer: this is the first thing here that
+distinguishes one cube from another *and* has been seen to survive the event most likely to change it.
+
+**It is still not a promise.** BlueZ reports `AddressType: random` (row 20007), and a random address is
+the kind the specification permits a device to change -- so this is a measurement of one reset on one
+cube, not a guarantee. What it does mean is that the reasoning above is about CoreBluetooth's identifier
+rather than about Bluetooth: a Linux port has a better handle available, and `BlueZAddress` carries it
+inside a `UUID` so the rest of the app can keep its own shape.
+
+
+
 ### What identifies a cube is the PIN
 
 The app sets a PIN of its own on the cube it pairs with (`0x30`), so **the cube that accepts this app's PIN is this
@@ -393,6 +452,15 @@ It is not tidying up; it is the only way the app finds out what it just did.
 `0x05` writes the idle delay after which the cube stops counting on its own, and the cube keeps it in flash. `0xFF`
 does not clear it. Measured on run 135 (2026-08-29), where the delay survived two factory resets in one run and went
 on being reported afterwards.
+
+Confirmed on a second stack on 2026-09-07 (rows 20107 to 20109): a cube the owner had just factory reset
+answered `0x10` with `02 01 00 05`, which `DeviceCommandRules` reads as lock off, pause on, **auto-pause
+five minutes**. Nothing in that session had written `0x05`. Measured over BlueZ and libdbus, where the
+run below was CoreBluetooth -- so the delay surviving a wipe is the firmware's doing rather than
+anything about the host.
+
+**And the spec says the opposite twice over**: `0x05` is documented as *"Auto-pause mode (disabled by
+default)"*, so both the default and the survival are contradicted by a single read.
 
 The evidence is the `0x10` answer, whose last two bytes are the delay in minutes. Across that whole run it never
 moved:

@@ -91,13 +91,24 @@ one listen. So it is no substitute for the `faces` characteristic, and finding 3
 both of these as much as to the rest: presumably debug output the firmware never stopped emitting, and a
 fragile thing to depend on.
 
-**No `debug_log` evidence rows for either**, because the probe that saw them is not the app. That is why
-they are written here rather than added to finding 3's table, whose own rule is that additions cite rows.
+**Both are now in [timeflip2-firmware-observations.md](timeflip2-firmware-observations.md)** as a Linux
+note on finding 3, with evidence rows 20110 to 20124 -- transcribed from the probe's output into the
+evidence file the same way rows 20001 to 20051 were, since a probe prints rather than writing `debug_log`
+rows. That file is where a reader looks for what the hardware does; this one is where the BlueZ mechanics
+live, and the strings belong in the first.
 
-**9. And finding 4 holds through a second stack.** `0x02` on the command result after a correct PIN, not
-the `0x01` the spec promises -- measured here over BlueZ and libdbus, where finding 4 measured it over
-CoreBluetooth in August. Two different hosts, two different Bluetooth stacks, same inverted byte. The
-events data line above says `password OK` at the same moment, which is a second signal agreeing with it.
+**9. Three existing findings confirmed through a second stack**, all now noted in their own place in
+`timeflip2-firmware-observations.md` rather than argued here:
+
+- **Finding 4**, the inverted password byte: `0x02` on a correct PIN, not the `0x01` the spec promises.
+- **Finding 10**, auto-pause surviving a factory reset: `00 05` on a cube just reset, where the spec says
+  the feature is disabled by default.
+- **Finding 8**, on identifiers: BlueZ exposes the cube's real address where CoreBluetooth does not, and
+  it was the same address either side of that reset.
+
+Confirming a finding on a second Bluetooth stack is worth more than repeating it on the same one: it
+separates what the cube does from what the host does, which is the distinction finding 8 is entirely
+about.
 
 ## The mapping
 
