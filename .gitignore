@@ -19,3 +19,6 @@ __pycache__/
 # client_secret still sitting in it. A pattern that cannot be outrun by moving the file is the one
 # worth having for a secret.
 google-client.json
+
+# Built by scripts/package.sh: a disk image to send somebody, not something to commit.
+/dist/

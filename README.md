@@ -27,6 +27,7 @@ from the using end.
 
 - **[Installation](docs/installation.md)** - system requirements, building from source, and what to run
 - **[Contributing](CONTRIBUTING.md)** - code style, security guidelines, and how to submit a PR
+- **[Distribution](docs/distribution.md)** - building a disk image to send somebody, and what Gatekeeper does to it
 - **[Google OAuth setup](docs/google-oauth-setup.md)** - the Google project a build signs in against
 - **[Workflow](docs/workflow.md)** - the usage the schema is shaped around, and why
 - **[Operation Spec](docs/operation-spec.md)** - how a device event becomes a calendar entry
