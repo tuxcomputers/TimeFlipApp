@@ -168,6 +168,33 @@ resolves through the view and inserts a miss **above** the seeded block, so an i
 signal to add that zone to `002_timezone.sql` rather than a low id that means something else everywhere
 else.
 
+### What `TimeZone.current.identifier` answers, and Darwin agrees with corelibs
+
+**Measured 2026-09-08 with a standalone Foundation program, Swift 6.3.3.**
+
+| `TZ` | `TimeZone.current.identifier` | In `knownTimeZoneIdentifiers` | Offset used |
+|---|---|---|---|
+| unset | `Australia/Brisbane` | yes | +10:00 |
+| `Cuba` | **`Cuba`** | **no** | -04:00 |
+| `AEST` | `Australia/Brisbane` | yes | +10:00 |
+| `nonsense/zone` | `Australia/Brisbane` | yes | +10:00 |
+
+**Darwin answers exactly what corelibs answers**, row for row against the Linux table below. A legacy
+`backward` link is handed through verbatim and uncanonicalised, an unusable `TZ` falls back silently to
+the system zone, and `knownTimeZoneIdentifiers` is the only thing separating the two. So seeding the
+table and reading it through `timezone_lookup` is right on both machines for the same measured reason
+rather than by coincidence.
+
+**`TZ=AEST` is refused here too**, which rules out the mechanism question 4 proposed. Darwin does not
+accept a `TZ` that Linux refuses, so no environment variable put `AEST` in `test.sqlite`: `TZ` is unset
+in this shell, nothing under `~/Library/LaunchAgents` sets it, and no script under `Sources/`, `Tests/`
+or `scripts/` sets it.
+
+**What does answer that exact string is `TimeZone.current.abbreviation()`**, which returns `AEST` on this
+machine where `identifier` returns `Australia/Brisbane`. Nothing in the tree calls it, and `git log -S`
+across all branches finds no Swift source that ever did, so whatever wrote that row is not in the
+history. The row itself is already gone, the three databases having been migrated on 2026-09-07.
+
 ### Toolchain
 
 | | |
@@ -820,31 +847,6 @@ matters and a command that answers it, so the answer is a measurement rather tha
 the question from here in the same change.** Do not answer inline and do not tick it off in place. When
 this heading has nothing under it, the Linux box has everything it needs.
 
-### 4. Does Darwin accept a `TZ` that Linux refuses, and is that where `AEST` came from?
-
-**Why:** the Mac recorded `AEST` sitting in `test.sqlite` as a `timezone_name` and could not establish
-what made `TimeZone.current.identifier` answer an abbreviation. Corelibs on Linux does **not**: `TZ=AEST`
-falls back to the system zone (table above). If Darwin echoes it instead, that is the mechanism, and it
-matters now rather than as trivia -- `timezone` is seeded with the 447 real zone names, so a
-`TimeZone.current.identifier` of `AEST` misses the seed *and* the alias table and lands as a runtime row
-above id 447, which is the one case the seeding does not cover.
-
-```sh
-cat > /tmp/tzprobe.swift <<'SWIFT'
-import Foundation
-let id = TimeZone.current.identifier
-print("\(ProcessInfo.processInfo.environment["TZ"] ?? "<unset>") -> \(id) "
-    + "canonical=\(TimeZone.knownTimeZoneIdentifiers.contains(id)) "
-    + "offset=\(TimeZone.current.secondsFromGMT())")
-SWIFT
-swiftc -o /tmp/tzprobe /tmp/tzprobe.swift
-/tmp/tzprobe; TZ=AEST /tmp/tzprobe; TZ=Cuba /tmp/tzprobe; TZ=nonsense/zone /tmp/tzprobe
-```
-
-Wanted: what Darwin answers for `TZ=AEST` and for `TZ=Cuba`, and -- if `AEST` comes back verbatim --
-whether anything on that machine sets `TZ` (a launch agent, `scripts/run.sh`, a test harness), since
-something did.
-
 Questions 1 and 3 were answered into *System information about the Mac* above and removed on
-2026-09-07. Number 2 was withdrawn rather than answered, the owner having settled it by practice, and
-its number stays unused.
+2026-09-07, and question 4 the same way on 2026-09-08. Number 2 was withdrawn rather than
+answered, the owner having settled it by practice, and its number stays unused.

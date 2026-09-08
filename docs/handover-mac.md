@@ -36,20 +36,6 @@ for something is to write it down where the other will look.
 
 ---
 
-## 3. Answer question 4 in `systems-info.md`
-
-**Why:** it is the last thing outstanding in that file's queue, it costs about a minute, and it explains
-something on this machine that nobody has accounted for: `test.sqlite` had `AEST` in its `timezone`
-table, which is not an IANA identifier. On Linux `TZ=AEST` is refused and falls back to the system zone,
-so whatever produced it is Darwin-specific.
-
-The probe and the exact wanted answers are in *Information required about the Mac* in
-[systems-info.md](systems-info.md). **The answer goes there, in the Mac's own facts section, and question
-4 is deleted in the same change** -- that file's rule, not this one's.
-
-It matters more now than when it was asked: `timezone` is seeded with the 447 real zone names, so an
-identifier like `AEST` misses the seed *and* the alias table and lands as a runtime row above id 447.
-
 ## 4. Run the scripted suite and commit the stamp
 
 **Why:** CI is red and correct to be. The committed stamp is run 170 at `0f78510`: `outcome: failed`, 21
