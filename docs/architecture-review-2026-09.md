@@ -346,9 +346,19 @@ where things go that cannot run at all. So on 2026-09-07 the migration emptied i
 the `@MainActor` list "gone because it emptied", while six migratable suites sat hidden on the other list.
 An exclusion list has to say which of two reasons it is, or it silently absorbs the other.
 
-**None of this is verified on Linux, and the Mac cannot verify it.** On macOS
-`testsThatCannotRunOnLinuxYet` is `[]`, so the edited list is inert there and the 1,751 green tests say
-nothing about it. That is `handover-linux.md` item 10.
+**Verified on Linux, 2026-09-09, and the figure held.** `swift build --build-tests` compiled all four
+first time and `swift test` ran **956 tests, 0 failures**, up 50 from 906. Not 52: `PortableSHA256Tests`
+holds five methods but two sit inside its `#if canImport(CryptoKit)` guard, so three of them exist on this
+platform. The other three suites ran their full 25, 17 and 5. Nothing failed, and nothing failed for a
+reason about the platform.
+
+**Then the 110 were mostly collected too, on the same day.** Four of the six `mainRunLoopTests` files
+migrated to swift-testing and run on Linux, worth **93 tests**, taking it to **1,049**. The last two --
+`LowBatteryWatchTests` and `WriteDebounceTests`, 17 tests -- turned out not to be blocked by the framework
+at all: on Linux a `@MainActor` swift-testing test **does not run on the main thread**, so the
+`RunLoop.main` timer that both subjects schedule never fires. That is measured in `docs/linux-port.md`
+under *`@MainActor` is not the main thread*, and it is a better finding than the tests were worth: the
+`mainActorTests` list had been named after a blocker that was only the shallower of two.
 
 **The falsifiability gate was not built.** It would be a check that every file on `platformBoundTests`
 actually references a platform type. It is still the right idea, and it is what would have caught this drift,
@@ -455,9 +465,11 @@ its colours are semantic AppKit ones; `name(of:)` is evidence the app already ne
    2026-09-09.** It changed no production code and cost about an hour as expected, but it is worth 52 tests
    rather than the 162 this review claimed, the other 110 needing a swift-testing migration first. It does
    include the only suite guarding the SHA-256 that Linux alone uses, and it corrects the exclusion list,
-   which the port is being planned against. Awaiting a Linux run, `handover-linux.md` item 10.
-   **Next, and it is what is left of this one:** migrate the six `mainActorTests` files to swift-testing,
-   worth 110 tests, which is `linux-port.md` item 6 with a queue again.
+   which the port is being planned against. **Confirmed on Linux the same day**: 956 tests, 0 failures, and
+   the migration that was "what is left of this one" then took four of its six files, for 93 more.
+   **Linux runs 1,049 tests now.** What is genuinely left is two decisions rather than any work: whether
+   `WriteDebounce` and `LowBatteryWatch` should take their `RunLoop` as a parameter, which is the only thing
+   that would win the last 17 tests, and whether to build the falsifiability gate below.
 2. **Candidate 2 next**, because it is a day and it is diagnostic. Writing the in-memory adapter for
    `CubeRadio` collects the leverage the FacetCore split promised. If `DeviceReconnector` proves awkward to
    drive through those five members, that is the cheapest possible evidence that the seam is in the wrong

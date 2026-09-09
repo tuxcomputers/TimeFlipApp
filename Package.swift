@@ -44,8 +44,9 @@ let testDependencies: [Target.Dependency] = ["FacetMac", "FacetCore"]
 // **It said 48 until 2026-09-09, and ten of those needed none of the three.** Each carried a
 // `@testable import FacetMac` it never used a type from, which is enough on its own to keep a file out of
 // a build that has no such module -- so the import was what excluded them, not the reason written here.
-// Four turned out to be portable outright and have gone; the other six are the `mainActorTests` list
-// below, which is a different blocker and now says so. The two that cost the most to find were
+// Four turned out to be portable outright and have gone; the other six became the `mainRunLoopTests` list
+// below, which is a different blocker and now says so -- and four of those six have since migrated off it,
+// leaving the two the run loop really does block. The two that cost the most to find were
 // `DeviceEventRecorderTests` and `TimeEntryRecorderTests`: 854 lines of database behaviour whose only
 // mention of a `FacetMac` type in either file was a comment citing `SettingsWindowController.startTiming`
 // as prior art for an ordering.
@@ -95,32 +96,37 @@ let platformBoundTests = [
     "TimingViewTests.swift",
 ]
 
-// **The `@MainActor` list is back, and it is item 6's remaining queue.** It emptied once, on 2026-09-07,
-// and the note here said so -- but it emptied of the files anybody was looking at. These six were on
-// `platformBoundTests` at the time, so the migration never saw them, and they are `@MainActor`
-// `XCTestCase` subclasses: the case the comment at the top of this section calls the worse one, which
-// aborts the whole run at load time rather than failing on its own.
+// **These two need the main thread's run loop, and no amount of migrating gets them it.** This list was six
+// files on 2026-09-09 and its blocker was named as `@MainActor` `XCTestCase`, which aborts the whole Linux
+// run at load time. Four of the six were migrated to swift-testing that day and run here now, worth 93
+// tests. The two left are a different problem, and it is why this list is no longer named after the
+// framework:
 //
-// **So they are not excluded for needing a platform.** Every one of them tests a `FacetCore` module and
-// uses no AppKit, no CoreBluetooth and no `FacetMac` type. Migrating a file to swift-testing is the whole
-// of what moves it off this list, and doing so is worth 110 tests:
+//     LowBatteryWatchTests 10, WriteDebounceTests 7
 //
-//     DeviceEventRecorderTests 35 · FaceColourSyncTests 22 · TimeEntryRecorderTests 18
-//     DeviceSettingsSyncTests 18 · LowBatteryWatchTests 10 · WriteDebounceTests 7
+// **Measured on Linux, 2026-09-09.** Inside a `@Suite @MainActor` swift-testing suite on this platform,
+// `Thread.isMainThread` is **false** and `RunLoop.current !== RunLoop.main`. Both subjects schedule their
+// work with `RunLoop.main.add(timer, forMode: .common)` -- `WriteDebounce.schedule` and the blink timer in
+// `LowBatteryWatch` -- so the timer lands on a run loop the test cannot drive and nobody else is running. A
+// probe separated the three cases: a timer on `RunLoop.main` never fires however long the test spins,
+// whether it spins `.common` or `.default`, while the same timer on `RunLoop.current` fires at once. So
+// migrating these two would trade one load-time abort for seventeen silent failures.
 //
-// **This list shrinks to nothing and then goes away**, exactly as the first one did. The difference is
-// that it now names the blocker, so the next migration pass can find its own work.
-let mainActorTests = [
-    "DeviceEventRecorderTests.swift",
-    "DeviceSettingsSyncTests.swift",
-    "FaceColourSyncTests.swift",
+// **What would actually unblock them**, in the order worth considering: swift-testing running `@MainActor`
+// on the main thread on Linux, which is not in this repository's gift; or injecting the `RunLoop` into the
+// two subjects, which is a production change made for a test's benefit and wants agreeing rather than
+// assuming -- `RunLoop.main` is the honest statement of what the app wants, and `RunLoop.current` would
+// only work by coincidence. Written up in `docs/linux-port.md`.
+//
+// They are `@MainActor` `XCTestCase` subclasses as well, so the load-time abort applies today too. That is
+// the shallower of the two reasons, and the one that would survive being fixed.
+let mainRunLoopTests = [
     "LowBatteryWatchTests.swift",
-    "TimeEntryRecorderTests.swift",
     "WriteDebounceTests.swift",
 ]
 
 #if os(Linux)
-let testsThatCannotRunOnLinuxYet = platformBoundTests + mainActorTests
+let testsThatCannotRunOnLinuxYet = platformBoundTests + mainRunLoopTests
 #else
 let testsThatCannotRunOnLinuxYet: [String] = []
 #endif

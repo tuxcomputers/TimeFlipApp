@@ -152,12 +152,21 @@ That settles the strategy: the suite migrates to swift-testing rather than being
 Mostly mechanical. A regex pass converted 49 of 52 assertions; the three it missed were the
 message-carrying forms, `XCTAssertEqual(a, b, "why")` and `XCTAssertFalse(a, "why")`.
 
+**The 2026-09-09 pass converted 264 of 264**, across the last four files, with a string- and comment-aware
+converter rather than a plain regex -- which is what the message-carrying forms need, along with two traps a
+regex walks into. An operand whose top level holds an operator binding looser than `==` has to be
+parenthesised, or `XCTAssertEqual(a ?? b, c)` becomes `#expect(a ?? b == c)`, which compiles and asks
+`a ?? (b == c)`; and a `String` variable passed as a message is not a `Comment`, where a string literal
+becomes one on its own. Neither of those fails loudly, which is why the count was checked per file against
+the original rather than trusted.
+
 | XCTest | swift-testing |
 |---|---|
 | `final class X: XCTestCase` | `@Suite final class X` |
 | `func testFoo()` | `@Test func testFoo()` |
 | `XCTAssertEqual(a, b)` | `#expect(a == b)` |
 | `XCTAssertTrue(a)` / `XCTAssertFalse(a)` | `#expect(a)` / `#expect(!(a))` |
+| `try XCTUnwrap(a)` | `try #require(a)` |
 | `setUpWithError()` | `init() throws` |
 | `tearDown()` | `deinit` -- **and this one does not map** |
 
@@ -182,6 +191,42 @@ alone (3.87s to 0.06s) and takes a bootstrap from 6.2s to 0.9s. The 540 XCTest t
 **2.0s** with it, and the 292 migrated ones run in **42s in parallel**. So the answer stands where the
 spike left it -- parallelism is fine and `.serialized` is not needed -- but for a different reason than
 it gave, and the number that matters is the per-statement fsync rather than the DDL's size.
+
+### And it does not fix everything: on Linux, `@MainActor` is not the main thread
+
+**Measured 2026-09-09**, migrating the last six files off the exclusion list. Inside a `@Suite @MainActor`
+swift-testing suite on this platform:
+
+| Probe | Answer |
+|---|---|
+| `Thread.isMainThread` | **false** |
+| `RunLoop.current === RunLoop.main` | **false** |
+| a `Timer` on `RunLoop.main` in `.common`, spinning `.default` | **never fires** |
+| the same on `RunLoop.main` in `.default`, spinning `.default` | **never fires** |
+| the same on `RunLoop.current` in `.common`, spinning `RunLoop.current` | **fires at once** |
+
+The isolation is honoured -- the body really is serialised on the main actor -- but the actor is not the
+thread whose run loop `RunLoop.main` hands back. Under XCTest the two coincided. No migrated suite had
+noticed because all 22 of them are synchronous and none of them touches a run loop.
+
+**It cost the last two files of the migration.** `WriteDebounce.schedule` and `LowBatteryWatch`'s blink
+timer both do `RunLoop.main.add(timer, forMode: .common)`, so under swift-testing here the timer lands on a
+run loop the test cannot drive and nobody else is running. `WriteDebounceTests` (7 tests) and
+`LowBatteryWatchTests` (10) would trade one load-time abort for seventeen silent failures, so they stay
+excluded, and `Package.swift` now names this as the reason rather than the framework. It was confirmed the
+expensive way: the migrated `WriteDebounceTests` reported `writes -> 0` and `written -> []` on four tests
+before the probe explained why.
+
+**Two ways out, and neither is free.** swift-testing could run `@MainActor` on the main thread on Linux,
+which is not in this repository's gift. Or the `RunLoop` becomes a parameter of the two subjects, defaulting
+to `.main` -- a production change made for a test's benefit, and worth agreeing before doing rather than
+after. `RunLoop.main` states what the app actually wants; switching those call sites to `RunLoop.current`
+would pass the tests by coincidence and leave the app correct only for as long as the main actor happens to
+be the main thread, which is precisely the assumption this section just measured as false.
+
+**A smaller Linux-only difference found beside it.** swift-corelibs-foundation does not mark
+`RunLoop.run(mode:before:)` `@discardableResult`, so the bare call warns here where it does not on Darwin.
+The repository's four other call sites are all in macOS-only test files, which is why it had never come up.
 
 ## Found: a symlinked directory reads as empty, and the bootstrap calls that success
 
@@ -566,10 +611,20 @@ Roughly in dependency order. Nothing here is started.
 5. ~~**Make `DatabaseBootstrap` refuse an empty DDL listing**, and resolve symlinks before
    enumerating.~~ Done 2026-09-06, along with flipping `database/` to be the real directory.
 6. **Migrate the test suite to swift-testing**, checking every `tearDown` by hand for the `deinit`
-   isolation trap. **Reopened 2026-09-09: the queue is back, with six files and 110 tests.**
+   isolation trap. **Reopened and mostly cleared on 2026-09-09: four of the six migrated, worth 93 tests,
+   and the last two are blocked by something a migration cannot fix.**
 
-       DeviceEventRecorderTests 35 - FaceColourSyncTests 22 - TimeEntryRecorderTests 18
-       DeviceSettingsSyncTests 18 - LowBatteryWatchTests 10 - WriteDebounceTests 7
+       migrated, and running here:  DeviceEventRecorderTests 35 - FaceColourSyncTests 22
+                                    TimeEntryRecorderTests 18 - DeviceSettingsSyncTests 18
+       still excluded, 17 tests:    LowBatteryWatchTests 10 - WriteDebounceTests 7
+
+   The two that are left need the main thread's run loop, and on Linux a `@MainActor` swift-testing test
+   does not run on the main thread -- measured, with the probe and the consequences, in *`@MainActor` is not
+   the main thread* above. **So this item is finished except for a decision that is not a migration**:
+   whether the two subjects should take their `RunLoop` as a parameter. Until that is agreed, 17 tests stay
+   off this platform and `Package.swift`'s `mainRunLoopTests` says why.
+
+   With the four in, Linux runs **1,049 tests**: 590 under XCTest and 459 under swift-testing, 0 failures.
 
    **The claim below that the `mainActorTests` list was gone because it emptied was wrong**, and wrong in
    a way worth keeping: it emptied of the files anybody was looking at. These six were sitting on
