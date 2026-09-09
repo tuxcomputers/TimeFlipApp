@@ -17,11 +17,9 @@ jobs:
     name: Test (macOS, after merge into base branch)
     runs-on: macos-15
     steps:
+      # No `fetch-depth: 0`: full history was here for `check_interactive_checklists.sh`, which now
+      # runs once in `all-tests-pass` instead of twice here. Building and testing needs no history.
       - uses: actions/checkout@v5
-        with:
-          # Full history: check_interactive_checklists.sh compares the commit in
-          # Tests/Scripted/last-run-mac.md against this branch, which a shallow clone cannot see.
-          fetch-depth: 0
 
       - uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -32,13 +30,6 @@ jobs:
 
       - name: Test
         run: swift test
-
-      # `github.head_ref` is the PR's source branch, and is empty on a push to main -- which the
-      # script reads as "no branch to check against" and skips the Last-run half. That is the
-      # behaviour main needs: a checklist's heading names the feature branch that ran it, and goes
-      # on naming it after the merge, so enforcing it on main would fail every push forever.
-      - name: Verify interactive test checklists are complete
-        run: ./scripts/check_interactive_checklists.sh --branch "${{ github.head_ref }}"
 
   # Only meaningful for pull_request: checks out the PR branch's actual tip commit (not the merge
   # preview above), so a PR that only passes once merged with newer base-branch changes -- but
@@ -52,8 +43,6 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          # Full history, for the same reason as the other job.
-          fetch-depth: 0
 
       - uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -64,9 +53,6 @@ jobs:
 
       - name: Test
         run: swift test
-
-      - name: Verify interactive test checklists are complete
-        run: ./scripts/check_interactive_checklists.sh --branch "${{ github.head_ref }}"
 
   # **The two jobs above are both macOS, so neither of them can see a platform divergence.**
   # These two mirror them on Linux, one for the merge preview and one for the branch as it stands,
@@ -97,9 +83,8 @@ jobs:
     # The macOS jobs above float in the same way, on `latest-stable`.
     container: swift:6.2-noble
     steps:
-      # No `fetch-depth: 0` here, unlike the macOS jobs: that is for
-      # `check_interactive_checklists.sh`, which this job does not run. The two jobs above already do, and
-      # the answer does not depend on the platform.
+      # No `fetch-depth: 0`, which is now true of all four test jobs: full history is for
+      # `check_interactive_checklists.sh`, and that runs in `all-tests-pass`. Nothing here reads the history.
       - uses: actions/checkout@v5
 
       # **What the Linux target graph needs and Darwin does not.** `SQLite3`, `CDBus` and `CGtk` are
@@ -238,6 +223,20 @@ jobs:
   # renamed, added, or removed freely without ever touching the branch protection setting again --
   # only this job's name has to stay stable. `if: always()` makes sure it still runs (and can
   # report failure) even when a job it depends on fails, instead of being skipped itself.
+  #
+  # **The scripted-suite check lives here rather than in the test jobs**, moved 2026-09-09. It used to be a
+  # step in both macOS jobs, and that was wrong in three ways. It is not a test: `Build` and `Test` can both
+  # be green while it fails, which is exactly what happened on this branch when a `Package.swift` edit went
+  # in, and a job called *Test (macOS ...)* going red for that sends whoever reads it looking at the
+  # compiler. It is not macOS: the script is shell, git, awk and sed over a Markdown file, and the comment in
+  # the Linux job above said as much, that "the answer does not depend on the platform". And the second run
+  # was not merely duplicated but **redundant**: the PR branch tip is an ancestor of the merge commit, so a
+  # clean `diff(stamp -> merge result)` over the watched paths implies a clean `diff(stamp -> branch tip)`.
+  # The merge result is the stronger question and it is the one that matters, being what actually lands.
+  #
+  # So this job is now "everything that has to be true": the four test jobs passed, **and** somebody really
+  # ran the suite against this branch. Both steps always run, so one failing still reports the other rather
+  # than masking it.
   all-tests-pass:
     name: All tests pass
     runs-on: ubuntu-latest
@@ -248,7 +247,26 @@ jobs:
       - test-linux-branch-as-is
     if: always()
     steps:
+      # Full history: the script compares the commit named in `Tests/Scripted/last-run-mac.md` against this
+      # branch and diffs the watched paths across that range, neither of which a shallow clone can see.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # `github.head_ref` is the PR's source branch, and is empty on a push to main -- which the
+      # script reads as "no branch to check against" and skips the Last-run half. That is the
+      # behaviour main needs: a stamp names the feature branch that ran it, and goes on naming it
+      # after the merge, so enforcing it on main would fail every push forever.
+      #
+      # **Running under GNU awk rather than macOS awk is a change of dialect, and it was checked.** The two
+      # `-F' *[|] *'` parsers use a bracket expression precisely because the escaped-pipe form silently fails
+      # open on one of the two awks, and the short-row path was exercised against a doctored stamp before this
+      # moved: it reports the shortfall rather than passing everything, which is the failure this guards.
+      - name: Verify the scripted suite was run on this branch
+        run: ./scripts/check_interactive_checklists.sh --branch "${{ github.head_ref }}"
+
       - name: Check required jobs succeeded
+        if: always()
         run: |
           if [[ "${{ needs.test-macos-merge-result.result }}" != "success" ]]; then
             echo "test-macos-merge-result: ${{ needs.test-macos-merge-result.result }}"
