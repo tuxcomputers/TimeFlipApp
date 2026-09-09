@@ -2,7 +2,6 @@ import XCTest
 #if canImport(CryptoKit)
 import CryptoKit
 #endif
-@testable import FacetMac
 @testable import FacetCore
 
 /// `PortableSHA256` against answers that did not come from it.

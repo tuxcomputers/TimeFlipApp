@@ -267,7 +267,15 @@ when it is stale.
 
 ### 7. A quarter of the Linux test exclusions are an unused import
 
-**Strong, and the cheapest thing here.** `Package.swift:41-92`.
+**Strong, and the cheapest thing here. Acted on 2026-09-09, and the figure below was wrong.**
+`Package.swift:41-92`.
+
+> **Corrected when it was implemented.** This candidate claimed 162 tests for the cost of deleting an
+> import. The real figure is **52 now and 110 after a migration**, because six of the ten files are
+> `@MainActor` `XCTestCase` subclasses. `Package.swift` names that trap at the top of the section, and it is
+> the worse one: such a file aborts the whole Linux run at load time rather than failing on its own, so
+> un-excluding those six would have taken down all 873 tests that already pass there. Only four were safe.
+> What follows is the finding as written; the correction is at the end of the section.
 
 The list says these files need "AppKit, CoreBluetooth or a `FacetMac` type". **Ten of them need none of the
 three**: each carries `@testable import FacetMac` and uses no type from it.
@@ -309,6 +317,42 @@ it. Five more files (910 lines, 56 tests) have one or two touch points with the 
 **The proposal.** Delete the unused import from ten files and take them off the list. Then make the list
 falsifiable: a check that a file on it actually references a platform type, so it cannot drift again.
 `scripts/check_interactive_checklists.sh` is the precedent for that kind of gate.
+
+#### What was actually done, and the correction
+
+Landed on 2026-09-09. The imports are gone from all ten files, and the compiler confirmed they were unused:
+`swift build --build-tests` compiles every one of them without it, and `swift test` is green at 1,751 tests
+(1,392 XCTest, 359 swift-testing, 0 failures). `FaceColourSyncTests` lost a dead `import AppKit` with it.
+
+**Only four files could come off the exclusion list**, not ten:
+
+| Off the list, 52 tests | Blocked by `@MainActor`, 110 tests |
+| --- | --- |
+| `DeviceLoginRulesTests` 25 | `DeviceEventRecorderTests` 35 |
+| `DeviceReconnectRulesTests` 17 | `FaceColourSyncTests` 22 |
+| `PortableSHA256Tests` 5 | `TimeEntryRecorderTests` 18 |
+| `CubeFirstReadingTests` 5 | `DeviceSettingsSyncTests` 18 |
+| | `LowBatteryWatchTests` 10, `WriteDebounceTests` 7 |
+
+The six are `@MainActor` `XCTestCase` subclasses, and `Package.swift` already described what that does: it
+"aborts the run at load time however well everything else behaves". Un-excluding them would have cost the
+873 tests Linux already runs. They now sit on a restored `mainActorTests` list which names that blocker, so
+`Package.swift` holds 44 exclusions in two lists that each say which of the two reasons they are, rather than
+48 in one list that said only the first.
+
+**The interaction between the two lists is the real finding, and it is worth more than the ten files.** A
+suite on `platformBoundTests` was never a candidate for the swift-testing migration, because that list is
+where things go that cannot run at all. So on 2026-09-07 the migration emptied its own queue and reported
+the `@MainActor` list "gone because it emptied", while six migratable suites sat hidden on the other list.
+An exclusion list has to say which of two reasons it is, or it silently absorbs the other.
+
+**None of this is verified on Linux, and the Mac cannot verify it.** On macOS
+`testsThatCannotRunOnLinuxYet` is `[]`, so the edited list is inert there and the 1,751 green tests say
+nothing about it. That is `handover-linux.md` item 10.
+
+**The falsifiability gate was not built.** It would be a check that every file on `platformBoundTests`
+actually references a platform type. It is still the right idea, and it is what would have caught this drift,
+but a new gate is premature while the port is still moving.
 
 ### 8. `SettingsWindowController` owns far more than the window
 
@@ -407,10 +451,13 @@ its colours are semantic AppKit ones; `name(of:)` is evidence the app already ne
 
 ## The sequence worth doing them in
 
-1. **Candidate 7 first**, because it is about an hour and changes no production code. It puts 162 tests on
-   Linux, including the only suite guarding the SHA-256 that Linux alone uses, and it corrects the exclusion
-   list, which the port is being planned against and which currently overstates the remaining work by about a
-   quarter.
+1. ~~**Candidate 7 first**, because it is about an hour and changes no production code.~~ **Done
+   2026-09-09.** It changed no production code and cost about an hour as expected, but it is worth 52 tests
+   rather than the 162 this review claimed, the other 110 needing a swift-testing migration first. It does
+   include the only suite guarding the SHA-256 that Linux alone uses, and it corrects the exclusion list,
+   which the port is being planned against. Awaiting a Linux run, `handover-linux.md` item 10.
+   **Next, and it is what is left of this one:** migrate the six `mainActorTests` files to swift-testing,
+   worth 110 tests, which is `linux-port.md` item 6 with a queue again.
 2. **Candidate 2 next**, because it is a day and it is diagnostic. Writing the in-memory adapter for
    `CubeRadio` collects the leverage the FacetCore split promised. If `DeviceReconnector` proves awkward to
    drive through those five members, that is the cheapest possible evidence that the seam is in the wrong

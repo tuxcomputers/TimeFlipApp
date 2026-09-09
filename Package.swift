@@ -39,7 +39,21 @@ let testDependencies: [Target.Dependency] = ["FacetMac", "FacetCore"]
 // behaves. A file that cannot run has to be absent from the build rather than inert within it.
 
 // **Needs AppKit, CoreBluetooth or a `FacetMac` type**, so it waits on items 9, 10 and 11 of
-// `docs/linux-port.md`: the OAuth listener, the BlueZ radio, and a UI. 48 files.
+// `docs/linux-port.md`: the OAuth listener, the BlueZ radio, and a UI. 38 files.
+//
+// **It said 48 until 2026-09-09, and ten of those needed none of the three.** Each carried a
+// `@testable import FacetMac` it never used a type from, which is enough on its own to keep a file out of
+// a build that has no such module -- so the import was what excluded them, not the reason written here.
+// Four turned out to be portable outright and have gone; the other six are the `mainActorTests` list
+// below, which is a different blocker and now says so. The two that cost the most to find were
+// `DeviceEventRecorderTests` and `TimeEntryRecorderTests`: 854 lines of database behaviour whose only
+// mention of a `FacetMac` type in either file was a comment citing `SettingsWindowController.startTiming`
+// as prior art for an ordering.
+//
+// **The lesson is about the two lists rather than the ten files.** A file sitting here was never a
+// candidate for the swift-testing migration, because this list is where things go that cannot run at all
+// -- so the migration emptied its own queue while six migratable suites sat hidden on this one. A list of
+// exclusions has to say which of two reasons it is, or it absorbs the other.
 let platformBoundTests = [
     "ActivityIconTests.swift",
     "AppSettingsPaneTests.swift",
@@ -52,26 +66,18 @@ let platformBoundTests = [
     "CollapsibleSectionTests.swift",
     "ColourListTests.swift",
     "CreateStartsTimingTests.swift",
-    "CubeFirstReadingTests.swift",
     "CubeNotFoundOfferTests.swift",
-    "DeviceEventRecorderTests.swift",
-    "DeviceLoginRulesTests.swift",
     "DevicePaneTests.swift",
-    "DeviceReconnectRulesTests.swift",
     "DeviceReconnectorOfferTests.swift",
-    "DeviceSettingsSyncTests.swift",
     "EditableNameCellTests.swift",
-    "FaceColourSyncTests.swift",
     "FacesPaneTests.swift",
     "GoogleOAuthRulesTests.swift",
     "GoogleSectionTests.swift",
     "IconGridTests.swift",
-    "LowBatteryWatchTests.swift",
     "MainMenuTests.swift",
     "MenuBarControllerTests.swift",
     "OffscreenWindow.swift",
     "PairingIsWhatTheAppFollowsTests.swift",
-    "PortableSHA256Tests.swift",
     "QuitSequenceTests.swift",
     "RenamingTheCubeReachesItFirstTests.swift",
     "ReportCalendarTests.swift",
@@ -86,16 +92,35 @@ let platformBoundTests = [
     "SettingsWindowControllerTests.swift",
     "StatusItemTitleTests.swift",
     "SteppedNumberFieldTests.swift",
-    "TimeEntryRecorderTests.swift",
     "TimingViewTests.swift",
+]
+
+// **The `@MainActor` list is back, and it is item 6's remaining queue.** It emptied once, on 2026-09-07,
+// and the note here said so -- but it emptied of the files anybody was looking at. These six were on
+// `platformBoundTests` at the time, so the migration never saw them, and they are `@MainActor`
+// `XCTestCase` subclasses: the case the comment at the top of this section calls the worse one, which
+// aborts the whole run at load time rather than failing on its own.
+//
+// **So they are not excluded for needing a platform.** Every one of them tests a `FacetCore` module and
+// uses no AppKit, no CoreBluetooth and no `FacetMac` type. Migrating a file to swift-testing is the whole
+// of what moves it off this list, and doing so is worth 110 tests:
+//
+//     DeviceEventRecorderTests 35 · FaceColourSyncTests 22 · TimeEntryRecorderTests 18
+//     DeviceSettingsSyncTests 18 · LowBatteryWatchTests 10 · WriteDebounceTests 7
+//
+// **This list shrinks to nothing and then goes away**, exactly as the first one did. The difference is
+// that it now names the blocker, so the next migration pass can find its own work.
+let mainActorTests = [
+    "DeviceEventRecorderTests.swift",
+    "DeviceSettingsSyncTests.swift",
+    "FaceColourSyncTests.swift",
+    "LowBatteryWatchTests.swift",
+    "TimeEntryRecorderTests.swift",
     "WriteDebounceTests.swift",
 ]
 
-// **The `@MainActor` list is gone because it emptied.** Every portable suite that XCTest could not run
-// on this platform is on swift-testing now, so what is left out is only what needs a platform this one
-// does not have yet.
 #if os(Linux)
-let testsThatCannotRunOnLinuxYet = platformBoundTests
+let testsThatCannotRunOnLinuxYet = platformBoundTests + mainActorTests
 #else
 let testsThatCannotRunOnLinuxYet: [String] = []
 #endif

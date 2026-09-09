@@ -1,6 +1,4 @@
-@testable import FacetMac
 @testable import FacetCore
-import AppKit
 import XCTest
 
 /// Covers telling the cube what to light each face in: what goes out, in what order, and what does not go out at all.
