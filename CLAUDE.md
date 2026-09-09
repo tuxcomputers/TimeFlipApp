@@ -555,7 +555,7 @@ The two honest exceptions, and both have to earn it in a comment at the call sit
 - The tag names all pad to the same bracket width (right-padded with spaces) so console lines stay
   aligned, per the example above. This is enforced by `DebugLog.Tag`: its cases hold the tag names,
   and `bracketed` pads to the width of the longest case, so adding a case automatically re-pads every
-  tag — **when a new debug message is requested, add its tag as a new `Tag` case instead of inlining
+  tag. **When a new debug message is requested, add its tag as a new `Tag` case instead of inlining
   a `[Tag]` string in the message**, and double check the console output afterwards to confirm every
   tag still lines up (a new case that's longer than all existing ones widens every other tag's
   padding too).
