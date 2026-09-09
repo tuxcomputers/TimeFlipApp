@@ -7,9 +7,19 @@ import CryptoKit
 /// `PortableSHA256` against answers that did not come from it.
 ///
 /// **It is compiled on both platforms and used only on Linux**, which is the arrangement that puts it in
-/// front of this suite at all: `swift test` runs on the Mac today and cannot run on Linux until the
-/// swift-testing migration. So the vectors below are the only thing standing between a one-digit typo in
-/// the round constants and a sign-in that fails on Linux and nowhere else.
+/// front of this suite at all. So the vectors below are the only thing standing between a one-digit typo
+/// in the round constants and a sign-in that fails on Linux and nowhere else.
+///
+/// **They carry that alone on the platform that needs it**, because the two CryptoKit checks at the
+/// bottom of this file cannot compile there -- there being no second implementation on Linux to differ
+/// from. Which is the shape worth naming: the differential is asserted only on the platform that never
+/// executes `PortableSHA256`, and the platform that does execute it rests on digests that came from
+/// `hashlib` and `sha256sum`.
+///
+/// **This suite first ran on Linux on 2026-09-09**, which is why nothing above blames the swift-testing
+/// migration any more. It had been excluded from that build by a `@testable import FacetMac` it never
+/// used a type from, not by anything it needs; three of its five methods run there, the two absent ones
+/// being the CryptoKit pair.
 final class PortableSHA256Tests: XCTestCase {
     private func hex(_ bytes: [UInt8]) -> String {
         bytes.map { String(format: "%02x", $0) }.joined()

@@ -565,11 +565,31 @@ Roughly in dependency order. Nothing here is started.
    checks read.
 5. ~~**Make `DatabaseBootstrap` refuse an empty DDL listing**, and resolve symlinks before
    enumerating.~~ Done 2026-09-06, along with flipping `database/` to be the real directory.
-6. ~~**Migrate the test suite to swift-testing**, checking every `tearDown` by hand for the `deinit`
-   isolation trap.~~ **Done for everything that can run here, 2026-09-07, Linux.** All 17 portable
+6. **Migrate the test suite to swift-testing**, checking every `tearDown` by hand for the `deinit`
+   isolation trap. **Reopened 2026-09-09: the queue is back, with six files and 110 tests.**
+
+       DeviceEventRecorderTests 35 - FaceColourSyncTests 22 - TimeEntryRecorderTests 18
+       DeviceSettingsSyncTests 18 - LowBatteryWatchTests 10 - WriteDebounceTests 7
+
+   **The claim below that the `mainActorTests` list was gone because it emptied was wrong**, and wrong in
+   a way worth keeping: it emptied of the files anybody was looking at. These six were sitting on
+   `platformBoundTests` at the time, which is the list for things that cannot run here at all, so the
+   migration never saw them as candidates -- it emptied its own queue while six migratable suites hid on
+   the other list. Every one of them tests a `FacetCore` module and uses no AppKit, no CoreBluetooth and
+   no `FacetMac` type; each is a `@MainActor` `XCTestCase` subclass, which is the case that aborts the
+   whole run at load time rather than failing on its own. Migrating a file is the whole of what moves it
+   off the list.
+
+   **So the sentence below about the 48 is wrong twice over.** There are 44 now, and they are not all
+   excluded for a platform: 38 need AppKit, CoreBluetooth or a `FacetMac` type, and 6 are these, waiting
+   on exactly this item. `Package.swift` carries both lists separately for that reason -- a list of
+   exclusions that does not say which of two reasons it is will absorb the other.
+
+   **Done for everything that can run here, 2026-09-07, Linux.** All 17 portable
    `@MainActor` suites are on swift-testing, the `mainActorTests` exclusion list is gone because it
    emptied, and **873 of the 1725 tests pass on Linux**: 333 under swift-testing in 45s beside 540 still
-   under XCTest in 1.9s.
+   under XCTest in 1.9s. Both figures were superseded the same day: `systems-info.md` recorded 906, from
+   366 under swift-testing, and 956 run there as of 2026-09-09.
 
    The 48 files still excluded are excluded for needing AppKit, CoreBluetooth or a `FacetMac` type, not
    for their testing framework, and they migrate when their platform arrives.

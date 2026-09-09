@@ -741,15 +741,27 @@ to-do item 12 rather than a piece of work in it.
 
 | | |
 |---|---|
-| `swift test` | **Runs. 906 tests, 0 failures, 48s** (2026-09-07) -- 540 under XCTest and 366 under swift-testing. That is 57 suites; the 48 files excluded by name in `Package.swift` are excluded for needing AppKit, CoreBluetooth or a `FacetMac` type |
+| `swift test` | **Runs. 956 tests, 0 failures, 54s wall** (2026-09-09) -- 590 under XCTest in 2.6s and 366 under swift-testing in 45.9s. That is 61 suites; the 44 files excluded by name in `Package.swift` are 38 needing AppKit, CoreBluetooth or a `FacetMac` type, plus 6 `@MainActor` `XCTestCase` suites that abort a run at load time and are waiting on the swift-testing migration |
 | `Tests/Scripted/` | **cannot run today**: no app binary to drive, and toolkit accessibility is off. The `sqlite3` half of that is fixed as of 2026-09-07 |
 | `swift build` | **Succeeds**, and builds no app -- the whole of why is below (2026-09-08) |
 | `swift build --target FacetCore` | **Succeeds**, 0.16s from a warm `.build` (2026-09-08) |
 
-**What the 906 are and are not.** They are the rules, the stores, the database layer and the device
+**What the 956 are and are not.** They are the rules, the stores, the database layer and the device
 protocol -- the half of the app that does not know what a window is -- exercised against real
 bootstrapped databases on this machine. They are not the UI, the radio or Google sign-in, none of which
-compiles here yet. The figure to compare them against is 1725, the whole suite on the Mac.
+compiles here yet. The figure to compare them against is 1751, the whole suite on the Mac -- that being
+the Mac's own count, reported in handover item 10 rather than measured here.
+
+**It was 906 until 2026-09-09**, and the 50 it gained were not new tests. Four suites had been excluded
+from this platform by a `@testable import FacetMac` none of them used a type from, so the import was
+doing the excluding rather than the reason the manifest gave: `DeviceLoginRulesTests` 25,
+`DeviceReconnectRulesTests` 17, `CubeFirstReadingTests` 5 and `PortableSHA256Tests` 3. All four compiled
+here first time and passed. **The gain is 50 rather than the 52 those suites hold on the Mac**, because
+two of `PortableSHA256Tests`' five methods sit inside its `#if canImport(CryptoKit)` guard and so do not
+exist here -- the two that check `PortableSHA256` against CryptoKit. Which means the differential is
+asserted only on the platform that never runs the portable implementation, and the platform that does run
+it validates it instead against digests from `hashlib` and `sha256sum`: the published vectors, the twelve
+lengths where SHA-256 padding changes shape, and the 43-character PKCE verifier its one caller hashes.
 
 **`swift build` succeeds on Linux, and what it does not do is build an app.** Both rows above said it
 failed until 2026-09-08, when both were measured returning 0 on this machine. The explanation was already
