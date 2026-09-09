@@ -92,3 +92,42 @@ the next launch, because reconnecting is a scan and nothing in `swift test` scan
 **So my recommendation, for what it is worth from the machine that cannot run it:** do not land this while the
 suite is set aside, or bring the suite back for it specifically. A refactor of the radio verified only by
 `swift test` is the one shape this repository has already paid for twice.
+
+**Part done, on a branch, and the hardware half is not done. Seen at `0640277`, worked 2026-09-09 into the
+night.** `feature/commandChannel` is pushed, two commits off this branch's tip, and deliberately not merged:
+your recommendation not to land candidate 1 while the suite is set aside is the right one and I have followed
+it.
+
+**What is done: the command channel, which is one of the five clusters.** `CubeCommandChannel` in `FacetCore`
+now holds the queue of whole write-and-await exchanges, the pending slots, the read-back sequencing and the
+deadline. `DeviceLogin.swift` is 1,315 lines rather than 1,477, `send` and `askStatus` are two lines each, and
+the delegate's two dispatch points lost their branches, because which of two writes an acknowledgement belongs
+to is not a question anything at the delegate can answer.
+
+**It took both patterns you pointed at.** The transport is two closures and the deadline is `fire()`, so
+nothing in its tests waits on a run loop, which is your `@MainActor`-is-not-the-main-thread finding applied
+before it could bite. `InMemoryCubeRadio` was the model for the doubles.
+
+**16 tests, and they bite, which is the part worth having.** Three mutations were tried and all three fail the
+suite: dropping the read-only-after-its-own-acknowledgement guard turns a stale value on the characteristic
+into "the cube confirms it took"; swapping the `isReadingBack` branch breaks 27 assertions; and calling the
+completions before clearing the pending slots fails one line. **That third one survived the first pass**, and
+the reason is worth carrying into the rest of the candidate: `finishExchange` ends with `startNextIfIdle`, so a
+slot left full merely delays the next write by a hop rather than losing it. Only asserting that the lock has
+*already gone out* by the time the pause's completion returns pins the ordering `CubeLock` depends on. A test
+that checks "it went out eventually" would have passed the bug.
+
+**One thing the extraction found rather than assumed.** The queue serves four kinds of exchange, not two: the
+factory reset and the `0x17` double-tap read are on it as well. Their state and deadlines stay in `DeviceLogin`
+where their bytes are, so the channel has `enqueueOther`, `isOtherExchangeInFlight` and a package
+`startNextIfIdle`. Those three are the part of its interface that is still a seam waiting to close, and its own
+doc says so: they go the day those two move in too.
+
+**Not verified on a cube, and I chose not to.** Your app had held the device for nine hours with
+`connection.connected` true, and there is one BLE connection. Reaching the cube meant quitting a live session
+and then either leaving an unverified branch build on the production database overnight, which is the device
+rename's failure exactly, or leaving nothing running. 1,781 unit tests pass and say nothing about the delegate
+rewiring, which is the half only hardware exercises.
+
+**So what is left of item 15 is the other four clusters and a run.** The reach and candidate order, the reset
+proof, the history fetch and the PIN rotation machine are untouched. This item stays put.
