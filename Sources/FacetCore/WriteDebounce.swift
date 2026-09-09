@@ -27,6 +27,9 @@ package final class WriteDebounce {
 
     private let interval: TimeInterval
     private var timer: Timer?
+    /// The write that is waiting to go out, held rather than captured so that `fire` can be the timeout body on
+    /// its own. Cleared by `cancel` along with the timer, and by `fire` before it runs.
+    private var pending: (@MainActor () -> Void)?
 
     /// - Parameter interval: how long to wait. Defaults to the real one; a test passes something small so it does not
     ///   have to sit through half a second to find out whether one call or three arrive.
@@ -43,11 +46,10 @@ package final class WriteDebounce {
     /// are one value passed through on its way to where it stopped.
     package func schedule(_ write: @escaping @MainActor () -> Void) {
         cancel()
+        pending = write
         let timer = Timer(timeInterval: interval, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self else { return }
-                self.timer = nil
-                write()
+                self?.fire()
             }
         }
         // `.common`, for the reason every timer in this app uses it: the default mode stops dead while a menu is
@@ -56,9 +58,29 @@ package final class WriteDebounce {
         self.timer = timer
     }
 
+    /// The write going out: the timeout body on its own.
+    ///
+    /// **Internal so a test can take the place of the run loop**, exactly as `HistoryTimer.fire` is and for the
+    /// same bargain: the coalescing and the cancelling are then asserted directly rather than through a wait.
+    /// What it skips is `Timer` itself, which is the part with no decisions in it -- so nothing here says a real
+    /// timer ever fires, and on the Mac the scripted suite is what covers the debounced setting writes.
+    ///
+    /// The timer is dropped and the write taken *before* it runs, so a `schedule` made from inside the write is
+    /// a new pending one rather than something this call then clears.
+    func fire() {
+        timer = nil
+        let write = pending
+        pending = nil
+        write?()
+    }
+
     /// Drops a pending write without sending it. Safe to call when there is none.
     package func cancel() {
         timer?.invalidate()
         timer = nil
+        // Cleared with the timer, not merely released with it. The write held here carries values worked out
+        // before whatever is cancelling it, which is the measured bug this method exists for, so a later `fire`
+        // must find nothing rather than the write that was called off.
+        pending = nil
     }
 }

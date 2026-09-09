@@ -115,6 +115,19 @@ package final class LowBatteryWatch {
         stopBlinking()
     }
 
+    /// One phase of the flash: the colour turns over and whoever draws is told.
+    ///
+    /// **Internal so a test can take the place of the run loop**, exactly as `HistoryTimer.fire` is and for the
+    /// same bargain: the alternation is then asserted immediately rather than half a second at a time. What it
+    /// skips is `Timer` itself, which is the part with no decisions in it -- so nothing here says the flash
+    /// actually repeats on a real run loop, and on the Mac the scripted suite is what covers that.
+    ///
+    /// A repeating timer, so unlike `HistoryTimer.fire` this arms nothing: it is the body and only the body.
+    func fire() {
+        isBlinkOn.toggle()
+        onChanged?()
+    }
+
     private func startBlinking() {
         guard blink == nil else { return }
         // On its coloured phase to begin with, so the warning arrives as a colour rather than as half a second of
@@ -122,9 +135,7 @@ package final class LowBatteryWatch {
         isBlinkOn = true
         let timer = Timer(timeInterval: Self.blinkSeconds, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self else { return }
-                self.isBlinkOn.toggle()
-                self.onChanged?()
+                self?.fire()
             }
         }
         // `.common`, for the reason every timer in this app uses it: the default mode stops dead while a menu is

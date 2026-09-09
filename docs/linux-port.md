@@ -20,7 +20,7 @@ moving is a finding that will be measured twice.
 | Does the app's core compile on Linux? | **Yes -- `FacetCore` entire**, 89 files, 0 errors, 0 warnings, from a deleted `.build` in 13s | 2026-09-07, Linux |
 | Does the logic behave? | **Yes**, 432 tests pass | 2026-09-06 |
 | Can the whole test suite run? | **Under XCTest no**, `@MainActor` blocks ~60%. **Under swift-testing yes** | 2026-09-06 |
-| Does any of the suite run on Linux? | **Yes. `swift test` passes 1,049 of 1,751 tests** across 65 suites -- 590 under XCTest in 2.8s, 459 under swift-testing in 55s. Of the 40 files still excluded, 38 need AppKit, CoreBluetooth or a `FacetMac` type and come back with items 10 and 11; the other 2 need the main thread's run loop, which is a different problem and has its own section below | 2026-09-09, Linux |
+| Does any of the suite run on Linux? | **Yes. `swift test` passes 1,066 of 1,758 tests** across 67 suites -- 590 under XCTest in 2.2s, 476 under swift-testing in 58s. **All 38 files still excluded need AppKit, CoreBluetooth or a `FacetMac` type** and come back with items 10 and 11; there is one exclusion list again, the run-loop one having emptied | 2026-09-09, Linux |
 | Can Swift talk to BlueZ? | **Yes, in process, over libdbus.** `SystemBus` calls methods, marshals arguments both ways and receives signals with typed values; seven tests drive it against the real system bus | 2026-09-07, Linux |
 | Can it discover? | **Yes**, and the cube is found by `DeviceScanRules` -- the app's own rule, unchanged | 2026-09-07, Linux |
 | Can it drive the cube from Swift? | **Yes, every stage the app needs.** Connect, resolve, 16 characteristics by UUID, log in on the vendor PIN, read, the `0x10` status read-back parsed by the app's own rules, and **face turns arriving as notifications -- ten pushes over seven distinct faces**. Nothing but the PIN and `0x10` has been written | 2026-09-07, Linux |
@@ -30,7 +30,7 @@ moving is a finding that will be measured twice.
 | Is there a `FacetCore` target? | **Yes.** 86 files, no AppKit, and `FacetMac` builds on it. 589 access-level edits | 2026-09-07, Mac |
 | ~~What is left before Linux can try the core?~~ | **Nothing. All four are done**: `SQLite3` has a modulemap target, `CoreGraphics` a `package typealias`, `Security` the login keyring through `secret-tool`, `CryptoKit` a written SHA-256 | 2026-09-07, Linux |
 | What is left before Linux can **run** anything? | The suite (item 6, swift-testing) to know it behaves; then item 9 for sign-in and item 10 for the radio. Both of those are in `FacetMac`, not the core | 2026-09-07, Linux |
-| Does CI check any of this? | **Yes, since today, and it did not before.** Two Linux jobs, mirroring the macOS pair -- merge preview and branch tip -- run `swift build`, start a private `dbus-daemon`, then `swift test` on `ubuntu-latest` in a `swift:6.2-noble` container -- **1,047 tests**, being the 1,042 the Mac also runs plus 5 of the 7 D-Bus ones. `all-tests-pass` requires both. Only 2 are skipped, both needing a real BlueZ adapter | 2026-09-09, Linux |
+| Does CI check any of this? | **Yes, since today, and it did not before.** Two Linux jobs, mirroring the macOS pair -- merge preview and branch tip -- run `swift build`, start a private `dbus-daemon`, then `swift test` on `ubuntu-latest` in a `swift:6.2-noble` container -- **1,064 tests**, being the 1,059 the Mac also runs plus 5 of the 7 D-Bus ones. `all-tests-pass` requires both. Only 2 are skipped, both needing a real BlueZ adapter | 2026-09-09, Linux |
 | Does the core actually run outside `swift test`? | **Yes.** A real binary linked against it resolves the XDG data directory, applies the DDL through the bundle, takes the instance lock against a second process and reaches the keyring. One fault found: the resource bundle (below) | 2026-09-08, Linux |
 
 **The strategy this settles: port the core, do not reimplement it.** The Swift is portable, so the
@@ -210,20 +210,41 @@ The isolation is honoured -- the body really is serialised on the main actor -- 
 thread whose run loop `RunLoop.main` hands back. Under XCTest the two coincided. No migrated suite had
 noticed because all 22 of them are synchronous and none of them touches a run loop.
 
-**It cost the last two files of the migration.** `WriteDebounce.schedule` and `LowBatteryWatch`'s blink
-timer both do `RunLoop.main.add(timer, forMode: .common)`, so under swift-testing here the timer lands on a
-run loop the test cannot drive and nobody else is running. `WriteDebounceTests` (7 tests) and
-`LowBatteryWatchTests` (10) would trade one load-time abort for seventeen silent failures, so they stay
-excluded, and `Package.swift` now names this as the reason rather than the framework. It was confirmed the
-expensive way: the migrated `WriteDebounceTests` reported `writes -> 0` and `written -> []` on four tests
-before the probe explained why.
+**It cost the last two files of the migration, and then it did not.** `WriteDebounce.schedule` and
+`LowBatteryWatch`'s blink timer both do `RunLoop.main.add(timer, forMode: .common)`, so under swift-testing
+here the timer lands on a run loop the test cannot drive and nobody else is running. `WriteDebounceTests`
+(7 tests) and `LowBatteryWatchTests` (10) would have traded one load-time abort for seventeen silent
+failures. It was confirmed the expensive way: the migrated `WriteDebounceTests` reported `writes -> 0` and
+`written -> []` on four tests before the probe explained why.
 
-**Two ways out, and neither is free.** swift-testing could run `@MainActor` on the main thread on Linux,
-which is not in this repository's gift. Or the `RunLoop` becomes a parameter of the two subjects, defaulting
-to `.main` -- a production change made for a test's benefit, and worth agreeing before doing rather than
-after. `RunLoop.main` states what the app actually wants; switching those call sites to `RunLoop.current`
-would pass the tests by coincidence and leave the app correct only for as long as the main actor happens to
-be the main thread, which is precisely the assumption this section just measured as false.
+**Resolved 2026-09-09 by not going near a run loop.** Each of the two grew a `fire()` -- the timeout body
+lifted out of the `Timer` closure into a method, which the closure then calls and so can a test. Both suites
+are migrated and the 17 tests run here. **The finding below still stands** and is why it was done that way:
+the platform fact has not changed, only this app's exposure to it.
+
+**Three ways out, and the third is the one taken.** swift-testing could run `@MainActor` on the main thread
+on Linux, which is not in this repository's gift. Or the `RunLoop` becomes a parameter of the two subjects,
+defaulting to `.main` -- a production change made for a test's benefit, and `RunLoop.main` states what the
+app actually wants: switching those call sites to `RunLoop.current` would pass the tests by coincidence and
+leave the app correct only for as long as the main actor happens to be the main thread, which is precisely
+the assumption this section measured as false. **Or the seam goes at "the timeout happened" rather than at
+"here is a RunLoop"**, which is smaller than threading a scheduler through two initialisers and leaves the
+timer plumbing untouched. That is what `fire()` is.
+
+**Which modules this still applies to, because it is five and not two.** Anything reaching for
+`RunLoop.main` has a path no `swift test` on this platform can drive, and only a `fire()` changes that:
+
+| Module | Its tests here | Has a `fire()` |
+| --- | --- | --- |
+| `HistoryTimer` | run green | yes |
+| `WriteDebounce` | run green | yes, 2026-09-09 |
+| `LowBatteryWatch` | run green | yes, 2026-09-09 |
+| `DailyLimitWatch` | run green | **no** |
+| `DeviceReconnector` | **no suite at all** | no |
+
+`DailyLimitWatch` is the one worth a second look: its tests pass here only because they never drive the
+timer, so that path is unverified on this platform and nothing in the suite says so. `DeviceReconnector`
+having no suite is candidate 2 of the architecture review, and its `RunLoop` is the reconnect backoff.
 
 **A smaller Linux-only difference found beside it.** swift-corelibs-foundation does not mark
 `RunLoop.run(mode:before:)` `@discardableResult`, so the bare call warns here where it does not on Darwin.
@@ -611,21 +632,23 @@ Roughly in dependency order. Nothing here is started.
    checks read.
 5. ~~**Make `DatabaseBootstrap` refuse an empty DDL listing**, and resolve symlinks before
    enumerating.~~ Done 2026-09-06, along with flipping `database/` to be the real directory.
-6. **Migrate the test suite to swift-testing**, checking every `tearDown` by hand for the `deinit`
-   isolation trap. **Reopened and mostly cleared on 2026-09-09: four of the six migrated, worth 93 tests,
-   and the last two are blocked by something a migration cannot fix.**
+6. ~~**Migrate the test suite to swift-testing**, checking every `tearDown` by hand for the `deinit`
+   isolation trap.~~ **Done 2026-09-09, and the queue is empty for the second time -- honestly, this time.**
+   All six files it was reopened for now run here:
 
-       migrated, and running here:  DeviceEventRecorderTests 35 - FaceColourSyncTests 22
-                                    TimeEntryRecorderTests 18 - DeviceSettingsSyncTests 18
-       still excluded, 17 tests:    LowBatteryWatchTests 10 - WriteDebounceTests 7
+       migrated, 93 tests:   DeviceEventRecorderTests 35 - FaceColourSyncTests 22
+                             TimeEntryRecorderTests 18 - DeviceSettingsSyncTests 18
+       migrated, 17 tests:   LowBatteryWatchTests 10 - WriteDebounceTests 7
 
-   The two that are left need the main thread's run loop, and on Linux a `@MainActor` swift-testing test
-   does not run on the main thread -- measured, with the probe and the consequences, in *`@MainActor` is not
-   the main thread* above. **So this item is finished except for a decision that is not a migration**:
-   whether the two subjects should take their `RunLoop` as a parameter. Until that is agreed, 17 tests stay
-   off this platform and `Package.swift`'s `mainRunLoopTests` says why.
+   **The last two needed more than a migration**, and not the thing the review expected. They schedule on
+   `RunLoop.main`, which never fires under a `@MainActor` swift-testing test here, so migrating them alone
+   would have traded a load-time abort for seventeen silent failures. The answer was not to inject a
+   `RunLoop` but to extract a `fire()` in each -- the timeout body as a method the tests call -- which is
+   the bargain `HistoryTimer` had already made and says so in its own doc comment. They stop touching a run
+   loop at all rather than needing one that behaves.
 
-   With the four in, Linux runs **1,049 tests**: 590 under XCTest and 459 under swift-testing, 0 failures.
+   Linux runs **1,066 tests**: 590 under XCTest and 476 under swift-testing, 0 failures, and there is one
+   exclusion list again.
 
    **The claim below that the `mainActorTests` list was gone because it emptied was wrong**, and wrong in
    a way worth keeping: it emptied of the files anybody was looking at. These six were sitting on
@@ -988,11 +1011,11 @@ test list.
 |---|---|---|
 | Every test in the repository | **1,758** | 1,751 the Mac can run, plus the 7 Linux-only |
 | macOS CI runs | **1,751** | everything that platform can run |
-| Linux CI runs | **1,047** | the 1,042 the Mac also runs, plus 5 of the 7 Linux-only |
+| Linux CI runs | **1,064** | the 1,059 the Mac also runs, plus 5 of the 7 Linux-only |
 | Linux-only, skipped in CI | **2** | the two needing a real BlueZ adapter, below |
-| Mac-only, not yet on Linux | **709** | the 40 files `Package.swift` excludes |
+| Mac-only, not yet on Linux | **692** | the 38 files `Package.swift` excludes |
 
-**The 709 close as the port lands**, and they are already itemised rather than estimated: 38 files need
+**The 692 close as the port lands**, and they are already itemised rather than estimated: 38 files need
 AppKit, CoreBluetooth or a `FacetMac` type and come back with items 9, 10 and 11, and 2 need the main
 thread's run loop, which is a decision rather than work -- whether `WriteDebounce` and `LowBatteryWatch`
 should take their `RunLoop` as a parameter. Nothing else is excluded, and the manifest says which of the two
@@ -1076,8 +1099,11 @@ not, and cannot be until a pull request exists.
    swift-testing, against a bus with no BlueZ. That is 5 more than the 1,042 the plan started with rather
    than the 4 it predicted, `aByteArrayArgumentIsAcceptedByTheWire` turning out to pass -- for the reason
    set out above, which is not the reason it passes on this box.
-2. **Take the run-loop decision**, worth 17 tests, and either way write it down: injecting the `RunLoop` is a
-   production change made for a test's benefit, and `RunLoop.current` would only work by coincidence.
+2. ~~**Take the run-loop decision**, worth 17 tests.~~ **Done 2026-09-09, and the answer was neither of the
+   two on offer.** Not injecting a `RunLoop` -- a production change made for a test's benefit, where
+   `RunLoop.current` would only ever work by coincidence -- but extracting a `fire()` in `WriteDebounce` and
+   `LowBatteryWatch`, so their tests drive the timeout body instead of needing a run loop that behaves.
+   `HistoryTimer` had answered it that way already. The 17 run here now.
 3. **Let items 9, 10 and 11 return the other 38 files** as sign-in, the radio and the UI arrive on this
    platform. Each one should take files off `platformBoundTests` in the same change, rather than leaving the
    list to be audited later.

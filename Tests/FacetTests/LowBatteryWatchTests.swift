@@ -1,6 +1,6 @@
 @testable import FacetCore
 import Foundation
-import XCTest
+import Testing
 
 /// Covers the low-battery warning: when it arms, when it lets go, and when it flashes.
 ///
@@ -10,34 +10,34 @@ import XCTest
 ///
 /// The charge is handed in through a closure the test moves, which is exactly how the app wires it: the watch asks
 /// `BluetoothRadio` for the live figure and holds none of it.
-@MainActor
-final class LowBatteryWatchTests: XCTestCase, @unchecked Sendable {
-    private var database: TemporaryDatabase!
+@Suite @MainActor
+final class LowBatteryWatchTests {
+    private let database: TemporaryDatabase
     private var settings: SettingStore!
     private var built: LowBatteryWatch?
     /// What the "radio" is currently reporting. `nil` stands for no live connection.
     private var level: Int?
     private var changes = 0
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
-        try MainActor.assumeIsolated {
-            database = TemporaryDatabase()
-            try database.bootstrap()
-            settings = SettingStore(connection: database.connection())
-            level = nil
-            changes = 0
-        }
+    init() throws {
+        database = TemporaryDatabase()
+        try database.bootstrap()
+        settings = SettingStore(connection: database.connection())
     }
 
-    override func tearDown() {
-        MainActor.assumeIsolated {
-            built?.stop()
-            built = nil
-            settings = nil
-            database.remove()
-        }
-        super.tearDown()
+    deinit {
+        // **`deinit` rather than `tearDown`, and it is not isolated**, so unlike the `tearDown` it replaces it
+        // cannot call `built?.stop()`. `database` is a `let` for the same reason: a non-isolated `deinit` may read
+        // that where it could not read a `@MainActor var`.
+        //
+        // **What that gives up is the blink timer being invalidated**, and it is worth naming rather than leaving
+        // to be found. A watch released while flashing leaves its repeating `Timer` retained by `RunLoop.main`,
+        // firing against a `[weak self]` that is now nil -- so it does nothing, but it is never invalidated
+        // either. Harmless here because no run loop in a `swift test` process is being serviced anyway, which is
+        // the same fact that made this suite need `fire()` in the first place. `HistoryTimer` solves it properly
+        // with a `TimerHolder` whose own `deinit` invalidates the timer, and that is the answer if this ever
+        // stops being harmless; it was left alone deliberately, to keep this change to the `fire()` extraction.
+        database.remove()
     }
 
     /// Built on first use rather than in `setUpWithError`, which is not main-actor isolated: both closures capture
@@ -59,115 +59,121 @@ final class LowBatteryWatchTests: XCTestCase, @unchecked Sendable {
 
     // MARK: - arming and letting go
 
-    func testAHealthyChargeIsNoWarning() {
+    @Test func testAHealthyChargeIsNoWarning() {
         report(80)
 
-        XCTAssertEqual(watch.alert, .none)
+        #expect(watch.alert == .none)
     }
 
-    func testTheSeededThresholdIsWhatDecides() {
+    @Test func testTheSeededThresholdIsWhatDecides() {
         // `database/011_setting.sql` seeds `{"percent":10}`, so 10 is low and 11 is not. Read from the table rather
         // than from a constant here, which is the point of the test.
         report(11)
-        XCTAssertFalse(watch.alert.isBatteryLow)
+        #expect(!watch.alert.isBatteryLow)
 
         report(10)
-        XCTAssertTrue(watch.alert.isBatteryLow)
+        #expect(watch.alert.isBatteryLow)
     }
 
-    func testTheWarningFlashesFromTheMomentItArms() {
+    @Test func testTheWarningFlashesFromTheMomentItArms() {
         // On its coloured phase to begin with, so it arrives as a colour rather than as half a second of nothing.
         report(5)
 
-        XCTAssertTrue(watch.alert.isBatteryLow)
-        XCTAssertTrue(watch.alert.isBlinkOn)
-        XCTAssertEqual(changes, 1, "the surfaces that draw the warning were not told about it")
+        #expect(watch.alert.isBatteryLow)
+        #expect(watch.alert.isBlinkOn)
+        #expect(changes == 1, "the surfaces that draw the warning were not told about it")
     }
 
-    func testTheWarningHoldsThroughAFlapAcrossTheThreshold() {
+    @Test func testTheWarningHoldsThroughAFlapAcrossTheThreshold() {
         report(10)
         let armed = changes
 
         for percent in [11, 10, 11, 12, 11] { report(percent) }
 
-        XCTAssertTrue(watch.alert.isBatteryLow)
-        XCTAssertEqual(changes, armed, "the warning was redrawn while nothing about it had changed")
+        #expect(watch.alert.isBatteryLow)
+        #expect(changes == armed, "the warning was redrawn while nothing about it had changed")
     }
 
-    func testTheWarningLetsGoOnceTheChargeIsWellClearOfTheThreshold() {
+    @Test func testTheWarningLetsGoOnceTheChargeIsWellClearOfTheThreshold() {
         report(10)
 
         report(15)
-        XCTAssertTrue(watch.alert.isBatteryLow, "15 is inside the recovery margin, so the warning still stands")
+        #expect(watch.alert.isBatteryLow, "15 is inside the recovery margin, so the warning still stands")
 
         report(16)
-        XCTAssertEqual(watch.alert, .none)
+        #expect(watch.alert == .none)
     }
 
     // MARK: - the link going
 
-    func testTheFlashStopsWithTheLinkAndTheWarningDoesNot() {
+    @Test func testTheFlashStopsWithTheLinkAndTheWarningDoesNot() {
         report(4)
 
         report(nil)
 
-        XCTAssertTrue(watch.alert.isBatteryLow, "a link that has gone is not evidence that the cells recovered")
-        XCTAssertFalse(watch.alert.isBlinkOn, "there is nothing on screen to flash about with no reading behind it")
+        #expect(watch.alert.isBatteryLow, "a link that has gone is not evidence that the cells recovered")
+        #expect(!watch.alert.isBlinkOn, "there is nothing on screen to flash about with no reading behind it")
     }
 
-    func testACubeThatComesBackStillFlatIsStillFlashing() {
+    @Test func testACubeThatComesBackStillFlatIsStillFlashing() {
         report(4)
         report(nil)
 
         report(4)
 
-        XCTAssertTrue(watch.alert.isBatteryLow)
-        XCTAssertTrue(watch.alert.isBlinkOn)
+        #expect(watch.alert.isBatteryLow)
+        #expect(watch.alert.isBlinkOn)
     }
 
     // MARK: - the threshold moving underneath it
 
-    func testRaisingTheWarningLevelArmsItWithoutWaitingForAReading() {
+    @Test func testRaisingTheWarningLevelArmsItWithoutWaitingForAReading() {
         // The case a reading-driven watch misses: a cube sitting steady at 15 reports nothing for as long as it stays
         // there, so without this the control would appear to do nothing at all.
         report(15)
-        XCTAssertFalse(watch.alert.isBatteryLow)
+        #expect(!watch.alert.isBatteryLow)
 
-        XCTAssertTrue(settings.write("low_battery_level", field: "percent", 20))
+        #expect(settings.write("low_battery_level", field: "percent", 20))
         watch.reconsider(because: "the warning level changed")
 
-        XCTAssertTrue(watch.alert.isBatteryLow)
+        #expect(watch.alert.isBatteryLow)
     }
 
-    func testLoweringTheWarningLevelLetsGoOfIt() {
+    @Test func testLoweringTheWarningLevelLetsGoOfIt() {
         report(10)
-        XCTAssertTrue(watch.alert.isBatteryLow)
+        #expect(watch.alert.isBatteryLow)
 
         // Low at 10, and not low at all once the level somebody cares about is 4: the charge has to clear the *new*
         // threshold plus its margin, which 10 does.
-        XCTAssertTrue(settings.write("low_battery_level", field: "percent", 4))
+        #expect(settings.write("low_battery_level", field: "percent", 4))
         watch.reconsider(because: "the warning level changed")
 
-        XCTAssertEqual(watch.alert, .none)
+        #expect(watch.alert == .none)
     }
 
     // MARK: - the flash itself
 
-    func testTheFlashAlternatesAndKeepsSayingSo() {
-        // The only test here that waits on the timer, because the timer is the claim: half a second on, half a
-        // second off, and whoever draws is told each time.
+    @Test func testTheFlashAlternatesAndKeepsSayingSo() {
+        // The timer is the claim -- half a second on, half a second off, and whoever draws told each time -- and the
+        // phase is now turned over by calling `fire()` rather than by waiting for a run loop to do it. That is what
+        // lets this suite run here at all: a `@MainActor` swift-testing test is not on the main thread on Linux, so
+        // the `RunLoop.main` timer never fires and the wait this replaces timed out rather than passing.
+        //
+        // It also asks more than the wait did. `XCTestExpectation` could only be fulfilled by the *first* change of
+        // phase, so alternating was asserted in one direction; two calls assert it turns over and back.
         report(3)
-        let told = changes
-        let flipped = expectation(description: "the flash changed phase")
-        watch.onChanged = { [weak self] in
-            guard let self else { return }
-            self.changes += 1
-            if self.changes > told { flipped.fulfill() }
-        }
+        let armed = changes
+        #expect(watch.alert.isBlinkOn, "it arrives on its coloured phase rather than on half a second of nothing")
 
-        wait(for: [flipped], timeout: 2)
+        watch.fire()
 
-        XCTAssertFalse(watch.alert.isBlinkOn, "the first change of phase should be the colour going off")
-        XCTAssertTrue(watch.alert.isBatteryLow, "the warning itself does not blink, only its colour does")
+        #expect(!watch.alert.isBlinkOn, "the first change of phase should be the colour going off")
+        #expect(watch.alert.isBatteryLow, "the warning itself does not blink, only its colour does")
+        #expect(changes == armed + 1, "and whoever draws is told about it")
+
+        watch.fire()
+
+        #expect(watch.alert.isBlinkOn, "and back on, which is what alternating means")
+        #expect(changes == armed + 2)
     }
 }

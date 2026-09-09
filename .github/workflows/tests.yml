@@ -58,7 +58,7 @@ jobs:
   # These two mirror them on Linux, one for the merge preview and one for the branch as it stands,
   # so each platform answers the same two questions and a job name says which platform asked. The suite is
   # one suite run in two places rather than two suites: there is no `#if os(Linux)` anywhere in `Sources/`,
-  # and exactly 7 of the tests are Linux-only. The other ~1,042 are the same tests the Mac runs, and running
+  # and exactly 7 of the tests are Linux-only. The other ~1,059 are the same tests the Mac runs, and running
   # them against a different Foundation is the only thing that catches shared code behaving differently.
   #
   # That is not hypothetical. `WriteDebounceTests` is green in the Mac's 1,751 and fails 4 of its 7 on Linux,
@@ -152,7 +152,7 @@ jobs:
       # when there is none, so they cannot pass on any runner and belong with `Tests/Scripted/`: their
       # absence is a fact about the machine rather than about the code.
       #
-      # That leaves **1,047 tests -- 590 under XCTest and 457 under swift-testing**.
+      # That leaves **1,064 tests -- 590 under XCTest and 474 under swift-testing**.
       #
       # **One of the five passes for a different reason here than on a developer's machine**, and it is worth
       # knowing which. `aByteArrayArgumentIsAcceptedByTheWire` calls `org.bluez` and asserts only that the

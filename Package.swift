@@ -96,37 +96,20 @@ let platformBoundTests = [
     "TimingViewTests.swift",
 ]
 
-// **These two need the main thread's run loop, and no amount of migrating gets them it.** This list was six
-// files on 2026-09-09 and its blocker was named as `@MainActor` `XCTestCase`, which aborts the whole Linux
-// run at load time. Four of the six were migrated to swift-testing that day and run here now, worth 93
-// tests. The two left are a different problem, and it is why this list is no longer named after the
-// framework:
+// **The second list is gone, and this is what it was.** From 2026-09-09 a `mainRunLoopTests` list sat here
+// holding files whose subjects schedule on `RunLoop.main`: on Linux a `@MainActor` swift-testing test does not
+// run on the main thread, so such a timer never fires and the tests failed silently rather than being merely
+// excluded. It emptied on 2026-09-09 as well. `WriteDebounce` and `LowBatteryWatch` grew a `fire()` -- the
+// timeout body as a method the tests call -- so they stop touching a run loop at all instead of needing one
+// that behaves, which is the bargain `HistoryTimer` had already made. That was worth 17 tests.
 //
-//     LowBatteryWatchTests 10, WriteDebounceTests 7
-//
-// **Measured on Linux, 2026-09-09.** Inside a `@Suite @MainActor` swift-testing suite on this platform,
-// `Thread.isMainThread` is **false** and `RunLoop.current !== RunLoop.main`. Both subjects schedule their
-// work with `RunLoop.main.add(timer, forMode: .common)` -- `WriteDebounce.schedule` and the blink timer in
-// `LowBatteryWatch` -- so the timer lands on a run loop the test cannot drive and nobody else is running. A
-// probe separated the three cases: a timer on `RunLoop.main` never fires however long the test spins,
-// whether it spins `.common` or `.default`, while the same timer on `RunLoop.current` fires at once. So
-// migrating these two would trade one load-time abort for seventeen silent failures.
-//
-// **What would actually unblock them**, in the order worth considering: swift-testing running `@MainActor`
-// on the main thread on Linux, which is not in this repository's gift; or injecting the `RunLoop` into the
-// two subjects, which is a production change made for a test's benefit and wants agreeing rather than
-// assuming -- `RunLoop.main` is the honest statement of what the app wants, and `RunLoop.current` would
-// only work by coincidence. Written up in `docs/linux-port.md`.
-//
-// They are `@MainActor` `XCTestCase` subclasses as well, so the load-time abort applies today too. That is
-// the shallower of the two reasons, and the one that would survive being fixed.
-let mainRunLoopTests = [
-    "LowBatteryWatchTests.swift",
-    "WriteDebounceTests.swift",
-]
+// **So there is one list again, and one reason.** The measurement behind the vanished one is in
+// `docs/linux-port.md` under *`@MainActor` is not the main thread*, because it is a fact about the platform
+// rather than about these files, and the next module to reach for `RunLoop.main` will meet it too: five
+// `FacetCore` modules do, and `DailyLimitWatch` and `DeviceReconnector` have no `fire()`.
 
 #if os(Linux)
-let testsThatCannotRunOnLinuxYet = platformBoundTests + mainRunLoopTests
+let testsThatCannotRunOnLinuxYet = platformBoundTests
 #else
 let testsThatCannotRunOnLinuxYet: [String] = []
 #endif

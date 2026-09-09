@@ -467,9 +467,10 @@ its colours are semantic AppKit ones; `name(of:)` is evidence the app already ne
    include the only suite guarding the SHA-256 that Linux alone uses, and it corrects the exclusion list,
    which the port is being planned against. **Confirmed on Linux the same day**: 956 tests, 0 failures, and
    the migration that was "what is left of this one" then took four of its six files, for 93 more.
-   **Linux runs 1,049 tests now.** What is genuinely left is two decisions rather than any work: whether
-   `WriteDebounce` and `LowBatteryWatch` should take their `RunLoop` as a parameter, which is the only thing
-   that would win the last 17 tests, and whether to build the falsifiability gate below.
+   **Linux runs 1,066 tests now**, the last 17 having arrived on 2026-09-09 as well. The run-loop question
+   this listed as open was answered by neither option it named: not an injected `RunLoop` but a `fire()`
+   extracted in each of the two, so their tests drive the timeout body instead of a run loop. What is
+   genuinely left of this candidate is the falsifiability gate below, and nothing else.
 2. **Candidate 2 next**, because it is a day and it is diagnostic. Writing the in-memory adapter for
    `CubeRadio` collects the leverage the FacetCore split promised. If `DeviceReconnector` proves awkward to
    drive through those five members, that is the cheapest possible evidence that the seam is in the wrong

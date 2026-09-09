@@ -775,12 +775,12 @@ to-do item 12 rather than a piece of work in it.
 
 | | |
 |---|---|
-| `swift test` | **Runs. 1,049 tests, 0 failures, 58s wall** (2026-09-09) -- 590 under XCTest in 2.8s and 459 under swift-testing in 55.4s. That is 65 suites; the 40 files excluded by name in `Package.swift` are 38 needing AppKit, CoreBluetooth or a `FacetMac` type, plus the 2 of `mainRunLoopTests` whose subjects schedule on `RunLoop.main` |
+| `swift test` | **Runs. 1,066 tests, 0 failures, 60s wall** (2026-09-09) -- 590 under XCTest in 2.2s and 476 under swift-testing in 58s. That is 67 suites; **all 38 files excluded by name in `Package.swift` need AppKit, CoreBluetooth or a `FacetMac` type**, there being one exclusion list again |
 | `Tests/Scripted/` | **cannot run today**: no app binary to drive, and toolkit accessibility is off. The `sqlite3` half of that is fixed as of 2026-09-07 |
 | `swift build` | **Succeeds**, and builds no app -- the whole of why is below (2026-09-08) |
 | `swift build --target FacetCore` | **Succeeds**, 0.16s from a warm `.build` (2026-09-08) |
 
-**What the 1,049 are and are not.** They are the rules, the stores, the database layer and the device
+**What the 1,066 are and are not.** They are the rules, the stores, the database layer and the device
 protocol -- the half of the app that does not know what a window is -- exercised against real
 bootstrapped databases on this machine. They are not the UI, the radio or Google sign-in, none of which
 compiles here yet. The figure to compare them against is 1751, the whole suite on the Mac -- that being
@@ -788,9 +788,11 @@ the Mac's own count, reported in handover item 10 rather than measured here.
 
 **Then 956 until later the same day**, when four of the six `mainActorTests` suites were migrated to
 swift-testing and came off the exclusion list: `DeviceEventRecorderTests` 35, `FaceColourSyncTests` 22,
-`TimeEntryRecorderTests` 18 and `DeviceSettingsSyncTests` 18. The remaining two of that list, 17 tests, are
-blocked by this platform running a `@MainActor` swift-testing test off the main thread, so a timer on
-`RunLoop.main` never fires -- `docs/linux-port.md`, *`@MainActor` is not the main thread*.
+`TimeEntryRecorderTests` 18 and `DeviceSettingsSyncTests` 18. **The remaining two, 17 tests, arrived later
+the same day** and took a production change to get: `WriteDebounce` and `LowBatteryWatch` schedule on
+`RunLoop.main`, which never fires under a `@MainActor` swift-testing test here, so each grew a `fire()` and
+their tests drive the timeout body rather than a run loop -- `docs/linux-port.md`, *`@MainActor` is not the
+main thread*.
 
 **It was 906 until 2026-09-09**, and the 50 it gained were not new tests. Four suites had been excluded
 from this platform by a `@testable import FacetMac` none of them used a type from, so the import was
