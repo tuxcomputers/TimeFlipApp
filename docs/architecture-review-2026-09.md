@@ -480,12 +480,19 @@ its colours are semantic AppKit ones; `name(of:)` is evidence the app already ne
 Candidate 8 is the same argument about the Settings window and is much the largest. It is worth agreeing as a
 direction before it is scheduled as a change.
 
-### The scripted suite is re-stamped once, at the end of this, and not before
+### The scripted suite is set aside until the Linux port is finished
+
+**Superseded, and widened, on 2026-09-09.** This section first said the re-stamp waited on the end of this
+review. The owner has since set the suite aside for the whole of the Linux port and will say when it comes
+back, so the trigger is not a milestone in this document at all. **The rule lives in `CLAUDE.md`**, under
+*The scripted suite is set aside until the Linux port is finished*, and that is the authority; what is below
+is only why it costs nothing.
 
 **`All tests pass` stays red until then, and that is the intended state rather than an outstanding job.**
 Candidate 7 changed `Package.swift`, which `scripts/check_interactive_checklists.sh` watches whole, so the
 stamp for run 173 at `079c3b8` is stale and the gate says so on every push. Clearing it needs
-`Tests/Scripted/run.sh`, which needs a cube and a person for about twenty minutes.
+`Tests/Scripted/run.sh`, which needs a cube and a person for about twenty minutes. Nobody is to make it green
+by other means: not the pathspec, not the stamp, not `LINUX_IS_ADVISORY`, not the workflow.
 
 **Doing that now would be paying for it twice.** Every candidate still on this list lands in `Sources/`,
 which is watched: 1, 2, 3, 4, 5, 6, 8 and 9 without exception, and candidate 1 moves roughly 1,480 lines of
@@ -501,7 +508,9 @@ check on every run, so nothing is lost by taking it off a list whose purpose is 
 written here instead, where the thing it waits on lives.
 
 **What that run will cover when it happens.** Two commits put `Package.swift` in the diff, `ec54dab` from the
-Mac and `daf0e97` from the Linux box, plus whatever the candidates above add. One run clears all of it.
+Mac and `daf0e97` from the Linux box, plus whatever the candidates above add. One run clears all of it: a
+stamp names a commit and the staleness check looks at the range, so waiting accumulates no debt. That is why
+the suite can be set aside for the length of a port without anything being lost.
 
 ---
 

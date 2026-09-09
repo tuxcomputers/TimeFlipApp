@@ -295,6 +295,31 @@ written from, and `Tests/Scripted/last-run-mac.md` is the committed stamp of the
 **Never launch `Tests/Scripted/run.sh` yourself.** It drives the real mouse and keyboard on the
 owner's screen and needs a person to turn the cube. Ask, and watch the logs.
 
+### The scripted suite is set aside until the Linux port is finished (2026-09-09)
+
+**Do not ask for a scripted run, and do not treat the stale stamp as an outstanding job.** The owner has set
+the suite aside for the duration of the Linux port and **will say when it comes back**. Until then it is not
+a thing to chase, mention as a blocker, or plan around.
+
+What follows from that, and each of these has already come up once:
+
+- **`All tests pass` stays red, and that is the expected state.** `Package.swift` and `Sources/` are watched
+  by `scripts/check_interactive_checklists.sh`, the port changes both constantly, and no run is being made.
+  The signal that means anything right now is the four `Test (...)` jobs. Read those.
+- **Do not make it green.** Not by narrowing the pathspec, not by editing a stamp, not by setting
+  `LINUX_IS_ADVISORY`, and not by taking the check out of the workflow. The gate is strict on purpose and its
+  own comments record what it cost to make it fail closed; a red check that is honest is worth more than a
+  green one that is arranged. Leaving it red is the whole of the instruction.
+- **`swift test` is unaffected and still the thing to run.** Hermetic, both platforms, every change. Nothing
+  here relaxes that.
+- **Say plainly what has and has not been confirmed on hardware.** The suite being set aside does not make a
+  device-dependent change verified. It makes it *unverified and deliberately so*, which is a different
+  sentence and the one to write.
+
+**When it comes back**, one run clears whatever has accumulated: the stamp names a commit and a run at the end
+covers every watched change since, so nothing is lost by the wait. That is why setting it aside is cheap
+rather than a debt.
+
 The previous suite -- the Bench and Interactive checklists, the setup, and the Python harness that
 drove them -- is in the git history and did not come back as it was. Every locator in it addressed the
 previous app's accessibility tree, reaching the Settings tabs through a `toolbar 1` this app does not
