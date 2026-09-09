@@ -311,6 +311,18 @@ echo "CI cannot run them: they drive a real window and read a real database."
 
 # **The Mac decides the exit status; the Linux half only speaks.** See the LINUX_IS_ADVISORY comment at
 # the top for why, and for the one variable that changes it.
+# **The awk is named rather than assumed, because this is the one check whose success proves nothing.** A
+# dialect that mis-splits `FS` compares every stamp row equal and passes everything silently -- see the `[|]`
+# comment in `check_the_suite_was_run` -- so a green tick here is not evidence the parsing worked. This check
+# moved into `all-tests-pass` on 2026-09-09 having only ever run under macOS awk, and the runner's own awk had
+# never been established: GitHub lists no awk package in its image manifest, so it is whatever Ubuntu defaults
+# to rather than a choice anybody made. Printing it puts the answer in every log from here on.
+#
+# `|| true` because macOS awk has no `--version` and complains on stderr instead. A banner that cannot be read
+# is not a fault, and this line must never be the reason the gate fails.
+echo ""
+echo "The stamps below are parsed by: $(awk --version 2>&1 | head -1 || true)"
+
 gate=0
 check_the_suite_was_run "Mac" "$MAC_STAMP" "${#scripts[@]}" || gate=1
 
