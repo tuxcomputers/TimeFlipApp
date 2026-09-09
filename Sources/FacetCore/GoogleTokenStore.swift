@@ -1,136 +1,71 @@
 import Foundation
-#if canImport(Security)
-import Security
-#endif
 
-/// Where the refresh token lives: the login Keychain, and nowhere else.
+/// Where the refresh token lives: the login Keychain on a Mac, the login keyring on Linux, and nowhere else.
 ///
-/// **Not the database.** Every other thing this app knows is in SQLite, and the first design rule says the database is
-/// the source of truth -- but that rule is about facts the app reasons over, and a refresh token is not one. It is a
-/// credential that can act on somebody's Google account until it is revoked, the database file is readable by anything
-/// running as that user, and the app's own privacy policy says the tokens are Keychain-held. So this is the deliberate
-/// exception, and it is the same one the archive made (`GoogleOAuthKeychainStore.swift`).
+/// **Not the database.** Every other thing this app knows is in SQLite, and the first design rule says the database
+/// is the source of truth -- but that rule is about facts the app reasons over, and a refresh token is not one. It
+/// is a credential that can act on somebody's Google account until it is revoked, the database file is readable by
+/// anything running as that user, and the app's own privacy policy says the tokens are Keychain-held. So this is the
+/// deliberate exception, and it is the same one the archive made (`GoogleOAuthKeychainStore.swift`).
 ///
-/// **Per user and per machine**, which falls out of the Keychain rather than being arranged: a login Keychain belongs
-/// to one account on one Mac, so a database copied to a second machine arrives with no token and asks for a sign-in,
-/// which is the right answer.
-package enum GoogleTokenStore {
+/// **Per user and per machine**, which falls out of the store rather than being arranged: a login Keychain belongs
+/// to one account on one Mac, so a database copied to a second machine arrives with no token and asks for a
+/// sign-in, which is the right answer.
+///
+/// **What is left here after candidate 3 is the naming and the meaning.** The `SecItem` calls and the `secret-tool`
+/// branch have gone to `KeychainSecretStore` and `SecretToolStore`, which is where the duplication was: this file
+/// and `DevicePINStore` held the same four queries, the same three status rules and the same three-case answer
+/// type, written twice with the comment on `unavailable` copied word for word.
+package struct GoogleTokenStore {
+    private let secrets: SecretStore
+
+    package init(secrets: SecretStore = SecretStores.platform) {
+        self.secrets = secrets
+    }
+
     /// Keyed by the bundle identifier so a developer build and a release build do not fight over one item.
-    private static var service: String {
+    /// Internal rather than private so a test can address the same item this store does: the value depends on
+    /// `Bundle.main`, which is not the app bundle under `swift test`, so a literal here would be a different item.
+    var service: String {
         (Bundle.main.bundleIdentifier ?? "au.com.tux.facet") + ".google"
     }
 
-    private static let account = "refresh-token"
+    let account = "refresh-token"
 
     /// Stores the token, replacing whatever was there.
-    ///
-    /// **Add-then-update rather than delete-then-add.** Deleting first leaves a window with no token at all, and a
-    /// crash inside it would lose a working connection to save a new one.
     @discardableResult
-    package static func save(refreshToken: String) -> Bool {
-        #if !canImport(Security)
-        // **The login keyring instead, through `secret-tool`** -- see `SecretToolStore` for why a
-        // subprocess rather than the library. It reads the secret back before answering `true`, which is
-        // stricter than this Darwin path, whose `SecItemUpdate` success is taken at its word.
-        return SecretToolStore.store(
+    package func save(refreshToken: String) -> Bool {
+        secrets.store(
             service: service,
             account: account,
             label: "Facet: Google refresh token",
             secret: refreshToken
         )
-        #else
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-        let data = Data(refreshToken.utf8)
-        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if status == errSecSuccess { return true }
-        guard status == errSecItemNotFound else { return false }
-
-        var insert = query
-        insert[kSecValueData as String] = data
-        // Available once the Mac has been unlocked, and never synced to iCloud: this token is one machine's, and a
-        // copy of it appearing on another device is a copy of the ability to act on the account.
-        insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        return SecItemAdd(insert as CFDictionary, nil) == errSecSuccess
-        #endif
     }
 
-    /// What the Keychain said when asked for the token. **Three answers, not two.**
+    /// What the store said when asked for the token. **Three answers, not two.**
     ///
-    /// "There is no token" and "the Keychain would not answer" are different facts with opposite remedies: the first
-    /// is fixed by signing in, the second by working out why the item cannot be read, and offering a sign-in for the
+    /// "There is no token" and "the store would not answer" are different facts with opposite remedies: the first is
+    /// fixed by signing in, the second by working out why the item cannot be read, and offering a sign-in for the
     /// second throws away a working connection to solve a problem it does not have.
     ///
-    /// This used to be one `guard` that returned `nil` for both, which is the "nothing fails silently" rule broken in
-    /// the place it costs most: `.missing` and `.unavailable` arrive at the App tab as the same words.
-    package enum Lookup: Equatable {
-        case found(String)
-        /// `errSecItemNotFound`: nothing is stored. Signing in is the whole of the fix.
-        case missing
-        /// Any other status. The item may be sitting there perfectly well; this process could not read it.
-        /// `Int32` rather than `OSStatus`: the same type on Darwin, where `OSStatus` is a typealias for it,
-        /// and a type that exists everywhere. What the number means is a Keychain matter, and a port that
-        /// replaces the Keychain replaces the numbers with it.
-        case unavailable(Int32)
+    /// This used to be one `guard` that returned `nil` for both, which is the "nothing fails silently" rule broken
+    /// in the place it costs most: `.missing` and `.unavailable` arrived at the App tab as the same words.
+    package func lookUp() -> SecretLookup {
+        secrets.lookUp(service: service, account: account)
     }
 
-    /// Asks the Keychain, and says which of the three answers came back.
-    package static func lookUp() -> Lookup {
-        #if !canImport(Security)
-        switch SecretToolStore.lookUp(service: service, account: account) {
-        case let .found(token): return .found(token)
-        case .missing: return .missing
-        case let .unavailable(code): return .unavailable(code)
-        }
-        #else
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        if status == errSecItemNotFound { return .missing }
-        guard status == errSecSuccess else { return .unavailable(status) }
-        guard let data = item as? Data, let token = String(data: data, encoding: .utf8) else {
-            // A success that yielded something unreadable is not an absent token either. `errSecDecode` names the
-            // shape of the problem: the item is there and its contents make no sense.
-            return .unavailable(errSecDecode)
-        }
-        return .found(token)
-        #endif
-    }
-
-    /// The stored token, or `nil` when there is none **or when it could not be read**.
-    ///
-    /// Kept for the callers that genuinely cannot act on the difference. Anything that reports a state to somebody
-    /// should call `lookUp` instead, so that "we could not check" does not reach them as "you are signed out".
-    static func refreshToken() -> String? {
+    /// The stored token, or `nil` when there is none or it could not be read. For the callers that cannot act on
+    /// the difference.
+    package func refreshToken() -> String? {
         guard case let .found(token) = lookUp() else { return nil }
         return token
     }
 
-    /// Forgets it, which is half of signing out. The other half is the identity in the `google_account` row.
-    ///
-    /// **`true` when there was nothing to delete**, because the caller asked for there to be no token and there is
-    /// none. Reporting failure would make a second sign-out look broken.
+    /// Forgets it. **`true` when there was nothing to delete**: the caller asked for there to be no token, and
+    /// there is none.
     @discardableResult
-    package static func clear() -> Bool {
-        #if !canImport(Security)
-        return SecretToolStore.clear(service: service, account: account)
-        #else
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-        let status = SecItemDelete(query as CFDictionary)
-        return status == errSecSuccess || status == errSecItemNotFound
-        #endif
+    package func clear() -> Bool {
+        secrets.clear(service: service, account: account)
     }
 }

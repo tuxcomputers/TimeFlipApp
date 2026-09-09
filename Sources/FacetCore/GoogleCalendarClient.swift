@@ -52,13 +52,19 @@ package enum GoogleCalendarClient {
     /// sign-out clears the Keychain item, and anything holding a token from before it would go on acting on an account
     /// the app says it is not connected to. This is the first design rule applied to something that does not live in a
     /// table but changes for the same reasons.
-    package static func currentAccessToken(session: URLSession = .shared) async throws -> String {
+    /// `tokens` is a parameter for the reason `session` is: it is the one dependency here that a test cannot
+    /// otherwise get past. Until candidate 3 it was a hard call to an enum of statics bound to the Keychain, which
+    /// is why this file was one of the nine in `FacetCore` no test named.
+    package static func currentAccessToken(
+        session: URLSession = .shared,
+        tokens: GoogleTokenStore = GoogleTokenStore()
+    ) async throws -> String {
         guard let credentials = GoogleCredentials.resolve() else {
             throw GoogleOAuthRules.Failure.noCredentials
         }
-        // Asked three ways rather than two, so a Keychain that would not answer is reported as itself instead of
+        // Asked three ways rather than two, so a store that would not answer is reported as itself instead of
         // as an account nobody signed into.
-        switch GoogleTokenStore.lookUp() {
+        switch tokens.lookUp() {
         case let .found(refresh):
             return try await accessToken(credentials: credentials, refreshToken: refresh, session: session)
         case .missing:

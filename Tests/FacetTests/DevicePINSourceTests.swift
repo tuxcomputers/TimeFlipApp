@@ -15,10 +15,36 @@ final class DevicePINSourceTests {
     private let directory: URL
     private var file: DeveloperConfigFile!
     /// What the stand-in Keychain holds, and whether it will take a write at all.
-    private var keychain: String?
-    private var keychainAccepts = true
-    private var keychainReadable = true
-    private var saved: [String] = []
+    /// The keyring, as an `InMemorySecretStore`.
+    ///
+    /// **Four hand-rolled flags and a pair of closures until candidate 3.** `DevicePINStore` was an enum of statics
+    /// bound to the Keychain, so `DevicePINSource` injected a `lookUp` and a `save` to be testable at all and this
+    /// suite built them by hand. The store is a value now, so the same four facts are the shared double's, and the
+    /// test bodies below are unchanged: these four are computed over it so that stays true.
+    private let secrets = InMemorySecretStore()
+
+    private var keychain: String? {
+        get { secrets.peek(service: pinKey.service, account: pinKey.account) }
+        set { secrets.put(newValue, service: pinKey.service, account: pinKey.account) }
+    }
+    /// A keyring that answers reads and refuses writes.
+    private var keychainAccepts: Bool {
+        get { !secrets.refusesWrites }
+        set { secrets.refusesWrites = !newValue }
+    }
+    /// A keyring that holds the PIN and will not let this process read it, which is `unavailable` rather than empty.
+    private var keychainReadable: Bool {
+        get { secrets.refusesWith == nil }
+        set { secrets.refusesWith = newValue ? nil : -25300 }
+    }
+    private var saved: [String] { secrets.written }
+
+    /// The item `DevicePINStore` actually addresses. Read from the store rather than written out, because the
+    /// service is derived from `Bundle.main`, which under `swift test` is not the app bundle.
+    private var pinKey: (service: String, account: String) {
+        let store = DevicePINStore(secrets: secrets)
+        return (store.service, store.account)
+    }
 
     init() throws {
         directory = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -35,16 +61,7 @@ final class DevicePINSourceTests {
 
     private func source() -> DevicePINSource {
         DevicePINSource(
-            keychainLookUp: { [self] in
-                guard keychainReadable else { return .unavailable(-25300) }
-                return keychain.map { .found($0) } ?? .missing
-            },
-            keychainSave: { [self] pin in
-                guard keychainAccepts else { return false }
-                keychain = pin
-                saved.append(pin)
-                return true
-            },
+            keychain: DevicePINStore(secrets: secrets),
             configFile: file,
             debugLog: nil
         )

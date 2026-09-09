@@ -20,14 +20,8 @@ import Foundation
 /// **What it costs, said plainly.** `libsecret-tools` has to be installed, and the secret crosses a pipe
 /// to a child process rather than staying in this one's memory. Neither is free; both were preferred to
 /// the alternative of a port that cannot keep a secret at all.
-package enum SecretToolStore {
-    /// What the keyring said. The same three answers the Keychain gives, for the same reason: "there is
-    /// nothing stored" and "this process could not read what is stored" have opposite remedies.
-    package enum Answer: Equatable {
-        case found(String)
-        case missing
-        case unavailable(Int32)
-    }
+package struct SecretToolStore: SecretStore {
+    package init() {}
 
     /// **`secret-tool` exits 1 both for a secret that is not there and for a keyring it cannot reach**, so
     /// the exit code alone cannot tell them apart. Measured 2026-09-07: a lookup that finds nothing writes
@@ -36,7 +30,7 @@ package enum SecretToolStore {
     ///
     /// Collapsing the two would be the fault `DevicePINStore.Lookup` was written to avoid: the app would
     /// rotate the PIN of a cube that has a perfectly good one it simply could not read.
-    private static func answer(status: Int32, out: Data, err: String) -> Answer {
+    private static func answer(status: Int32, out: Data, err: String) -> SecretLookup {
         if status == 0 {
             // **Not trimmed.** `secret-tool lookup` returns the stored bytes and nothing else -- measured
             // as exactly six bytes for a six-digit PIN, no trailing newline -- and trimming would corrupt
@@ -57,7 +51,8 @@ package enum SecretToolStore {
     /// **Read back before it answers `true`**, which is the Darwin path's rule and matters as much here:
     /// what follows a `true` for a PIN is a cube left on it, so a write believed on the strength of an
     /// exit code alone would be a cube nobody can log into.
-    package static func store(service: String, account: String, label: String, secret: String) -> Bool {
+    @discardableResult
+    package func store(service: String, account: String, label: String, secret: String) -> Bool {
         guard let result = run(
             ["store", "--label", label, "service", service, "account", account],
             input: secret
@@ -67,7 +62,7 @@ package enum SecretToolStore {
     }
 
     /// What is stored under `service`/`account`.
-    package static func lookUp(service: String, account: String) -> Answer {
+    package func lookUp(service: String, account: String) -> SecretLookup {
         guard let result = run(["lookup", "service", service, "account", account]) else {
             return .unavailable(couldNotRun)
         }
@@ -77,7 +72,8 @@ package enum SecretToolStore {
     /// Forgets it. **`true` when there was nothing to forget**, matching the Darwin path: the caller asked
     /// for there to be no secret and there is none. `secret-tool clear` exits 1 in that case, so the same
     /// stderr test tells it from a keyring that would not answer (measured 2026-09-07).
-    package static func clear(service: String, account: String) -> Bool {
+    @discardableResult
+    package func clear(service: String, account: String) -> Bool {
         guard let result = run(["clear", "service", service, "account", account]) else { return false }
         if result.status == 0 { return true }
         return result.err.isEmpty

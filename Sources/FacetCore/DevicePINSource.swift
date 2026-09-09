@@ -18,8 +18,13 @@ import Foundation
 /// isolated. The callers are the radio's callbacks and the launch sequence, both of which are already there.
 @MainActor
 package struct DevicePINSource {
-    var keychainLookUp: () -> DevicePINStore.Lookup = { DevicePINStore.lookUp() }
-    var keychainSave: (String) -> Bool = { DevicePINStore.save(pin: $0) }
+    /// Where the PIN is kept.
+    ///
+    /// **Two closures until 2026-09-10, and that was this file working around a seam that did not exist.**
+    /// `DevicePINStore` was an enum of statics bound to the Keychain, so the only way to test any of the ordering
+    /// below was to inject a `lookUp` and a `save` one at a time. Candidate 3 gave the store a `SecretStore`
+    /// underneath it, so the thing itself can be handed over and the pair of closures is one value again.
+    var keychain = DevicePINStore()
     /// The file, used only as the fallback above.
     var configFile: DeveloperConfigFile = .atStandardPath
     var debugLog: DebugLog?
@@ -80,7 +85,7 @@ package struct DevicePINSource {
         guard decision.promotesToKeychain || decision.clearsConfigFileOnSuccess else { return .nothingHappened }
         var promoted = false
         if decision.promotesToKeychain {
-            promoted = keychainSave(accepted)
+            promoted = keychain.save(pin: accepted)
             debugLog?.record(
                 .pin,
                 promoted
@@ -141,7 +146,7 @@ package struct DevicePINSource {
     }
 
     private func keychainPIN() -> String? {
-        switch keychainLookUp() {
+        switch keychain.lookUp() {
         case let .found(pin): return pin
         case .missing: return nil
         case let .unavailable(status):
@@ -156,7 +161,7 @@ package struct DevicePINSource {
     private func write(_ pin: String, to destination: DevicePINRules.Destination) -> Bool {
         switch destination {
         case .keychain:
-            return keychainSave(pin)
+            return keychain.save(pin: pin)
         case .configFile:
             return configFile.record(pin: pin)
         }
@@ -191,15 +196,12 @@ package struct DevicePINSource {
 
     /// Memberwise, spelled out because Swift does not widen a synthesised one with its type.
     ///
-    /// The two closures are `@escaping`: they are stored, not called and dropped.
     package init(
-        keychainLookUp: @escaping () -> DevicePINStore.Lookup = { DevicePINStore.lookUp() },
-        keychainSave: @escaping (String) -> Bool = { DevicePINStore.save(pin: $0) },
+        keychain: DevicePINStore = DevicePINStore(),
         configFile: DeveloperConfigFile = .atStandardPath,
         debugLog: DebugLog? = nil
     ) {
-        self.keychainLookUp = keychainLookUp
-        self.keychainSave = keychainSave
+        self.keychain = keychain
         self.configFile = configFile
         self.debugLog = debugLog
     }
