@@ -176,6 +176,10 @@ final class EditableNameCell: NSView {
         button.identifier = NSUserInterfaceItemIdentifier(identifier)
         button.setAccessibilityIdentifier(identifier)
 
+        // **One line, by choice rather than by constraint** (owner, 2026-09-10). The name column is narrow
+        // and a 35-character name, the longest the schema allows, does overflow it at the fixed 640 width;
+        // a tail ellipsis is the wanted answer here rather than a second line, a list of categories being
+        // something to scan down. The row can grow if anything else in it ever needs to.
         LabelWidth.set(.singleLine, on: label)
         label.alignment = alignment
         label.translatesAutoresizingMaskIntoConstraints = false

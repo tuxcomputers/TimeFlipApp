@@ -162,8 +162,7 @@ final class ReportCategoryGroup: NSView {
         let swatch = ReportSwatch.make(total)
         let name = NSTextField(labelWithString: total.name)
         // What makes the constraint below true rather than merely written: the figure keeps `.defaultHigh`, so a
-        // row short of room takes it out of the name. Single line because the row's height is pinned at 36pt by
-        // `heightAnchor.constraint(equalToConstant:)`, so a second line has nowhere to go until that is a minimum.
+        // row short of room takes it out of the name. One line, as the other two category names are.
         LabelWidth.set(.singleLine, on: name)
         name.translatesAutoresizingMaskIntoConstraints = false
 
@@ -186,10 +185,14 @@ final class ReportCategoryGroup: NSView {
 
         let padding = CategoryListView.Layout.horizontalPadding
         NSLayoutConstraint.activate([
+            // **A pin rather than a floor, and it is load-bearing.** This group's own height is measured from the
+            // heading's bottom when it is shut, so a heading free to grow takes the group with it: tried on
+            // 2026-09-10 and `ReportCategoryGroupTests` caught it at once, a closed group answering 200pt instead
+            // of 36. It stays pinned for as long as the name on it is one line.
+            heading.heightAnchor.constraint(equalToConstant: Layout.rowHeight),
             heading.topAnchor.constraint(equalTo: topAnchor),
             heading.leadingAnchor.constraint(equalTo: leadingAnchor),
             heading.trailingAnchor.constraint(equalTo: trailingAnchor),
-            heading.heightAnchor.constraint(equalToConstant: Layout.rowHeight),
 
             toggle.leadingAnchor.constraint(equalTo: leadingAnchor),
             toggle.widthAnchor.constraint(equalToConstant: Layout.toggleWidth),

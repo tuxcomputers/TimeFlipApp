@@ -183,8 +183,10 @@ final class CategoryRowView: NSButton {
         let name = NSTextField(labelWithString: category.name)
         // The row is as wide as the list and the name takes what is left of it, cut off at the tail rather
         // than pushing the window out to whatever length somebody typed.
-        // A 36pt row pinned by `heightAnchor.constraint(equalToConstant:)`, so a second line has nowhere to
-        // go until that becomes a minimum. See the note in `docs/architecture-review-2026-09.md`.
+        // **One line, by choice rather than by constraint** (owner, 2026-09-10). The name column is narrow
+        // and a 35-character name, the longest the schema allows, does overflow it at the fixed 640 width;
+        // a tail ellipsis is the wanted answer here rather than a second line, a list of categories being
+        // something to scan down. The row can grow if anything else in it ever needs to.
         LabelWidth.set(.singleLine, on: name)
         name.translatesAutoresizingMaskIntoConstraints = false
         addSubview(swatch)
