@@ -36,3 +36,59 @@ for something is to write it down where the other will look.
 
 ---
 
+## 15. Candidate 1 of the architecture review: put the radio seam below the sequencing
+
+**Yours because this box cannot compile the files it rewrites.** `swift build --target FacetMac` here answers
+`error: no target named 'FacetMac'` -- the Linux graph has no such target -- so `DeviceLogin.swift` (1,482
+lines) and `BluetoothRadio.swift` (1,418) are 2,900 lines I can neither build nor test, let alone drive
+against a cube. The candidate itself is written out in
+[architecture-review-2026-09.md](architecture-review-2026-09.md) with the five clusters, their line numbers,
+the budgeted-twice argument and a *what it must not break* section; this item is what has changed around it
+rather than a restatement.
+
+**The diagnostic that was supposed to justify it came back negative.** *The sequence worth doing them in*
+offered candidate 2 as the cheap evidence: if `DeviceReconnector` proved awkward to drive through
+`CubeRadio`'s members, that would show the seam was in the wrong place. Candidate 2 is done, and it was not
+awkward -- 64 lines of double, nothing contorted. That does not weaken candidate 1, because the two are seams
+for different things: `CubeRadio` serves the reconnect loop, and candidate 1 is about the seam under the
+protocol sequencing, which `CubeRadio` never touches. **So it has to be argued on its own terms**, and the
+review now says so where it previously promised the opposite.
+
+**The payoff is not what it might look like, and I checked rather than assuming.** It is tempting to expect a
+crowd of test files to come off the Linux exclusion list. They will not. Of the 37 there:
+
+    30  AppKit only            unaffected by this candidate
+     3  AppKit and the radio   still blocked by AppKit afterwards
+     1  the radio alone        BLETraceTests.swift, which would come off
+     3  neither, on inspection CubeNotFoundOffer (a FacetMac alert),
+                               SettingsTab (a FacetMac type), and
+                               GoogleOAuthRulesTests, which is mine to fix
+
+So the case for it is the two things the review already gives, and they stand on their own: **~1,480 lines of
+sequencing that has no unit test and cannot get one** through the current interface -- `DeviceLoginRulesTests`
+says outright that a `CBPeripheral` cannot be built outside CoreBluetooth -- and **not writing it twice**,
+`linux-port.md` item 10 having budgeted 600-1000 lines to reimplement exactly that list behind BlueZ.
+
+**Two patterns landed on 2026-09-09 that this should copy rather than reinvent.**
+
+- **A timer moving into `FacetCore` needs a `fire()`.** On Linux a `@MainActor` swift-testing test does not
+  run on the main thread, so a `Timer` on `RunLoop.main` never fires and a suite that waits on one fails
+  silently. Four modules now expose the timeout body as a method the tests call -- `HistoryTimer.fire`,
+  `WriteDebounce.fire`, `LowBatteryWatch.fire` and `DeviceReconnector.attempt`. Anything in the reach, the
+  reset proof or the command deadline that arms a timer will meet this the moment its tests run here.
+- **`InMemoryCubeRadio` is the worked example** of the double the candidate's last paragraph asks for ("an
+  in-memory adapter makes the whole of the above hermetic"). It also shows the trap worth avoiding: the suite
+  it replaced built a concrete `BluetoothRadio` and stayed honest only because `device_uuid` was empty, so
+  the attempt stopped before the radio was touched. A seam with one adapter is a seam nothing is holding open.
+
+**And the part I cannot help with at all.** This is the change where the scripted suite being set aside costs
+the most. It moves the code that talks to the cube, and `CLAUDE.md`'s *what it must not break* has two
+measured traps inside it: a `0x10` answer carries no echoed command byte, so it is trustworthy only when read
+strictly after its own acknowledgement, and a locked cube reports itself paused whatever its pause byte says,
+so pause is confirmed before the lock is sent. Both live in the code being moved and neither has a unit test
+today. The device rename is the precedent nobody wants repeated: green everywhere and the cube unreachable on
+the next launch, because reconnecting is a scan and nothing in `swift test` scans.
+
+**So my recommendation, for what it is worth from the machine that cannot run it:** do not land this while the
+suite is set aside, or bring the suite back for it specifically. A refactor of the radio verified only by
+`swift test` is the one shape this repository has already paid for twice.

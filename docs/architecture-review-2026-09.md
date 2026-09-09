@@ -90,6 +90,14 @@ of through a seam.
 
 ### 1. Put the radio seam below the sequencing, not above it
 
+**Strong, and handed to the Mac on 2026-09-09 as `handover-mac.md` item 15.** Not started: the Linux box
+cannot compile the two files it rewrites -- `swift build --target FacetMac` there answers `error: no target
+named 'FacetMac'` -- and the only thing that verifies them is a hardware suite that is currently set aside.
+Three things worth carrying into it are in that item: the diagnostic from candidate 2 came back negative so
+this stands on its own terms; the payoff is *not* test files coming off the Linux exclusion list, which was
+measured rather than assumed (30 of the 37 there are AppKit-only and exactly one is the radio alone); and
+anything with a timer that moves into `FacetCore` needs a `fire()`, for the reason four modules now have one.
+
 **Strong.** `Sources/FacetMac/BluetoothRadio.swift` (1418), `DeviceLogin.swift` (1482),
 `Sources/FacetCore/BlueZRadio.swift` (227), `BlueZGatt.swift` (121).
 
@@ -515,7 +523,10 @@ its colours are semantic AppKit ones; `name(of:)` is evidence the app already ne
    `DeviceReconnector` through those members was not awkward at all -- so it yields no evidence for candidate
    1, which is a different seam under a different concern and has to be argued on its own terms.
 3. **Then candidate 1**, which is the one that pays: ~1,480 lines of untested portable sequencing, and a
-   rewrite budgeted at 600 to 1,000 lines that becomes an adapter instead.
+   rewrite budgeted at 600 to 1,000 lines that becomes an adapter instead. **Handed to the Mac on 2026-09-09,
+   `handover-mac.md` item 15**, being 2,900 lines the Linux box cannot compile. The recommendation sent with
+   it is not to land it while the scripted suite is set aside: it moves the code that talks to the cube, and
+   the two measured traps in *what it must not break* have no unit test today.
 
 Candidate 8 is the same argument about the Settings window and is much the largest. It is worth agreeing as a
 direction before it is scheduled as a change.
