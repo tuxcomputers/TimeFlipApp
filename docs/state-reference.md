@@ -169,8 +169,15 @@ the app's own whichever mode the launch is in.
 `isFaceLocked` stays a boolean even though `FaceStore.isLocked(face:)` returns `Bool?`: there `nil` means the
 number is not a face, which is a failed lookup rather than a third answer.
 
-`isLimitReached` is one name for what is currently four expressions in four files. Naming it does not merge
-them; it makes the fact that they have to agree visible.
+`isLimitReached` was one name for what were four expressions in four files, and this said that naming it did not
+merge them, only made the fact that they had to agree visible. **Merged on 2026-09-10**, candidate 4 of
+`docs/architecture-review-2026-09.md`: `DailyLimitEnforcement.isResumeRefused(isLimitReached:isResuming:)` is the
+one expression, and the five sites that had their own each say only whether they are resuming. There were five
+rather than four, `CubeLock` asking twice.
+
+`isResumeRefused` is a **decision**, not a state, so it takes no `is<Name>`/`<name>State` entry of its own: see
+*What the convention does not govern* below, alongside `ManualTimerRules.isClickable` and
+`DeviceReconnectRules.shouldAttempt`.
 
 ## 7. History
 

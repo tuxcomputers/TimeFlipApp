@@ -59,7 +59,10 @@ package enum PauseMenuRules {
         // **Only a click that would *start* it is refused**, which is the same asymmetry `ManualTimerRules` has:
         // stopping stays available throughout, because a limit that trapped somebody into recording time would be the
         // opposite of what it is for. A click at a running cube is a pause and is always allowed.
-        guard !(isLimitReached && cubePauseState == .paused) else { return .nothing }
+        guard !DailyLimitEnforcement.isResumeRefused(
+            isLimitReached: isLimitReached,
+            isResuming: cubePauseState == .paused
+        ) else { return .nothing }
         // **Unknown is treated as unlocked**, which is the same way round as `CubeLockRules.title`. A cube nobody has
         // asked is far more often running than locked, and of the two ways to be wrong an item that is enabled and
         // gets refused says why in the log, while one greyed out for a lock that is not there offers no way to find

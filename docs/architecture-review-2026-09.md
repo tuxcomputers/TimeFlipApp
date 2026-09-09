@@ -206,7 +206,7 @@ sequencing one. Candidate 1 has to be argued on its own terms rather than inheri
 
 ### 3. One secret store, four copies of its answer
 
-**Strong.** `Sources/FacetCore/SecretToolStore.swift` (131), `DevicePINStore.swift` (144),
+**Strong. Done 2026-09-10**, see *What was done* at the end of this section. `Sources/FacetCore/SecretToolStore.swift` (131), `DevicePINStore.swift` (144),
 `GoogleTokenStore.swift` (136), `GoogleAccountRules.swift:71`, `DevicePINSource.swift:21-22`.
 
 Four structurally identical three-case types:
@@ -241,9 +241,30 @@ three-case enum into another. Neither store has a single test.
 in-memory adapter gives 411 untested lines a test surface. Two adapters already exist, so the seam is real
 rather than hypothetical.
 
+#### What was done
+
+Landed 2026-09-10. `SecretStore` is a protocol over a service and an account with three adapters:
+`KeychainSecretStore`, `SecretToolStore` and an in-memory one in the tests. `SecretLookup` is the one three-case
+answer. **Six `#if` branches in the two stores are now none**, the platform being asked once in
+`SecretStores.platform`, and the `SecItem` calls are written once rather than twice.
+
+`DevicePINStore` and `GoogleTokenStore` keep the naming and the meaning and nothing else, which is the half that
+was always testable and never tested. `DevicePINSource` loses the two closures it injected to get around the
+store being statics, which was one of the two workarounds this candidate was diagnosed from. 12 tests; nine
+`FacetCore` modules were named by no test and six are.
+
+**Two things the mutations found.** Giving the PIN the token's service suffix leaves the separation test green,
+because the *accounts* already differ, so the suffix both files credit is belt to the account's braces rather
+than the thing doing the work. And collapsing `unavailable` into `missing` in `DevicePINSource` passes any test
+that only checks the PIN is absent from the order presented, because `keychainPIN` folds both to `nil`
+deliberately: what actually differs is the row saying the app could not tell, so that row is the assertion.
+
+**`GoogleAccountRules.Credential` stays**, and is no longer a fourth copy but a projection: it drops the secret
+itself, which is right for a rules type, and there is one conversion point rather than a mirrored declaration.
+
 ### 4. The daily limit is one fact asked five ways
 
-**Strong.** `ManualTimerRules.swift:111`, `PauseMenuRules.swift:62`, `StatusItemClickRouter.swift:80`,
+**Strong. Done 2026-09-10**, see *What was done* at the end of this section. `ManualTimerRules.swift:111`, `PauseMenuRules.swift:62`, `StatusItemClickRouter.swift:80`,
 `CubeLock.swift:135` and `:235`.
 
 `CLAUDE.md` says the limit is "decided by four separate expressions in four files". That is accurate, and it
@@ -268,7 +289,29 @@ straight past the only place the limit was consulted". `CubeLock.swift:223` reco
 way: lock the cube and unlock it again, and the limit was gone.
 
 **The proposal.** One module answering "may this pause be lifted", taking `cubePauseState` and `timingState`
-together so the cube and the app's own clock cannot be asked separately and disagree. The seam moves from
+together so the cube and the app's own clock cannot be asked separately and disagree.
+
+#### What was done
+
+Landed 2026-09-10, and the shape is slightly different from the proposal, for a reason worth keeping.
+`DailyLimitEnforcement.isResumeRefused(isLimitReached:isResuming:)` is the one expression, and it does **not**
+take `cubePauseState` and `timingState` together: the callers do not each hold both, and forcing them to would
+have meant passing states a caller has no business knowing. What is one thing is the rule; what stays each
+caller's is deriving whether it is resuming, off `timingState`, off `cubePauseState`, or off the direction
+`CubeLock.setPause` was asked for. All five sites route through it and one expression is left in the tree.
+
+**The tests assert agreement, which is what was missing.** This file said naming the fact "does not merge them;
+it makes the fact that they have to agree visible", and the suites asserted one surface at a time, which is
+exactly how they came apart. `DailyLimitResumeTests` asks the menu, the router and the app's own clock in one
+test with the budget spent, and again with budget left so a rule that refused everything would fail rather than
+look right.
+
+**Three mutations, all caught**: the router forgetting to ask, which is the 2026-08-27 bug reproduced; the rule
+refusing pauses as well as resumes, which fails nine tests; and `CubeLock.resume` no longer asking, which is
+the lock-then-unlock way round found the same day.
+
+`docs/state-reference.md` is updated in the same change: its note that naming the fact did not merge the asking
+was true and is not any more. The seam moves from
 around the arithmetic, which was never in doubt, to around the set of paths obliged to ask.
 
 `state-reference.md` already names this fact `isLimitReached` and says "Naming it does not merge them; it
@@ -530,6 +573,23 @@ its colours are semantic AppKit ones; `name(of:)` is evidence the app already ne
 
 Candidate 8 is the same argument about the Settings window and is much the largest. It is worth agreeing as a
 direction before it is scheduled as a change.
+
+### Where the candidates stand, 2026-09-10
+
+| | Candidate | State |
+| --- | --- | --- |
+| 1 | Radio seam below the sequencing | **one cluster of five done**, `feature/commandChannel`, confirmed on the cube |
+| 2 | `CubeRadio` is a hypothetical seam | **done**, `InMemoryCubeRadio` is the second adapter |
+| 3 | One secret store | **done** |
+| 4 | The daily limit asked five ways | **done** |
+| 5 | The link lifecycle is three hand-written lines | open |
+| 6 | Two modules, one queue engine | open |
+| 7 | A quarter of the Linux exclusions | **done bar 17 tests**, which need a `RunLoop` decision |
+| 8 | `SettingsWindowController` | open, and a direction to agree before it is scheduled |
+| 9 | Portable decisions behind AppKit types | open |
+
+Candidate 1's four remaining clusters are the reach and candidate order, the reset proof, the history fetch and
+the PIN rotation machine.
 
 ### The scripted suite is set aside until the Linux port is finished
 

@@ -79,6 +79,31 @@ struct DailyLimitEnforcement {
         return totalSeconds >= Double(dailyLimitMinutes) * secondsPerMinute
     }
 
+    /// Whether lifting a pause is refused because the day's budget is spent.
+    ///
+    /// **One expression where there were five, in three vocabularies.** `ManualTimerRules.isClickable` said
+    /// `timingState == .paused && isLimitReached`, `PauseMenuRules` and `StatusItemClickRouter` said
+    /// `isLimitReached && cubePauseState == .paused`, and `CubeLock` said `wanted == false && startingIsRefused()`
+    /// in two places. Same rule, three shapes, and `state-reference.md` had already given the fact one name without
+    /// being able to merge the asking. This is candidate 4 of `docs/architecture-review-2026-09.md`.
+    ///
+    /// **The arithmetic was never the risk and this is not about the arithmetic.** `isLimitReached` above is three
+    /// lines with 274 lines of tests, and the live bypass on 2026-08-27 did not touch it. What was wrong was which
+    /// paths ask: `PauseMenuRules` records that `ManualTimerRules.isClickable` answers about *this app's* clock and
+    /// "a cube leaves that `.idle` however busy it is, so every cube click fell straight past the only place the
+    /// limit was consulted". `CubeLock` records the fifth path the same way, a lock and an unlock being the way
+    /// round it. So what this merges is the set of paths obliged to ask, which is the part that was hard.
+    ///
+    /// **`isResuming` is the only thing a caller still decides**, and it is genuinely theirs: a manual session reads
+    /// it off `timingState`, the cube's off `cubePauseState`, and `CubeLock.setPause` off the direction it was asked
+    /// for. What none of them decides any more is what to do about it.
+    ///
+    /// **Pausing is never refused, only starting.** A limit that trapped somebody into recording time would be the
+    /// opposite of what it is for, which is why this asks about a resume and nothing else.
+    package static func isResumeRefused(isLimitReached: Bool, isResuming: Bool) -> Bool {
+        isLimitReached && isResuming
+    }
+
     /// How long until `totalSeconds` reaches the limit, for arming a one-shot timer on the exact second rather than
     /// waiting for the next display tick. `nil` when there is no limit or it is already reached, i.e. when there is
     /// nothing to wait for.

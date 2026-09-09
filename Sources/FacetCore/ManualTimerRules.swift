@@ -110,7 +110,10 @@ package enum ManualTimerRules {
     /// records, and a limit is a second chance to make it.
     package static func isClickable(_ timingState: TimingState, isLimitReached: Bool = false) -> Bool {
         guard timingState != .idle else { return false }
-        return !(timingState == .paused && isLimitReached)
+        return !DailyLimitEnforcement.isResumeRefused(
+            isLimitReached: isLimitReached,
+            isResuming: timingState == .paused
+        )
     }
 
     /// What the dropdown's Pause item is called.

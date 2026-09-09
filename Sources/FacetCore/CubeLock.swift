@@ -52,8 +52,13 @@ package final class CubeLock {
     ///
     /// **Pausing is never refused**, only starting: a limit that trapped somebody into recording time would be the
     /// opposite of what it is for. So this is asked of a resume and nothing else.
-    private func startingIsRefused() -> Bool {
-        guard isLimitReached() else { return false }
+    /// **`isResuming` is `true` at both call sites and is passed anyway**, rather than this asking a rule with the
+    /// answer already folded in. What the two sites have in common is that they are the resumes; saying so at the
+    /// rule is what makes them the same question as the menu's and the click's, which is candidate 4's whole point.
+    private func startingIsRefused(isResuming: Bool = true) -> Bool {
+        guard DailyLimitEnforcement.isResumeRefused(isLimitReached: isLimitReached(), isResuming: isResuming) else {
+            return false
+        }
         debugLog?.record(.command, "The cube is left stopped: the category on show has spent its daily limit")
         return true
     }
@@ -132,7 +137,7 @@ package final class CubeLock {
         // than one more place that happens to check. Reported live on 2026-08-27: a single click on the status item's
         // right half sent `06 02` against a spent budget, because the router only ever asked the limit about the app's
         // own clock and a cube leaves that idle.
-        guard !(wanted == false && startingIsRefused()) else { return false }
+        guard !startingIsRefused(isResuming: wanted == false) else { return false }
         send(DeviceCommandRules.pause(wanted)) { [weak self] took in
             self?.debugLog?.record(
                 .command,
