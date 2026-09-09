@@ -498,7 +498,7 @@ remembering.
 | `libsqlite3-dev` | 3.45.1-1ubuntu2.7 | **installed 2026-09-07**, giving `/usr/include/sqlite3.h` and the unversioned `libsqlite3.so` |
 | `python3` | 3.12.3 | `/usr/bin/python3` (the system one) |
 | `python3-dbus` | 1.3.2 | importable as `dbus` |
-| `awk` | **GNU Awk 5.2.1** | `/usr/bin/awk` -> `/usr/bin/gawk` through alternatives. **`gawk` installed 2026-09-09** and it took the alternative from mawk, which is still present at `/usr/bin/mawk` (1.3.4 20240123, the Debian and Ubuntu default). Installed deliberately: `scripts/check_interactive_checklists.sh` parses the scripted stamp with awk and now runs in `all-tests-pass` on `ubuntu-latest`, whose awk reports **the same version string**, so this box can test that gate on the dialect CI actually uses |
+| `awk` | **GNU Awk 5.2.1** | `/usr/bin/awk` -> `/usr/bin/gawk`, **installed 2026-09-09**, taking the alternative from mawk 1.3.4 which is still at `/usr/bin/mawk`. Here because the `ubuntu-latest` runner reports the same version string, so the stamp gate can be tested on the dialect CI uses; which dialects mis-split and why is in `check_interactive_checklists.sh` beside the `FS` |
 | `podman` | 4.9.3 | `/usr/bin/podman` (**installed 2026-09-09**), rootless with the `overlay` driver and `subuid`/`subgid` entries for the owner. What lets `scripts/ci-local.sh` run CI's Linux job in the image it names rather than approximating it natively |
 | `python3-gi` | 3.48.2 | importable as `gi` |
 | `python3-pyatspi` | 2.46.1 | importable as `pyatspi` |
