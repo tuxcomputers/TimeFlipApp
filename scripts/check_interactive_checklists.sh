@@ -154,8 +154,21 @@ check_the_suite_was_run() {
   # **`[|]` rather than `\|`, and it is not a style choice.** macOS awk does not split on an escaped pipe in `FS`:
   # it splits on the runs of spaces around it instead and hands back the bar itself as a field, so `$3` comes out
   # as `|` and every row compares equal. The gate then passes everything, silently. A bracket expression is what
-  # both awks agree on. The skip gate this replaced had the same bug and nobody saw it, because it only ran when
+  # every awk agrees on. The skip gate this replaced had the same bug and nobody saw it, because it only ran when
   # a skip existed and none ever did.
+  #
+  # **Measured across three implementations on 2026-09-09**, once this check moved into `all-tests-pass` and so
+  # onto Linux. On the same stamp row, `[|]` gives `NF=7` and the right fields everywhere; `\|` mis-splits under
+  # **busybox awk** exactly as it does under macOS awk -- `NF=12`, `$3` coming back as `|` -- and happens to be
+  # harmless under **mawk**, which is what Debian and Ubuntu point `awk` at. So the bug reproduces in a second
+  # implementation and the fix is load-bearing rather than a macOS quirk, and mawk being forgiving is luck rather
+  # than a reason to relax it.
+  #
+  # Both parser functions below were then driven against a doctored stamp under mawk and both bit: a row edited
+  # from `9 | 9` to `9 | 8` was reported as declaring 9 and running 8, and one edited to `0 | 0` was reported as
+  # declaring no checks at all, with the real stamp reporting neither. **What is still unestablished is the awk on
+  # the GitHub runner**, which is where this now actually runs; `gawk` is not installed on the Linux box, so that
+  # dialect is reasoned about rather than tested.
   #
   # Per script rather than as one number: "the run is 3 checks short" sends somebody to the table anyway, and the
   # table is what says which script and by how much.

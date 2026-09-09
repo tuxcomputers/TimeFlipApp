@@ -46,39 +46,8 @@ whose answer is a fact belongs there; a task belongs here.
 **Not the to-do list in `linux-port.md`.** That is what the port needs doing, in dependency order, by
 whichever machine gets to it. This is what the *other* machine is being asked for, which is a much
 shorter list and one that empties.
-## 13. Confirm the stamp parser still bites under GNU awk
 
-**`check_interactive_checklists.sh` has moved out of the macOS test jobs and into `all-tests-pass`**, which
-runs on `ubuntu-latest`. It used to run twice, once in each macOS job. Three reasons, and the comment on that
-job now carries them: it is not a test (`Build` and `Test` were both green on this branch while it failed, so
-a job called *Test (macOS ...)* went red over a `Package.swift` edit); it is not macOS, which the comment you
-wrote on the Linux job already said, that "the answer does not depend on the platform"; and the second run
-was redundant rather than merely duplicated, the PR branch tip being an ancestor of the merge commit, so a
-clean diff over the watched paths for the merge result implies a clean one for the branch tip.
-
-**The consequence is that its awk now only ever runs under GNU awk**, where before it only ever ran under
-macOS awk. That matters more than it sounds, because this script's one recorded fail-open was exactly a
-dialect difference: `\|` in `FS` splits on the spaces under macOS awk and hands the bar back as a field, so
-every row compared equal and the gate passed everything silently. `-F' *[|] *'` is the fix, a bracket
-expression, and both `count_trouble` and `zero_declared` use it.
-
-**Checked here before moving it, but under the wrong awk to prove the point.** A stamp doctored to make one
-script a check short was caught rather than waved through:
-
-```sh
-sed 's/^| 01-launch | 9 | 9 | 0 |/| 01-launch | 9 | 8 | 0 |/' \
-  Tests/Scripted/last-run-mac.md > /tmp/fake-stamp.md
-SCRIPTED_STAMP=/tmp/fake-stamp.md ./scripts/check_interactive_checklists.sh
-  -> a script did not run the number of checks it declares, so some never ran at all:
-       01-launch: declares 9 check(s), ran 8
-```
-
-**The ask is those four lines on your awk, and the same answer.** `awk --version` in the note too, so the
-dialect is written down. If it reports nothing, the gate is failing open on the platform it now runs on and
-that is worth knowing before anybody trusts a green tick: say so here and leave the item.
-
-**Why it is not just left to CI.** A fail-open passes, so a green `All tests pass` would look like a working
-gate either way. This is the one check whose success cannot be read as evidence.
+---
 
 ## 14. The last 17 tests want a `fire()`, not an injected `RunLoop`
 
