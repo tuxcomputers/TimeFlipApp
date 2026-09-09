@@ -965,6 +965,80 @@ Open questions, with what would answer each.
 | **What is the state of Swift GTK3 bindings?** MATE 1.26 is GTK3, and the binding work known to exist targets GTK4 | Survey before committing to a single-process design |
 | **Does `swift build` work with real `libsqlite3-dev`?** The spike used a hand-written 25-symbol header | Install the package and drop the shim |
 
+## Decided: CI tests both platforms, and everything on each
+
+**Decided 2026-09-09. Every test runs in CI, on every platform that can run it.** Not the Mac's suite with
+Linux checked by hand, and not a Linux job that runs only the Linux-specific parts -- the whole suite, twice,
+each platform running as much of it as it can.
+
+**Why both, when most of the tests are the same tests.** Because the overlap is the product rather than the
+waste. There is no `#if os(Linux)` anywhere in `Sources/` and exactly **7** of the tests are Linux-only, so a
+plan of "test everything on the Mac, test the Linux-only parts on Linux" would cover 7 tests and leave 1,042
+running against one Foundation only. Those 1,042 are where both platform divergences found so far actually
+lived: a `Timer` on `RunLoop.main` that never fires because a `@MainActor` swift-testing test is not on the
+main thread here, and `FileManager.contentsOfDirectory(at:)` returning an empty array for a symlinked
+directory where Darwin follows it -- which `DatabaseBootstrap` reported as a database created successfully.
+Both are shared code passing on one platform and failing on the other. Running one test against two
+Foundations asks two different questions, so coverage is a property of test x platform rather than of the
+test list.
+
+### Where it stands, and what each number is waiting on
+
+| | Tests | |
+|---|---|---|
+| Every test in the repository | **1,758** | 1,751 the Mac can run, plus the 7 Linux-only |
+| macOS CI runs | **1,751** | everything that platform can run |
+| Linux CI runs | **1,042** | every test the Mac also runs |
+| Linux-only, skipped in CI | **7** | `SystemBusTests`, below |
+| Mac-only, not yet on Linux | **709** | the 40 files `Package.swift` excludes |
+
+**The 709 close as the port lands**, and they are already itemised rather than estimated: 38 files need
+AppKit, CoreBluetooth or a `FacetMac` type and come back with items 9, 10 and 11, and 2 need the main
+thread's run loop, which is a decision rather than work -- whether `WriteDebounce` and `LowBatteryWatch`
+should take their `RunLoop` as a parameter. Nothing else is excluded, and the manifest says which of the two
+reasons each is.
+
+**The 7 are worth splitting, because most of them are not really hardware-bound.** `swift test
+--skip SystemBusTests` skips the suite whole today, which is coarser than it needs to be:
+
+| Test | Needs |
+|---|---|
+| `theSystemBusCanBeReached` | a system bus |
+| `aCallAnswersAnArrayOfStrings` | a system bus |
+| `aStringArgumentIsSentAndABooleanComesBack` | a system bus |
+| `arefusalCarriesTheErrorName` | a system bus |
+| `aByteArrayArgumentIsAcceptedByTheWire` | calls `org.bluez`, but asserts a **refusal** |
+| `theNestedObjectTreeIsWalkedToItsLeaves` | a real BlueZ **adapter** |
+| `aSignalArrivesAndItsValuesAreTyped` | a real BlueZ **adapter** |
+
+Four of them ask `org.freedesktop.DBus` and nothing else, and a system bus daemon can be started inside the
+container -- so those four should be running in CI and are not. The two needing an adapter cannot run on any
+runner and belong with `Tests/Scripted/`: their absence is a fact about the machine, not about the code.
+`aByteArrayArgumentIsAcceptedByTheWire` is the interesting one, since a refusal is what it wants and a
+missing service refuses too, for a different reason -- it may pass without BlueZ and for the wrong cause,
+which is worth settling before it is relied on.
+
+### What is left to do for this plan
+
+1. **Start a system bus in the Linux job** and narrow the skip from the suite to the adapter-bound tests, so
+   Linux CI runs 1,046 rather than 1,042. Confirm `aByteArrayArgumentIsAcceptedByTheWire` passes for the
+   right reason before counting it.
+2. **Take the run-loop decision**, worth 17 tests, and either way write it down: injecting the `RunLoop` is a
+   production change made for a test's benefit, and `RunLoop.current` would only work by coincidence.
+3. **Let items 9, 10 and 11 return the other 38 files** as sign-in, the radio and the UI arrive on this
+   platform. Each one should take files off `platformBoundTests` in the same change, rather than leaving the
+   list to be audited later.
+4. **Keep the two compilers comparable, or know that they are not.** The job declares `swift:6.2-noble`,
+   which floats within the 6.2 line and was 6.2.4 when checked, where this box is on 6.2.0. A CI-only failure
+   should be checked against that difference first.
+
+**A note on how this was worded before, because the wording was the fault.** `systems-info.md` recorded
+*nothing in CI compiles the project on Linux today* as a fact, dated and accurate, sitting in a table of
+facts. It was true and it was the wrong shape: a gap stated in the indicative reads as a condition to work
+around, where the same thing put as a question -- should CI run the Linux tests as well? -- gets answered in
+an afternoon. It had been true for a month. Where this file records something the port cannot do yet, it
+should say what would close it and whose call that is, which is what the four items above are for.
+
 ## Decided: one process, Swift calling GTK3 through a modulemap
 
 **Settled 2026-09-09 by the owner, and the first two slices are built.** The candidates were one process in
