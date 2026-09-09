@@ -319,7 +319,7 @@ makes the fact that they have to agree visible." This is the merge that note def
 
 ### 5. The link lifecycle is three hand-written lines
 
-**Worth exploring.** `Sources/FacetMac/main.swift:633-650`, `HistoryIngestor.swift:162`,
+**Worth exploring. Done 2026-09-10**, and narrower than this section claims: see *What was done*. `Sources/FacetMac/main.swift:633-650`, `HistoryIngestor.swift:162`,
 `FaceColourSync.swift:197`, `DeviceSettingsSync.swift:211`.
 
 ```swift
@@ -340,6 +340,28 @@ state that nobody adds to that closure stalls silently, in exactly the way those
 
 **The proposal.** Name the `linkSettled` / `linkEnded` pair as one interface and let the composition root
 register conformers, so conforming is joining.
+
+#### What was done
+
+**The proposal is wrong in one respect and it matters.** `linkSettled` and `linkEnded` are not a pair to name as
+one interface, because they do not have the same members and must not: `HistoryIngestor` is told the link ended
+but is deliberately *not* in the settled fan-out, hanging off the earlier `onCubeReady` instead, because a fetch
+is a question rather than a command and wants to be first in the queue. `main.swift` says so where it wires them.
+An interface demanding both would have invited exactly the bug that comment exists to prevent.
+
+**And "let the composition root register conformers" does not buy what it sounds like.** Swift will not enumerate
+conformers, so a registry is a hand-written list of `add` calls and forgetting one is precisely as silent as
+forgetting a line in a closure. Naming the interface would have moved the hazard, not removed it.
+
+**So what was done is the half that is really the rule: something checks the list.** The three lines are a named
+`linkEnders` array, and `LinkEndedFanOutTests` reads `Sources/FacetCore` for every type declaring `linkEnded()`
+and fails if one is not in it, with a message saying what to add and why. Two mutations: a fourth module growing
+`linkEnded()` unwired, and an existing one dropped. Both fail, both name the module. The test also asserts it
+found at least three modules, because a scan that has stopped finding anything is how a check like this fails
+open.
+
+It is a source-level check, which is the same tactic `scripts/check_interactive_checklists.sh` uses, and for the
+same reason: reading the sources is what can answer "is anything missing" when the type system will not.
 
 ### 6. Two modules, one queue-and-cooldown engine
 
@@ -582,7 +604,7 @@ direction before it is scheduled as a change.
 | 2 | `CubeRadio` is a hypothetical seam | **done**, `InMemoryCubeRadio` is the second adapter |
 | 3 | One secret store | **done** |
 | 4 | The daily limit asked five ways | **done** |
-| 5 | The link lifecycle is three hand-written lines | open |
+| 5 | The link lifecycle is three hand-written lines | **done**, as a completeness check rather than an interface |
 | 6 | Two modules, one queue engine | open |
 | 7 | A quarter of the Linux exclusions | **done bar 17 tests**, which need a `RunLoop` decision |
 | 8 | `SettingsWindowController` | open, and a direction to agree before it is scheduled |

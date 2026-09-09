@@ -640,12 +640,25 @@ radio.onCubeSettled = { _ in
 // **The other end of the same thought.** A fetch waits on answers the radio delivers, so a link ending mid-conversation
 // leaves it in flight with nothing ever going to finish it -- and one fetch at a time then means no fetch ever again.
 // The mirror of the refresh above: what a link coming up starts, a link going has to let go of.
+//
+// **A named list rather than three lines in the closure, and the name is what `LinkEndedFanOutTests` looks for.**
+// Each of these three documents a stall that shipped when its own reset was missing: a history fetch left in flight
+// for the life of the process, so every later refresh stood down behind it; and a `FaceColourSync` flag left true, so
+// every connection after it queued twelve faces and sent none. All three are individually tested. What was not
+// tested, and is now, is that the list is complete: a fourth module holding per-link state that nobody adds here
+// stalls in exactly the way those comments describe, and stalls silently.
+//
+// **This does not make registering automatic**, which is worth being plain about: Swift will not find conformers for
+// us, and adding a line here is still something somebody has to remember. What has changed is that forgetting is
+// caught by a test rather than by a user, which is the half that was missing.
+let linkEnders: [() -> Void] = [
+    historyIngestor.linkEnded,
+    // What is queued for a cube that has gone is dropped rather than sent one refusal at a time.
+    faceColours.linkEnded,
+    deviceSettings.linkEnded,
+]
 radio.onLinkEnded = { _ in
-    historyIngestor.linkEnded()
-    // The same thought again: what is queued for a cube that has gone is dropped rather than sent one refusal at a
-    // time.
-    faceColours.linkEnded()
-    deviceSettings.linkEnded()
+    for letGo in linkEnders { letGo() }
 }
 // What the cube says about its own condition, which until now the app subscribed to and threw away.
 //
