@@ -20,7 +20,7 @@ moving is a finding that will be measured twice.
 | Does the app's core compile on Linux? | **Yes -- `FacetCore` entire**, 89 files, 0 errors, 0 warnings, from a deleted `.build` in 13s | 2026-09-07, Linux |
 | Does the logic behave? | **Yes**, 432 tests pass | 2026-09-06 |
 | Can the whole test suite run? | **Under XCTest no**, `@MainActor` blocks ~60%. **Under swift-testing yes** | 2026-09-06 |
-| Does any of the suite run on Linux? | **Yes. `swift test` passes 891 of 1743 tests** across 55 suites in 49s -- 540 under XCTest, 351 under swift-testing. The rest need AppKit, CoreBluetooth or a `FacetMac` type, and come back with items 10 and 11 | 2026-09-07, Linux |
+| Does any of the suite run on Linux? | **Yes. `swift test` passes 1,049 of 1,751 tests** across 65 suites -- 590 under XCTest in 2.8s, 459 under swift-testing in 55s. Of the 40 files still excluded, 38 need AppKit, CoreBluetooth or a `FacetMac` type and come back with items 10 and 11; the other 2 need the main thread's run loop, which is a different problem and has its own section below | 2026-09-09, Linux |
 | Can Swift talk to BlueZ? | **Yes, in process, over libdbus.** `SystemBus` calls methods, marshals arguments both ways and receives signals with typed values; seven tests drive it against the real system bus | 2026-09-07, Linux |
 | Can it discover? | **Yes**, and the cube is found by `DeviceScanRules` -- the app's own rule, unchanged | 2026-09-07, Linux |
 | Can it drive the cube from Swift? | **Yes, every stage the app needs.** Connect, resolve, 16 characteristics by UUID, log in on the vendor PIN, read, the `0x10` status read-back parsed by the app's own rules, and **face turns arriving as notifications -- ten pushes over seven distinct faces**. Nothing but the PIN and `0x10` has been written | 2026-09-07, Linux |
@@ -30,6 +30,7 @@ moving is a finding that will be measured twice.
 | Is there a `FacetCore` target? | **Yes.** 86 files, no AppKit, and `FacetMac` builds on it. 589 access-level edits | 2026-09-07, Mac |
 | ~~What is left before Linux can try the core?~~ | **Nothing. All four are done**: `SQLite3` has a modulemap target, `CoreGraphics` a `package typealias`, `Security` the login keyring through `secret-tool`, `CryptoKit` a written SHA-256 | 2026-09-07, Linux |
 | What is left before Linux can **run** anything? | The suite (item 6, swift-testing) to know it behaves; then item 9 for sign-in and item 10 for the radio. Both of those are in `FacetMac`, not the core | 2026-09-07, Linux |
+| Does CI check any of this? | **Yes, since today, and it did not before.** A `test-linux` job runs `swift build` and `swift test --skip SystemBusTests` on `ubuntu-latest` in a `swift:6.2-noble` container -- 1,042 tests, being every one the Mac also runs. `all-tests-pass` requires it. The 7 skipped are `SystemBusTests`, which need a real system bus and a Bluetooth adapter | 2026-09-09, Linux |
 | Does the core actually run outside `swift test`? | **Yes.** A real binary linked against it resolves the XDG data directory, applies the DDL through the bundle, takes the instance lock against a second process and reaches the keyring. One fault found: the resource bundle (below) | 2026-09-08, Linux |
 
 **The strategy this settles: port the core, do not reimplement it.** The Swift is portable, so the

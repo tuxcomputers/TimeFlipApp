@@ -872,3 +872,27 @@ this heading has nothing under it, the Linux box has everything it needs.
 Questions 1 and 3 were answered into *System information about the Mac* above and removed on
 2026-09-07, and question 4 the same way on 2026-09-08. Number 2 was withdrawn rather than
 answered, the owner having settled it by practice, and its number stays unused.
+
+### 5. Restate what CI runs, now that one of its jobs is Linux
+
+**Two rows of the *CI* table in your half went stale on 2026-09-09 and I cannot edit them.** A
+`test-linux` job was added to `.github/workflows/tests.yml`: `runs-on: ubuntu-latest` in a
+`container: swift:6.2-noble`, running `swift build` and `swift test --skip SystemBusTests` -- 1,042 tests,
+590 under XCTest and 452 under swift-testing. So *The `ubuntu-latest` job -- Aggregator only, it builds
+nothing* is now true of `all-tests-pass` alone, and **Nothing in CI compiles the project on Linux today**
+is no longer true at all. `all-tests-pass` requires the new job, so it is the third thing branch protection
+gates on without the setting changing.
+
+**Why it matters enough to ask rather than leave.** That paragraph is the one somebody reads to find out
+whether a Linux break would go green, and its answer has just reversed. It was correct when written: every
+Linux divergence to date -- the `RunLoop.main` timer, the symlinked directory read as empty -- was found by
+hand on this box because nothing in CI would have.
+
+    sed -n '/^### CI/,/^---/p' docs/systems-info.md      # the rows as they stand
+    python3 -c "import yaml;d=yaml.safe_load(open('.github/workflows/tests.yml'));print(list(d['jobs']))"
+
+**One thing I could not measure and you can**, and it belongs in the same row: whether that container's
+compiler matches this box's. The tag floats within the 6.2 line and resolved to **6.2.4** when I checked
+Docker Hub, where the Linux box is on **6.2.0** -- same language version, different patch. The first CI run
+prints it, and it is worth writing down beside the existing note that the `macos-15` runner's version is
+unmeasured.
