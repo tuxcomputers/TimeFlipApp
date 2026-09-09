@@ -30,7 +30,7 @@ moving is a finding that will be measured twice.
 | Is there a `FacetCore` target? | **Yes.** 86 files, no AppKit, and `FacetMac` builds on it. 589 access-level edits | 2026-09-07, Mac |
 | ~~What is left before Linux can try the core?~~ | **Nothing. All four are done**: `SQLite3` has a modulemap target, `CoreGraphics` a `package typealias`, `Security` the login keyring through `secret-tool`, `CryptoKit` a written SHA-256 | 2026-09-07, Linux |
 | What is left before Linux can **run** anything? | The suite (item 6, swift-testing) to know it behaves; then item 9 for sign-in and item 10 for the radio. Both of those are in `FacetMac`, not the core | 2026-09-07, Linux |
-| Does CI check any of this? | **Yes, since today, and it did not before.** A `test-linux` job runs `swift build` and `swift test --skip SystemBusTests` on `ubuntu-latest` in a `swift:6.2-noble` container -- 1,042 tests, being every one the Mac also runs. `all-tests-pass` requires it. The 7 skipped are `SystemBusTests`, which need a real system bus and a Bluetooth adapter | 2026-09-09, Linux |
+| Does CI check any of this? | **Yes, since today, and it did not before.** A `test-linux` job runs `swift build`, starts a private `dbus-daemon`, then `swift test` on `ubuntu-latest` in a `swift:6.2-noble` container -- **1,047 tests**, being the 1,042 the Mac also runs plus 5 of the 7 D-Bus ones. `all-tests-pass` requires it. Only 2 are skipped, both needing a real BlueZ adapter | 2026-09-09, Linux |
 | Does the core actually run outside `swift test`? | **Yes.** A real binary linked against it resolves the XDG data directory, applies the DDL through the bundle, takes the instance lock against a second process and reaches the keyring. One fault found: the resource bundle (below) | 2026-09-08, Linux |
 
 **The strategy this settles: port the core, do not reimplement it.** The Swift is portable, so the
@@ -988,8 +988,8 @@ test list.
 |---|---|---|
 | Every test in the repository | **1,758** | 1,751 the Mac can run, plus the 7 Linux-only |
 | macOS CI runs | **1,751** | everything that platform can run |
-| Linux CI runs | **1,042** | every test the Mac also runs |
-| Linux-only, skipped in CI | **7** | `SystemBusTests`, below |
+| Linux CI runs | **1,047** | the 1,042 the Mac also runs, plus 5 of the 7 Linux-only |
+| Linux-only, skipped in CI | **2** | the two needing a real BlueZ adapter, below |
 | Mac-only, not yet on Linux | **709** | the 40 files `Package.swift` excludes |
 
 **The 709 close as the port lands**, and they are already itemised rather than estimated: 38 files need
@@ -998,31 +998,46 @@ thread's run loop, which is a decision rather than work -- whether `WriteDebounc
 should take their `RunLoop` as a parameter. Nothing else is excluded, and the manifest says which of the two
 reasons each is.
 
-**The 7 are worth splitting, because most of them are not really hardware-bound.** `swift test
---skip SystemBusTests` skips the suite whole today, which is coarser than it needs to be:
+**Only 2 of the 7 are really hardware-bound, and that is measured rather than reasoned.** The job skipped
+the suite whole to begin with. It was settled on 2026-09-09 **without a container**, which is the part worth
+keeping: `SystemBus.init` calls `dbus_bus_get(DBUS_BUS_SYSTEM)`, libdbus reads `DBUS_SYSTEM_BUS_ADDRESS`, so
+a private `dbus-daemon` on any machine reproduces a runner's bus -- one with no BlueZ on it -- and the suite
+can simply be pointed at it.
 
-| Test | Needs |
-|---|---|
-| `theSystemBusCanBeReached` | a system bus |
-| `aCallAnswersAnArrayOfStrings` | a system bus |
-| `aStringArgumentIsSentAndABooleanComesBack` | a system bus |
-| `arefusalCarriesTheErrorName` | a system bus |
-| `aByteArrayArgumentIsAcceptedByTheWire` | calls `org.bluez`, but asserts a **refusal** |
-| `theNestedObjectTreeIsWalkedToItsLeaves` | a real BlueZ **adapter** |
-| `aSignalArrivesAndItsValuesAreTyped` | a real BlueZ **adapter** |
+| Test | Needs | On a bus with no BlueZ |
+|---|---|---|
+| `theSystemBusCanBeReached` | a system bus | **passes** |
+| `aCallAnswersAnArrayOfStrings` | a system bus | **passes** |
+| `aStringArgumentIsSentAndABooleanComesBack` | a system bus | **passes** |
+| `arefusalCarriesTheErrorName` | a system bus | **passes** |
+| `aByteArrayArgumentIsAcceptedByTheWire` | calls `org.bluez`, asserts a **refusal** | **passes**, and see below |
+| `theNestedObjectTreeIsWalkedToItsLeaves` | a real BlueZ **adapter** | fails, `Issue.record` at `:96` |
+| `aSignalArrivesAndItsValuesAreTyped` | a real BlueZ **adapter** | fails, `Issue.record` at `:166` |
 
-Four of them ask `org.freedesktop.DBus` and nothing else, and a system bus daemon can be started inside the
-container -- so those four should be running in CI and are not. The two needing an adapter cannot run on any
-runner and belong with `Tests/Scripted/`: their absence is a fact about the machine, not about the code.
-`aByteArrayArgumentIsAcceptedByTheWire` is the interesting one, since a refusal is what it wants and a
-missing service refuses too, for a different reason -- it may pass without BlueZ and for the wrong cause,
-which is worth settling before it is relied on.
+So five run in CI and two cannot run on any runner, belonging with `Tests/Scripted/`: their absence is a fact
+about the machine rather than about the code.
+
+**`aByteArrayArgumentIsAcceptedByTheWire` passes for a different reason in CI than on a developer's box**,
+which was the thing worth settling before counting it. It asserts only that the call is refused, and both
+conditions refuse:
+
+    no BlueZ      org.freedesktop.DBus.Error.ServiceUnknown   -- the bus, because nothing owns the name
+    BlueZ present org.freedesktop.DBus.Error.UnknownObject    -- BlueZ, about the object path
+
+In CI it therefore proves libdbus marshalled the byte array and put it on the wire, which is its stated
+claim, but it stops at the bus and proves nothing about what BlueZ accepts. Counting it is defensible on that
+reading. Asserting *which* error would make it honest on both machines and is the obvious improvement, but it
+changes what the test claims, so it is noted here rather than done.
 
 ### What is left to do for this plan
 
-1. **Start a system bus in the Linux job** and narrow the skip from the suite to the adapter-bound tests, so
-   Linux CI runs 1,046 rather than 1,042. Confirm `aByteArrayArgumentIsAcceptedByTheWire` passes for the
-   right reason before counting it.
+1. ~~**Start a system bus in the Linux job** and narrow the skip to the adapter-bound tests.~~ **Done
+   2026-09-09.** The job writes a `dbus-daemon` config, starts a private bus, exports
+   `DBUS_SYSTEM_BUS_ADDRESS` through `GITHUB_ENV` and skips exactly two tests by name. Verified by running
+   both steps as YAML hands them to the shell: **1,047 tests, 0 failures**, 590 under XCTest and 457 under
+   swift-testing, against a bus with no BlueZ. That is 5 more than the 1,042 the plan started with rather
+   than the 4 it predicted, `aByteArrayArgumentIsAcceptedByTheWire` turning out to pass -- for the reason
+   set out above, which is not the reason it passes on this box.
 2. **Take the run-loop decision**, worth 17 tests, and either way write it down: injecting the `RunLoop` is a
    production change made for a test's benefit, and `RunLoop.current` would only work by coincidence.
 3. **Let items 9, 10 and 11 return the other 38 files** as sign-in, the radio and the UI arrive on this

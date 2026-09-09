@@ -137,12 +137,14 @@ run_job() {
 }
 
 # **CI's Linux job, and this is the one that can be reproduced rather than approximated.**
-# `swift build` then `swift test --skip SystemBusTests`, in the container the workflow names.
+# `swift build`, a private bus, then `swift test` less the two adapter-bound tests, in the container
+# the workflow names.
 #
-# The 7 skipped are `SystemBusTests`: four want only `org.freedesktop.DBus` and three reach for
-# `org.bluez`, two of those needing a real adapter. Narrowing that skip so the four run in CI is
-# step 1 of *Decided: CI tests both platforms* in `docs/linux-port.md`, and a container here is how
-# it gets settled -- a machine with BlueZ installed cannot answer what happens without it.
+# It starts a private bus with no BlueZ on it and skips only the two adapter-bound tests, exactly as
+# the workflow does. Five of the seven `SystemBusTests` pass on a bare bus, settled on 2026-09-09 and
+# without a container: `dbus_bus_get(DBUS_BUS_SYSTEM)` reads `DBUS_SYSTEM_BUS_ADDRESS`, so a private
+# `dbus-daemon` reproduces a runner's bus on any machine that has one.
+# Keep this in step with `.github/workflows/tests.yml`: the two commands are meant to be the same.
 run_linux_job() {
     local dir="$1"
     step "Test (Linux, the portable half)"
@@ -161,10 +163,11 @@ run_linux_job() {
         if "$runtime" run --rm -v "$dir:/w" -w /w swift:6.2-noble bash -c '
                 set -e
                 apt-get update -qq
-                apt-get install -y -qq --no-install-recommends                     pkg-config libsqlite3-dev libdbus-1-dev libgtk-3-dev                     libayatana-appindicator3-dev >/dev/null
+                apt-get install -y -qq --no-install-recommends                     pkg-config dbus libsqlite3-dev libdbus-1-dev libgtk-3-dev                     libayatana-appindicator3-dev >/dev/null
                 swift --version
                 swift build --scratch-path /tmp/ci-build
-                swift test --scratch-path /tmp/ci-build --skip SystemBusTests
+                BUSCONF=/tmp/facet-bus.conf; printf "%s\n" "<busconfig><type>system</type><listen>unix:tmpdir=/tmp</listen>" "<policy context=\"default\"><allow user=\"*\"/><allow own=\"*\"/>" "<allow send_destination=\"*\"/><allow receive_sender=\"*\"/></policy></busconfig>" > $BUSCONF; dbus-daemon --config-file=$BUSCONF --print-address --fork > /tmp/facet-bus.addr; export DBUS_SYSTEM_BUS_ADDRESS=$(cat /tmp/facet-bus.addr)
+                swift test --scratch-path /tmp/ci-build --skip theNestedObjectTreeIsWalkedToItsLeaves --skip aSignalArrivesAndItsValuesAreTyped
             ' >"$log" 2>&1; then
             printf "\r"; ok "container ($runtime, swift:6.2-noble)"
             grep -E "Swift version|Executed [0-9]+ tests|Test run with" "$log" \
@@ -192,7 +195,9 @@ run_linux_job() {
         local cmd
         case "$label" in
             build) cmd=(swift build) ;;
-            test)  cmd=(swift test --skip SystemBusTests) ;;
+            # The workflow's two skips, against whatever bus this machine has rather than a
+            # private one: the point of the native path is the build and the suite.
+            test)  cmd=(swift test --skip theNestedObjectTreeIsWalkedToItsLeaves --skip aSignalArrivesAndItsValuesAreTyped) ;;
         esac
         printf "  %s ... " "$label"
         log="$(mktemp)"
