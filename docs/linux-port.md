@@ -1085,9 +1085,21 @@ not, and cannot be until a pull request exists.
    carries 6.2.4 and this box 6.2.0, confirmed by asking the image; both build and pass the same 1,047, so
    the difference is recorded rather than a problem. It stays the first thing to check if CI ever fails where
    a hand-run here passes.
-5. **Run it on a real runner.** Everything above was verified locally, in the image, which leaves
-   `actions/checkout`, the network and the runner filesystem untested. That needs a pull request, which needs
-   a push, which needs the `workflow` scope on this box's token.
+5. ~~**Run it on a real runner.**~~ **Done 2026-09-09**, as draft pull request 94, opened purely as a smoke
+   test. Both Linux jobs pass on `ubuntu-latest`. The run also found a real bug on its first outing, which is
+   what it was for: `DeviceEventRecorderTests` compared a stored zone against `TimeZone.current.identifier`,
+   and a runner on `GMT` stores the canonical `Etc/GMT`, so it had only ever passed because both this box and
+   the Mac sit in `Australia/Brisbane`. Fixed by comparing through `timezone_lookup`; `TZ=GMT swift test`
+   reproduces the old failure and the whole suite passes under it now.
+
+   **CI had never run this branch before**, which is why a bug this old surfaced now: the workflow fires on
+   `pull_request` or a push to `main`, and this branch had had neither in 96 commits. Worth remembering as a
+   property of the arrangement rather than of that bug -- a long-lived branch with no pull request is a branch
+   CI has never seen.
+
+6. **Clear the scripted stamp**, which is the only thing still red. Both macOS jobs pass build and test and
+   fail on `check_interactive_checklists.sh`, because `Package.swift` has changed since run 173. That is
+   `handover-mac.md` item 12 and it needs a cube.
 
 **A note on how this was worded before, because the wording was the fault.** `systems-info.md` recorded
 *nothing in CI compiles the project on Linux today* as a fact, dated and accurate, sitting in a table of
