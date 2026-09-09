@@ -211,6 +211,22 @@ package final class CubeCommandChannel {
         finishExchange(took: false, status: nil)
     }
 
+    /// Queues an exchange this channel does not own, so it takes its turn with the ones it does.
+    ///
+    /// **The queue is shared by four kinds of exchange, not two.** A command, the `0x10` question, the factory reset
+    /// and the `0x17` double-tap read all write to the command characteristic and are answered on the command
+    /// result, so all four have to queue together or one writes over another. What the reset and the tap read do
+    /// *not* share is their state or their deadlines, which stay with the login because their bytes and their
+    /// characteristics do: `isOtherExchangeInFlight` is how this channel learns one is out, and `startNextIfIdle`
+    /// is what whoever ends one calls.
+    ///
+    /// **These three members are the part of this interface that is still a seam waiting to close.** They exist
+    /// only because those two exchanges have not moved in here as well; the day they do, this method,
+    /// `isOtherExchangeInFlight` and the need for anybody outside to call `startNextIfIdle` all go away together.
+    package func enqueueOther(_ what: String, _ begin: @escaping () -> Void) {
+        enqueue(what, begin)
+    }
+
     /// Begins the next exchange, if there is one and nothing is out.
     ///
     /// **Package because the two exchanges this channel does not own have to be able to call it.** A factory reset
