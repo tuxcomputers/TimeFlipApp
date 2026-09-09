@@ -1,0 +1,435 @@
+# Architecture review, September 2026
+
+[← Back to README](../README.md) · [The Linux port →](linux-port.md) · [FacetCore split →](facetcore-split.md) · [State Reference →](state-reference.md)
+
+**The visual version of this review, with the before-and-after diagrams, is at
+<https://claude.ai/code/artifact/731293b8-2445-4cdf-9afa-2c7aa1268cb1>.** This file is the durable copy: it
+holds every finding and every measurement, and it is the one that syncs to both machines. The diagrams are
+the only thing that lives solely at that link.
+
+**Nine candidates for making modules deeper**, found on 2026-09-09 against `ea4c4e6` on `feature/linuxPort`,
+with a clean tree. Scoped to the Linux port because that is where the last sixty commits are. Nothing here has
+been acted on, and nothing here is a decision: it is a list of places where a small interface would buy more
+than the one that is there now, ordered as found rather than by priority. The sequence worth doing them in is
+at the end.
+
+The vocabulary is deliberate and is used the same way throughout. A **module** is anything with an interface
+and an implementation. Its **interface** is everything a caller has to know: the signature, but also the
+ordering constraints, the error modes and the invariants. A module is **deep** when a lot of behaviour sits
+behind a small interface, and **shallow** when its interface is nearly as complex as what is inside it. A
+**seam** is a place where behaviour can be changed without editing in that place, and an **adapter** is a
+concrete thing that satisfies a seam. Depth buys **leverage** for callers and **locality** for whoever
+maintains it.
+
+**How the claims were checked.** Every number was counted against the tree rather than estimated, and the
+counts that carry a candidate were then re-checked by hand. Where a count is quoted below, the command that
+produced it is quoted with it, so it can be re-run rather than believed.
+
+---
+
+## The reference point is already in this repository
+
+`CubeLock`, `FaceColourSync` and `DeviceSettingsSync` each take the command channel as a closure:
+
+```swift
+private let send: (Data, @escaping (Bool) -> Void) -> Void   // CubeLock.swift:21
+private let isCubeConnected: () -> Bool                      // CubeLock.swift:24
+```
+
+That one seam buys 1,454 lines of hermetic tests over 21 command sequences, with no cube and no radio:
+`CubeLockTests` 296, `FaceColourSyncTests` 350, `DeviceSettingsSyncTests` 293, `HistoryIngestorTests` 515.
+`DeviceSettingsSyncTests` builds the whole adapter in 18 lines.
+
+**Every candidate below is measured against that.** The dividing line in this codebase is exact: a module
+whose radio dependency is `(Data, @escaping (Bool) -> Void) -> Void` is tested, and a module that holds a
+`CBPeripheral` or a `CBCentralManager` is not.
+
+`DebugLog` is the other reference point, for interface size rather than for seams: a three-member interface
+(`init`, `setRecording`, `record`) over 416 lines, serving 345 call sites in 23 files.
+
+---
+
+## The measurements this review rests on
+
+```sh
+# 2.6%: of the two macOS radio modules, the part that is actually CoreBluetooth
+for f in Sources/FacetMac/BluetoothRadio.swift Sources/FacetMac/DeviceLogin.swift; do
+  code=$(grep -vE '^\s*(//|/\*|\*|$)' "$f" | wc -l)
+  cb=$(grep -vE '^\s*(//|/\*|\*|$)' "$f" | grep -cE '\bCB[A-Z][A-Za-z]*')
+  echo "$(basename $f): $cb of $code"
+done
+# BluetoothRadio.swift: 16 of 695
+# DeviceLogin.swift:    24 of 825
+
+# the nine FacetCore modules no test file names at all
+for f in Sources/FacetCore/*.swift; do
+  b=$(basename "$f" .swift)
+  [ "$(grep -rl "\b$b\b" Tests/FacetTests/ | wc -l)" -eq 0 ] && echo "$b"
+done
+```
+
+| Measurement | Value |
+| --- | --- |
+| `FacetCore` | 96 files, 14,675 lines |
+| `FacetMac` | 35 files, 16,145 lines |
+| `FacetLinux` | 2 files, 336 lines |
+| Of the two macOS radio modules, lines touching a `CB*` symbol | **40 of 1,520 (2.6%)** |
+| `FacetCore` modules no test file references | **9 of 96** |
+| Test files excluded from the Linux build | 48 files, 13,666 lines, 852 tests |
+| Of those, not AppKit-bound in substance | **~3,500 lines (26%), ~240 tests** |
+
+The nine unreferenced modules cluster into exactly two groups, and the grouping is the finding: the
+credential stores (`DevicePINStore`, `GoogleTokenStore`, `SecretToolStore`, `GoogleCalendarClient`,
+`CalendarSync`) and the BlueZ radio (`BlueZRadio`, `BlueZGatt`, `CubeRadio`, `CubeStates`). Both groups are
+untested for one reason: the module reaches its dependency through a hard static or a concrete class instead
+of through a seam.
+
+---
+
+## The candidates
+
+### 1. Put the radio seam below the sequencing, not above it
+
+**Strong.** `Sources/FacetMac/BluetoothRadio.swift` (1418), `DeviceLogin.swift` (1482),
+`Sources/FacetCore/BlueZRadio.swift` (227), `BlueZGatt.swift` (121).
+
+**40 of 1,520 code lines in the two macOS radio modules touch a CoreBluetooth symbol.** The other ~1,480 are
+protocol sequencing that could sit in `FacetCore`:
+
+- The command channel: `isCommandInFlight` (`DeviceLogin.swift:544`), `enqueue` (`:571`),
+  `armCommandDeadline` (`:593`), `acknowledgedCommand` (`:611`), `askedForConfirmation` (`:638`), `answered`
+  (`:651`), `finishExchange` (`:683`). ~170 lines, pure sequencing over `Data`, and the module that makes
+  `DeviceCommandRules.readBack` correct.
+- The reach and candidate order: `ReachTarget` (`BluetoothRadio.swift:734`), `tryNextCandidate` (`:492`),
+  `endReach` (`:530`), `end(_:_:)` (`:1022`), `retry()` (`:990`). ~180 lines, no CoreBluetooth in the
+  decisions.
+- The factory-reset proof: `ResetConfirmation` (`:260`), `factoryReset` (`:841`),
+  `retryResetConfirmation` (`:886`), `endReset` (`:906`). ~120 lines.
+- The history fetch: `HistoryFetch` (`DeviceLogin.swift:159`), `request` (`:454`), `received(historyFrame:)`
+  (`:497`). ~90 lines.
+- The PIN rotation machine: `Step` (`:57`), `loggedIn` (`:1021`), `confirmationAnswered` (`:1079`).
+
+None of it has a unit test, and none of it can get one through the current interface:
+`DeviceLoginRulesTests.swift:9` states the block outright, that a `CBPeripheral` cannot be built outside
+CoreBluetooth. All of it is verified only by `Tests/Scripted/50`-`66`, against real hardware, with a person
+turning the cube.
+
+**And it is budgeted to be written twice.** `linux-port.md` item 10 reads "Roughly 600-1000 lines behind the
+interface `BluetoothRadio` already presents". That is the cost of rewriting the list above. `BlueZRadio`
+covers discovery and the link; `BlueZGatt` covers read, write and notify. Neither has a PIN, a login, a
+command queue, a read-back, a history fetch, a reset proof or a candidate order.
+
+**The proposal.** Move the sequencing into `FacetCore` behind a seam of write, read and subscribe, which is
+the shape `BlueZGatt` already has (`:32`, `:51`, `:70`, `:104`) and the shape `CubeLock` already proves. The
+macOS adapter becomes the ~40 lines that genuinely need CoreBluetooth; `BlueZGatt` becomes the second adapter
+without being rewritten; an in-memory adapter makes the whole of the above hermetic.
+
+**What it must not break.** The read-back discipline in `CLAUDE.md` currently lives inside `DeviceLogin`, and
+two measured traps have to survive the move: a `0x10` answer carries no echoed command byte, so it is
+trustworthy only when read strictly after its own acknowledgement; and a locked cube reports itself paused
+whatever its pause byte says, so pause is confirmed before the lock is sent.
+
+### 2. `CubeRadio` is a hypothetical seam
+
+**Strong.** `Sources/FacetCore/CubeRadio.swift:11-37`, `DeviceReconnector.swift:30` and `:99`,
+`Tests/FacetTests/DeviceReconnectorOfferTests.swift:63`, `Package.swift:61`.
+
+The seam was cut in stage 1c of the FacetCore split, and `facetcore-split.md:66` says what it was for: "It
+also makes the reconnector testable without a radio, which it currently is not."
+
+Three things are true of it today:
+
+- **One adapter.** `BluetoothRadio.swift:46` is the only conformance in the repository.
+- **No double.** Grepping `: CubeRadio` across `Tests/` returns nothing, so the leverage the split promised
+  was never collected.
+- **The test bypasses it.** `DeviceReconnectorOfferTests.swift:63` constructs
+  `radio: BluetoothRadio(debugLog: nil)`, a concrete macOS class, for a module that depends only on the
+  protocol. That is why the file is on the Linux exclusion list at `Package.swift:61`.
+
+`BlueZRadio` shares **none** of the six members. `CubeRadio` is async, UUID-based and carries state flags
+(`connectedDevice`, `isScanning`, `isReachingForCube`, `isFactoryResetRunning`, `reach`,
+`forgetWhatWasFound`); `BlueZRadio` is synchronous, throwing and address-based (`powerOn`, `startDiscovery`,
+`scannedDevices`, `connect(address:)`, `disconnect(address:)`, `forget(address:)`).
+
+Applying the deletion test: delete `CubeRadio` today and nothing changes, because nothing uses it
+polymorphically. One adapter is a hypothetical seam; two would make it real.
+
+**The proposal.** Write the in-memory adapter the split intended. Five members. It takes the file off the
+exclusion list and reaches `attempt()` (`DeviceReconnector.swift:126`) and `scheduleAttempt()` (`:264`),
+neither of which any test drives.
+
+### 3. One secret store, four copies of its answer
+
+**Strong.** `Sources/FacetCore/SecretToolStore.swift` (131), `DevicePINStore.swift` (144),
+`GoogleTokenStore.swift` (136), `GoogleAccountRules.swift:71`, `DevicePINSource.swift:21-22`.
+
+Four structurally identical three-case types:
+
+| Type | Cases |
+| --- | --- |
+| `SecretToolStore.Answer` | `found(String)` / `missing` / `unavailable(Int32)` |
+| `DevicePINStore.Lookup` | `found(String)` / `missing` / `unavailable(Int32)` |
+| `GoogleTokenStore.Lookup` | `found(String)` / `missing` / `unavailable(Int32)` |
+| `GoogleAccountRules.Credential` | `present` / `missing` / `unavailable` |
+
+The doc comment on the `unavailable` case is copied word for word between the middle two, down to the
+sentence explaining why it is `Int32` and not `OSStatus`.
+
+**Two callers independently invented their own way around the missing seam**, which is the strongest evidence
+that it is wanted:
+
+- `DevicePINSource.swift:21` injects closures: `var keychainLookUp: () -> DevicePINStore.Lookup = { … }`.
+- `GoogleAccountRules.swift:69` mirrors the type, and says why: "A straight mirror of
+  `GoogleTokenStore.Lookup`, kept as its own type so this file can be reasoned about, and tested, without a
+  Keychain anywhere near it."
+
+Meanwhile the callers that did neither cannot be tested at all: `GoogleCalendarClient.swift:61` and
+`SettingsWindowController.swift:321` both switch on `GoogleTokenStore.lookUp()` directly.
+
+Each of the two stores carries the same four members (`save`, `lookUp`, the convenience reader, `clear`) with
+an `#if !canImport(Security)` branch inside each, six branches in all, every one of them translating one
+three-case enum into another. Neither store has a single test.
+
+**The proposal.** One `SecretStore` module with one `Lookup` type and a service/account key. Keychain and
+`secret-tool` become adapters at a runtime seam rather than compile-time branches inside every method, and an
+in-memory adapter gives 411 untested lines a test surface. Two adapters already exist, so the seam is real
+rather than hypothetical.
+
+### 4. The daily limit is one fact asked five ways
+
+**Strong.** `ManualTimerRules.swift:111`, `PauseMenuRules.swift:62`, `StatusItemClickRouter.swift:80`,
+`CubeLock.swift:135` and `:235`.
+
+`CLAUDE.md` says the limit is "decided by four separate expressions in four files". That is accurate, and it
+is an undercount.
+
+| Where | The expression |
+| --- | --- |
+| `ManualTimerRules:111` | `!(timingState == .paused && isLimitReached)` |
+| `PauseMenuRules:62` | `!(isLimitReached && cubePauseState == .paused)` |
+| `StatusItemClickRouter:80` | `!(action == .toggleCubePause && isLimitReached && cubePauseState == .paused)` |
+| `CubeLock:135` | `!(wanted == false && startingIsRefused())` |
+| `CubeLock:235` | the same again, inside `resume()` |
+
+The last two say `wanted == false` where the others say `cubePauseState == .paused`. Same rule, different
+words. Two more decide the same fact for display: `StatusItemTitle.swift:216` and `TimingView.swift:217`.
+
+**The tested part was never the risk.** `DailyLimitEnforcement.isLimitReached(totalSeconds:limitMinutes:)` is
+three lines with 274 lines of tests, and the live bypass on 2026-08-27 did not touch it. What was wrong was
+which paths ask: `PauseMenuRules.swift:53` records it verbatim, that `ManualTimerRules.isClickable` answers
+about the app's own clock and "a cube leaves that `.idle` however busy it is, so every cube click fell
+straight past the only place the limit was consulted". `CubeLock.swift:223` records the fifth path the same
+way: lock the cube and unlock it again, and the limit was gone.
+
+**The proposal.** One module answering "may this pause be lifted", taking `cubePauseState` and `timingState`
+together so the cube and the app's own clock cannot be asked separately and disagree. The seam moves from
+around the arithmetic, which was never in doubt, to around the set of paths obliged to ask.
+
+`state-reference.md` already names this fact `isLimitReached` and says "Naming it does not merge them; it
+makes the fact that they have to agree visible." This is the merge that note defers.
+
+### 5. The link lifecycle is three hand-written lines
+
+**Worth exploring.** `Sources/FacetMac/main.swift:633-650`, `HistoryIngestor.swift:162`,
+`FaceColourSync.swift:197`, `DeviceSettingsSync.swift:211`.
+
+```swift
+radio.onLinkEnded = { _ in
+    historyIngestor.linkEnded()
+    faceColours.linkEnded()
+    deviceSettings.linkEnded()
+}
+```
+
+Each of the three documents a stall that shipped. `HistoryIngestor.swift:155`: "the fetch stayed in flight for
+the life of the process, so every later refresh was refused and the app ingested no history again until it was
+relaunched." `FaceColourSync.swift:206`: "a flag left true makes `run` return early for the rest of the
+launch. Every connection after it would queue twelve faces and send none."
+
+All three are individually tested. **The completeness of the list is not.** A fourth module holding per-link
+state that nobody adds to that closure stalls silently, in exactly the way those two comments describe.
+
+**The proposal.** Name the `linkSettled` / `linkEnded` pair as one interface and let the composition root
+register conformers, so conforming is joining.
+
+### 6. Two modules, one queue-and-cooldown engine
+
+**Worth exploring.** `Sources/FacetCore/FaceColourSync.swift` (246), `DeviceSettingsSync.swift` (301).
+
+Both hold the same eight pieces of machinery: a queue deduplicated by key, `isSending`, a per-key cooldown,
+`suppressed` counters, `isLinkSettled`, `wasCubeConnected`, a `linkSettled()` transition guard and a
+`run()`/`step()` pump. They already share the constant, `DeviceSettingsSync.swift:86` reading
+`static let cooldownSeconds = FaceColourSync.cooldownSeconds`. The number is one fact; the engine around it is
+two.
+
+**The proposal.** One queue module parameterised by key and payload. Each caller keeps only what it sends and
+when it is stale.
+
+### 7. A quarter of the Linux test exclusions are an unused import
+
+**Strong, and the cheapest thing here.** `Package.swift:41-92`.
+
+The list says these files need "AppKit, CoreBluetooth or a `FacetMac` type". **Ten of them need none of the
+three**: each carries `@testable import FacetMac` and uses no type from it.
+
+| Test file | lines / tests | Subject lives in |
+| --- | --- | --- |
+| `DeviceEventRecorderTests` | 528 / 35 | `FacetCore/DeviceEventRecorder` |
+| `FaceColourSyncTests` | 350 / 22 | `FacetCore/FaceColourSync` |
+| `TimeEntryRecorderTests` | 326 / 18 | `FacetCore/TimeEntryRecorder` |
+| `DeviceSettingsSyncTests` | 293 / 18 | `FacetCore/DeviceSettingsSync` |
+| `DeviceLoginRulesTests` | 190 / 25 | `FacetCore/DeviceLoginRules` |
+| `LowBatteryWatchTests` | 174 / 10 | `FacetCore/LowBatteryWatch` |
+| `DeviceReconnectRulesTests` | 142 / 17 | `FacetCore/DeviceReconnectRules` |
+| `WriteDebounceTests` | 129 / 7 | `FacetCore/WriteDebounce` |
+| `PortableSHA256Tests` | 98 / 5 | `FacetCore/PortableSHA256` |
+| `CubeFirstReadingTests` | 76 / 5 | `FacetCore/CubeFirstReading` |
+
+2,306 lines and 162 tests. Two details worth keeping:
+
+- **In `DeviceEventRecorderTests` and `TimeEntryRecorderTests`, 854 lines and 53 tests of pure database
+  behaviour, the only mention of a `FacetMac` type in either file is a comment.** Both cite
+  `SettingsWindowController.startTiming` as prior art for an ordering, at `:437` and `:289`. The tests touch
+  nothing from that class.
+- **`PortableSHA256Tests` is excluded from the one platform it protects.** `PortableSHA256` is SHA-256
+  written by hand because Linux has no CryptoKit, and it backs the PKCE challenge in Google sign-in. The
+  suite guards CryptoKit correctly with `#if canImport(CryptoKit)`, and is then excluded on Linux at
+  `Package.swift:74` by an import it does not use. Its own comment calls the vectors "the only thing standing
+  between a one-digit typo in the round constants and a sign-in that fails on Linux and nowhere else". That
+  reasoning was written when Linux could run no tests at all; it now runs 873.
+
+`FaceColourSyncTests` also carries a dead `import AppKit` and uses no `NS` type.
+
+Beyond those ten: `GoogleOAuthRulesTests` (282 / 21) has a real bind, an unconditional `import CryptoKit` used
+to compute the expected PKCE challenge independently, fixable the same way `PortableSHA256Tests` already did
+it. Five more files (910 lines, 56 tests) have one or two touch points with the rest portable, including
+`QuitSequenceTests` (275 / 13), where only 4 of `QuitSequence`'s 186 lines touch `NSApplication`, and
+`SettingsTabTests` (46 / 4), where exactly one assertion is not portable.
+
+**The proposal.** Delete the unused import from ten files and take them off the list. Then make the list
+falsifiable: a check that a file on it actually references a platform type, so it cannot drift again.
+`scripts/check_interactive_checklists.sh` is the precedent for that kind of gate.
+
+### 8. `SettingsWindowController` owns far more than the window
+
+**Strong, and the largest thing here.** `Sources/FacetMac/SettingsWindowController.swift`, 3,498 lines, 1,983
+of them code, three declared types, no `// MARK:` anywhere.
+
+Its own doc comment, line 4, says: "The Settings window: one tab per `SettingsTab`, each pane empty. Owns the
+window and nothing else."
+
+It also owns:
+
+- **Every write of device and pairing state in the app.** All eight `DevicePairingRecorder` call sites in the
+  repository are in this file (`:976`, `:1328`, `:1336`, `:1362`, `:1397`, `:1408`, `:1416`, `:2957`),
+  including `recordQuit`, which `QuitSequence` reaches only through
+  `settingsWindow.letGoOfTheDevice()` (`main.swift:230`).
+- **Ten of the radio's eighteen callbacks**, in `adopt(_:)` (`:1179-1293`). The other eight are in
+  `main.swift`. The method's comment explains why, so a paired app can follow its cube with no window open,
+  which is correct reasoning for a module that is not a window controller.
+- **The whole Google OAuth and calendar lifecycle**, 434 lines (`:1759-2192`), including network calls and
+  Keychain writes.
+- **`togglePause`** (`:2784`), which the status item and its dropdown both call.
+- **The reconnect loop's two feedback inputs**, `noteOutcome` (`:1222`) and `noteDropped` (`:1291`). The loop's
+  backoff therefore depends on a window having been constructed, joined by the single optional assignment at
+  `main.swift:357`; a nil `reconnect` is a loop that quietly never retries.
+- **The radio itself**, when nobody hands one over (`deviceRadio()`, `:1428`).
+
+**Roughly 89% of the code is decisions, not drawing.** Genuine AppKit construction is the window chrome
+(`:2962-3145`, 184 lines) plus `Layout`, `makePane` and eighteen `NSAlert` bodies: about 330 to 380 lines. The
+other ~3,100 decide which store to ask, in what order to send and record, what to put back on a refusal, what
+to log, and which of eleven change branches to take.
+
+**There is no seam inside it.** 51 hard-wired concrete collaborators: `NSAlert()` 18 times,
+`DevicePairingRecorder(` 8, `GoogleCalendarClient.*` 5, `NSApp.` 3, `GoogleTokenStore.*` 3, and one each of
+`NSOpenPanel`, `NSSavePanel`, `NSWorkspace.shared`, `GoogleSignIn.run`, `BluetoothRadio(`. The substitution
+points that exist (eleven injected optional stores, five closures, the pane callbacks) are not a place the
+AppKit half could be replaced without editing here.
+
+`SettingsWindowControllerTests` is 162 lines and 7 tests, all about tab-bar wiring. The behaviour is covered
+by six scenario suites that each build the whole controller plus a real database plus AppKit, and every one is
+excluded on Linux.
+
+**The proposal.** Cut a seam between deciding and drawing: the write paths, the pairing recorder and the
+Google lifecycle move below it into `FacetCore`, the AppKit chrome stays above, and a GTK window becomes a
+second adapter rather than a rewrite.
+
+**This one touches three `CLAUDE.md` rules** and is a direction to agree before it is a change to schedule:
+the tab-width rule (a pane must keep its autoresizing frame and must not set
+`translatesAutoresizingMaskIntoConstraints = false` on itself), the collapsible-group rule, and the Settings
+window carve-out to the read-at-point-of-use rule.
+
+### 9. Portable decisions parked behind AppKit types
+
+**Strong.** `StatusItemTitle.swift:123-344`, `TimingView.swift:275`, `DevicePane.swift:151-175`,
+`main.swift:279`.
+
+`StatusItemTitle.make(...)` is ~195 lines deciding text, icon name, glyph name, lock glyph, formatted
+duration, the spoken VoiceOver string, and which of five semantic colours each of three parts takes. Only the
+colour representation is AppKit. And the file maps it straight back out again:
+
+```swift
+// StatusItemTitle.swift:335
+private static func name(of colour: NSColor) -> String {
+    switch colour {
+    case .systemCyan: return "cyan"
+    ...
+```
+
+The word is what `debug_log` and the scripted checks read, so the word was the answer all along. `NSColor` is
+the only reason 530 lines and 52 tests cannot run on Linux.
+
+**And the second answer already exists.** `FacetLinux/main.swift:99-107` reimplements a cruder version of the
+same decision, `"Facet"` or `"<category> <elapsed>"`, with no colour, no glyph, no lock badge and no spoken
+label. Two answers to one question on two platforms, which is the hazard `state-reference.md` exists to
+prevent.
+
+Three more of the same shape:
+
+- **The cube pause glyph is decided twice**, identically, at `StatusItemTitle.swift:222` and
+  `TimingView.swift:275`. `ManualTimerRules.symbolName` exists in `FacetCore` for the app's own clock; there
+  is no equivalent for `cubePauseState`. The lock badge is the same, with two different symbol sets
+  (`StatusItemTitle.swift:161`, `TimingView.swift:618`).
+- **The seeded defaults live in an `NSView` subclass.** `DevicePane.Values.seeded`
+  (`DevicePane.swift:151-175`) holds the 17 seeded defaults from `database/011_setting.sql`, and
+  `main.swift:279` reaches into `DevicePane`, which is `final class DevicePane: NSView`, to build
+  `DeviceSettingsSync.Stored`, which is a `FacetCore` module. A Linux launch that wants settings pushed to the
+  cube cannot have them. `AppSettingsPane.Values.seeded` is the same shape.
+- **`QuitSequence`** is 186 lines of which 4 touch `NSApplication`, and its 275-line, 13-test suite is
+  excluded.
+
+**The proposal.** Let each decision return its own vocabulary and convert at the point of drawing, exactly as
+stage 1b of the FacetCore split already did for six files with `Colour`. Move the seeded defaults to the
+schema's own side. `StatusItemTitle` was the one file on that stage's list that stayed behind, on the grounds
+its colours are semantic AppKit ones; `name(of:)` is evidence the app already needs them as words too.
+
+---
+
+## The sequence worth doing them in
+
+1. **Candidate 7 first**, because it is about an hour and changes no production code. It puts 162 tests on
+   Linux, including the only suite guarding the SHA-256 that Linux alone uses, and it corrects the exclusion
+   list, which the port is being planned against and which currently overstates the remaining work by about a
+   quarter.
+2. **Candidate 2 next**, because it is a day and it is diagnostic. Writing the in-memory adapter for
+   `CubeRadio` collects the leverage the FacetCore split promised. If `DeviceReconnector` proves awkward to
+   drive through those five members, that is the cheapest possible evidence that the seam is in the wrong
+   place, which is candidate 1's claim.
+3. **Then candidate 1**, which is the one that pays: ~1,480 lines of untested portable sequencing, and a
+   rewrite budgeted at 600 to 1,000 lines that becomes an adapter instead.
+
+Candidate 8 is the same argument about the Settings window and is much the largest. It is worth agreeing as a
+direction before it is scheduled as a change.
+
+---
+
+## What this review did not do
+
+- **Nothing was changed.** No source file, no test, no manifest.
+- **It did not run on hardware.** Every claim here is about the shape of the code, not about the cube. Nothing
+  in it has been checked against a device, and candidate 1 in particular would need a full
+  `Tests/Scripted/run.sh` before it could be believed.
+- **It did not touch `linux-port.md`.** Several candidates bear directly on its to-do list, items 10 and 11
+  especially, but cross-referencing them is a separate edit to a file both machines write to.
+- **It re-checked the sub-agent counts rather than trusting them.** One was wrong in the safe direction: the
+  CoreBluetooth line count came back as 42 and is 40 by hand, which does not change the argument.
