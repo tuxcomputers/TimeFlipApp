@@ -123,11 +123,33 @@ where their bytes are, so the channel has `enqueueOther`, `isOtherExchangeInFlig
 `startNextIfIdle`. Those three are the part of its interface that is still a seam waiting to close, and its own
 doc says so: they go the day those two move in too.
 
-**Not verified on a cube, and I chose not to.** Your app had held the device for nine hours with
-`connection.connected` true, and there is one BLE connection. Reaching the cube meant quitting a live session
-and then either leaving an unverified branch build on the production database overnight, which is the device
-rename's failure exactly, or leaving nothing running. 1,781 unit tests pass and say nothing about the delegate
-rewiring, which is the half only hardware exercises.
+**Verified on the cube, 2026-09-10, once the owner quit his session and cleared the way.** Run against a copy
+of the production database with `appdata.sqlite` repointed at it and put back afterwards; the real file is
+byte-identical, still 158 rows, its open paused segment untouched, and the cube is locked and paused exactly
+as it was found. 371 debug rows, 69 of them the channel's.
+
+**Five of the channel's paths ran, and the two measured traps are the ones the log proves.** The order on the
+unlock is the whole point:
+
+    command  Sending 04 02
+    ble-rx   command: write acknowledged        <- acknowledged -> acknowledgedCommand
+    command  Asking whether it took: 10         <- isReadingBack now true
+    ble-rx   command: write acknowledged        <- the same signal, routed to askedForConfirmation
+    ble-tx   commandResult: read requested      <- only here, after the question's own acknowledgement
+    ble-rx   commandResult: 02 01 00 00 ...
+    command  The cube confirms it took
+
+That is a `0x10` answer being read strictly after the question that earned it, which is the trap: the
+characteristic frequently holds the previous command's reply and the answer carries no echoed command byte.
+And the relock went `06 01` confirmed, then `04 01`, so pause is still confirmed before the lock is sent.
+
+**The paths exercised**: a read-back question sent and confirmed, a plain `0x10` question, a command with no
+read-back defined, and one queued behind another (`the command 09 19 waits its turn, 1 in the queue`). The
+resume also sends its second command from inside the first's completion, which is the `finishExchange`
+ordering the mutation test pins.
+
+**Still unexercised on hardware**: the deadline, a refused write, a read-back the cube denies, and `linkEnded`.
+All four are covered hermetically. Face turns and double taps are not this cluster.
 
 **So what is left of item 15 is the other four clusters and a run.** The reach and candidate order, the reset
 proof, the history fetch and the PIN rotation machine are untouched. This item stays put.
