@@ -5,18 +5,26 @@
 # no PR gets no CI at all -- the first signal arrives when the PR is opened, which is the worst
 # moment to discover a red build.
 #
-# Why not a container, and why not `act`:
+# What can be reproduced exactly, and what only approximated:
 #
-# `runs-on: macos-15` is a **virtual machine**, not a container -- macOS cannot run in Docker at
-# all, so there is nothing to containerise for the two jobs that actually build and test. The only
-# containerisable job is `all-tests-pass` (`ubuntu-latest`), and that is a pure bash aggregator
-# reading `needs.*.result`; running it locally would prove nothing about the code. `act` therefore
-# has nothing useful to offer here.
+# **The two macOS jobs cannot be containerised.** `runs-on: macos-15` is a virtual machine and macOS
+# does not run in Docker, so those two are run natively and are an approximation of CI rather than a
+# copy of it. The closest true emulation would be a macOS 15 VM (Tart on Apple Silicon) carrying
+# CI's exact Xcode, which is tens of gigabytes and hours of setup. What that would buy is reported
+# below instead: the script prints the local toolchain against the one CI last used, so a divergence
+# is visible rather than assumed away.
 #
-# The closest true emulation would be a macOS 15 VM (Tart on Apple Silicon) with CI's exact Xcode,
-# which is tens of gigabytes and hours of setup. The gap that buys you is reported below instead:
-# the script prints the local toolchain against the one CI last used, so a divergence is visible
-# rather than assumed away. That is the only difference these steps can't reproduce natively.
+# **The Linux job can be, and is.** `test-linux` was added on 2026-09-09 and is a real container --
+# `swift:6.2-noble` plus four dev packages is the whole of its environment -- so running it under
+# podman or docker here is the thing itself rather than a stand-in. That matters more than it sounds:
+# the risk in that job is everything a bare container does *not* have, and a machine that already has
+# BlueZ, a system bus and its own compiler cannot test for their absence. With no runtime installed
+# the script falls back to running its commands natively and says plainly that this is the weaker
+# check.
+#
+# This paragraph used to say the only containerisable job was `all-tests-pass`, a bash aggregator
+# whose local run would prove nothing, and concluded `act` had nothing to offer. That was true until
+# there was a Linux build-and-test job.
 #
 # By default this runs only the branch tip, matching the workflow's `test-branch-as-is` job --
 # the fast answer to "would CI be green on what I have right now".
@@ -40,10 +48,13 @@ RUN_BRANCH=1
 # costs a second full build.
 RUN_MERGE=0
 DO_FETCH=1
+# On by default, because it is the job most likely to be broken by a change nobody tested: it is the
+# newest, and the only one whose environment is built from scratch on every run.
+RUN_LINUX=1
 
 usage() {
     cat <<'USAGE'
-usage: ci-local.sh [--with-merge | --merge-only] [--no-fetch]
+usage: ci-local.sh [--with-merge | --merge-only] [--no-fetch] [--no-linux]
 
   (default)      Just the branch tip, matching CI's "test-branch-as-is" job.
   --with-merge   Also run CI's "test-merge-result" job: this branch merged into
@@ -52,6 +63,10 @@ usage: ci-local.sh [--with-merge | --merge-only] [--no-fetch]
   --merge-only   Only the merged-into-base job.
   --no-fetch     Don't `git fetch` first. Faster, but the merge preview is then
                  against a possibly stale base and can pass when real CI fails.
+  --no-linux     Skip CI's "test-linux" job. It runs in a `swift:6.2-noble`
+                 container when podman or docker is installed, which is the only
+                 exact reproduction of any CI job available here, and falls back
+                 to running its commands natively when neither is.
 
   CI_LOCAL_BASE  Base branch to merge against (default: main).
 USAGE
@@ -63,6 +78,7 @@ for arg in "$@"; do
         --merge-only)  RUN_BRANCH=0; RUN_MERGE=1 ;;
         --branch-only) RUN_MERGE=0 ;;  # now the default; accepted so old invocations still work
         --no-fetch)    DO_FETCH=0 ;;
+        --no-linux)    RUN_LINUX=0 ;;
         -h|--help)     usage; exit 0 ;;
         *) echo "unknown option: $arg" >&2; usage >&2; exit 2 ;;
     esac
@@ -120,6 +136,77 @@ run_job() {
     done
 }
 
+# **CI's Linux job, and this is the one that can be reproduced rather than approximated.**
+# `swift build` then `swift test --skip SystemBusTests`, in the container the workflow names.
+#
+# The 7 skipped are `SystemBusTests`: four want only `org.freedesktop.DBus` and three reach for
+# `org.bluez`, two of those needing a real adapter. Narrowing that skip so the four run in CI is
+# step 1 of *Decided: CI tests both platforms* in `docs/linux-port.md`, and a container here is how
+# it gets settled -- a machine with BlueZ installed cannot answer what happens without it.
+run_linux_job() {
+    local dir="$1"
+    step "Test (Linux, the portable half)"
+
+    local runtime="" candidate
+    for candidate in podman docker; do
+        if command -v "$candidate" >/dev/null 2>&1; then runtime="$candidate"; break; fi
+    done
+
+    if [ -n "$runtime" ]; then
+        printf "  container (%s, swift:6.2-noble) ... " "$runtime"
+        local log; log="$(mktemp)"
+        # **`--scratch-path` outside the mount, and it is not tidiness.** The container is root and
+        # carries a different patch release, so letting it build into the host's `.build` would leave
+        # root-owned 6.2.4 artifacts for this machine's 6.2.0 to trip over afterwards.
+        if "$runtime" run --rm -v "$dir:/w" -w /w swift:6.2-noble bash -c '
+                set -e
+                apt-get update -qq
+                apt-get install -y -qq --no-install-recommends                     pkg-config libsqlite3-dev libdbus-1-dev libgtk-3-dev                     libayatana-appindicator3-dev >/dev/null
+                swift --version
+                swift build --scratch-path /tmp/ci-build
+                swift test --scratch-path /tmp/ci-build --skip SystemBusTests
+            ' >"$log" 2>&1; then
+            printf "\r"; ok "container ($runtime, swift:6.2-noble)"
+            grep -E "Swift version|Executed [0-9]+ tests|Test run with" "$log" \
+                | sed 's/^/      /' | tail -4
+        else
+            printf "\r"; bad "container ($runtime, swift:6.2-noble)"
+            FAILURES+=("Test (Linux) / container")
+            sed 's/^/      /' "$log" | tail -25
+        fi
+        rm -f "$log"
+        return
+    fi
+
+    if [ "$(uname -s)" != "Linux" ]; then
+        warn "no podman or docker, and this is not Linux -- CI's Linux job cannot be run here at all"
+        echo "          Install either one and this becomes the only CI job you can reproduce exactly."
+        return
+    fi
+
+    warn "no podman or docker: running the job's commands natively instead"
+    echo "          Weaker than it looks. This machine has BlueZ, a system bus, its own compiler and"
+    echo "          whatever else is installed, and that is most of what the job's first run risks."
+    local label log
+    for label in build test; do
+        local cmd
+        case "$label" in
+            build) cmd=(swift build) ;;
+            test)  cmd=(swift test --skip SystemBusTests) ;;
+        esac
+        printf "  %s ... " "$label"
+        log="$(mktemp)"
+        if (cd "$dir" && "${cmd[@]}") >"$log" 2>&1; then
+            printf "\r"; ok "$label (native, not the container)"
+        else
+            printf "\r"; bad "$label (native, not the container)"
+            FAILURES+=("Test (Linux, native) / $label")
+            sed 's/^/      /' "$log" | tail -25
+        fi
+        rm -f "$log"
+    done
+}
+
 if [ "$DO_FETCH" -eq 1 ] && [ "$RUN_MERGE" -eq 1 ]; then
     step "Fetching $BASE_BRANCH"
     if git fetch origin "$BASE_BRANCH" --quiet 2>/dev/null; then
@@ -131,6 +218,12 @@ fi
 
 if [ "$RUN_BRANCH" -eq 1 ]; then
     run_job "Test (branch as-is, unmerged)" "$REPO_ROOT"
+fi
+
+# Once, against the branch tip: the job builds its environment from scratch, so running it a second
+# time against the merge preview costs a full container build to re-answer the same question.
+if [ "$RUN_LINUX" -eq 1 ]; then
+    run_linux_job "$REPO_ROOT"
 fi
 
 if [ "$RUN_MERGE" -eq 1 ]; then
