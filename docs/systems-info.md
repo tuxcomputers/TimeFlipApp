@@ -498,6 +498,7 @@ remembering.
 | `libsqlite3-dev` | 3.45.1-1ubuntu2.7 | **installed 2026-09-07**, giving `/usr/include/sqlite3.h` and the unversioned `libsqlite3.so` |
 | `python3` | 3.12.3 | `/usr/bin/python3` (the system one) |
 | `python3-dbus` | 1.3.2 | importable as `dbus` |
+| `podman` | 4.9.3 | `/usr/bin/podman` (**installed 2026-09-09**), rootless with the `overlay` driver and `subuid`/`subgid` entries for the owner. What lets `scripts/ci-local.sh` run CI's `test-linux` job in the image it names rather than approximating it natively |
 | `python3-gi` | 3.48.2 | importable as `gi` |
 | `python3-pyatspi` | 2.46.1 | importable as `pyatspi` |
 | `bash` | **5.2.21(1)** | `/usr/bin/bash`, and `SHELL=/bin/bash` |
@@ -574,10 +575,31 @@ gh auth setup-git                                                # writes the he
 | | |
 |---|---|
 | Account | `tuxcomputers`, active, matching the org this repo belongs to |
-| Token scopes | `gist`, `read:org`, `repo` -- `repo` is the one that carries the push |
+| Token scopes | `gist`, `read:org`, `repo`, **`workflow`** -- `repo` carries the push, `workflow` is needed for any commit that touches `.github/workflows/**` |
 | Where the token lives | **the login keyring**, service `gh:github.com`, account `tuxcomputers` |
 | Credential helper | `credential.https://github.com.helper=!/usr/bin/gh auth git-credential`, in `~/.gitconfig` |
 | Verified by | pushing two commits and reading them back with `gh api repos/tuxcomputers/TimeFlipApp/commits/<sha>` |
+
+**`workflow` was added on 2026-09-09, and it is a one-off per machine rather than something to keep doing.**
+A push touching `.github/workflows/tests.yml` was refused -- *refusing to allow an OAuth App to create or
+update workflow ... without `workflow` scope* -- because the 2026-09-07 login above never asked for it.
+Cleared with one command, which re-mints the token in the same keyring entry:
+
+```sh
+gh auth refresh -h github.com -s workflow      # needs a person at a browser; device-code flow
+```
+
+**Why the Mac never needed it, since the two boxes use the same account and it looks like it should behave
+the same.** Scopes belong to the *token*, and every `gh auth login` mints its own -- so the Mac's
+`tuxcomputers` token and this one are different credentials that happen to name the same user.
+`gh auth switch` picks a different token; it does not add a scope to one. The Mac's was minted carrying
+`workflow`, which is why switching profiles there simply works, and the history shows it: commits touching
+`.github/workflows/` landed on 2026-08-16 and 2026-09-07, both before this box had any credential at all.
+
+GitHub keeps `workflow` out of `repo` deliberately: a workflow file is code that runs with the repository's
+secrets, so a token that can push source is not automatically allowed to push something that could read them.
+Expect to see it again here only if the token is revoked, the keyring is reset, or somebody runs a fresh
+`gh auth login`, which re-mints and can drop it.
 
 **It had none of that until then**, and the failure is worth knowing by sight because it names neither
 gh nor a permission: `git push` answers `fatal: could not read Username for 'https://github.com': No
