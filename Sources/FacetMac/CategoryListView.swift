@@ -183,9 +183,9 @@ final class CategoryRowView: NSButton {
         let name = NSTextField(labelWithString: category.name)
         // The row is as wide as the list and the name takes what is left of it, cut off at the tail rather
         // than pushing the window out to whatever length somebody typed.
-        name.lineBreakMode = .byTruncatingTail
-        name.maximumNumberOfLines = 1
-        LabelWidth.mayGiveWay(name)
+        // A 36pt row pinned by `heightAnchor.constraint(equalToConstant:)`, so a second line has nowhere to
+        // go until that becomes a minimum. See the note in `docs/architecture-review-2026-09.md`.
+        LabelWidth.set(.singleLine, on: name)
         name.translatesAutoresizingMaskIntoConstraints = false
         addSubview(swatch)
         addSubview(name)

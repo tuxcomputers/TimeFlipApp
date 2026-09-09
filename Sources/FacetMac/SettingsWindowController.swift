@@ -21,9 +21,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // is sized for the content it is about to hold so the numbers do not have to be re-tuned as
         // each pane arrives. The tab that ends up needing the most room is what should set these,
         // measured, once it exists.
-        static let defaultWidth: CGFloat = 640
+        /// The one width the window ever has. See `makeWindow`.
+        static let fixedWidth: CGFloat = 640
         static let defaultHeight: CGFloat = 680
-        static let minimumWidth: CGFloat = 560
         static let minimumHeight: CGFloat = 400
         /// Around the Close button, and between it and the panes above.
         static let buttonPadding: CGFloat = 12
@@ -2971,14 +2971,25 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
 
     private func makeWindow() -> NSWindow {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: Layout.defaultWidth, height: Layout.defaultHeight),
+            contentRect: NSRect(x: 0, y: 0, width: Layout.fixedWidth, height: Layout.defaultHeight),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.title = "Facet Settings"
         window.identifier = NSUserInterfaceItemIdentifier(Identifier.window)
-        window.contentMinSize = NSSize(width: Layout.minimumWidth, height: Layout.minimumHeight)
+        // **One width, and the height still free.** `.resizable` stays in the mask for the height; the width is
+        // pinned by making the minimum and the maximum the same number.
+        //
+        // **Decided 2026-09-10, and it is the cheaper half of a trade the owner offered to lose.** A tab's content
+        // has to span the window, and the way that fault used to arrive was intermittent: a panel that spanned at
+        // one size and stopped short at another, with nothing in the constraints to explain it. With one width
+        // there is one answer, and it is the width `SettingsMetricsTests` already hosts every pane at. Nothing was
+        // given up for it: nothing in this app listens for a resize, no `contentMaxSize` was ever set, and the 560
+        // minimum was provisional rather than measured. See `CLAUDE.md`, *A tab's content spans the width of the
+        // window*.
+        window.contentMinSize = NSSize(width: Layout.fixedWidth, height: Layout.minimumHeight)
+        window.contentMaxSize = NSSize(width: Layout.fixedWidth, height: .greatestFiniteMagnitude)
         // Survives its own close, which is what makes the window reusable: without this, closing it
         // deallocates it and `window` above would be rebuilt on the next open, losing the selected
         // tab and the position on screen.

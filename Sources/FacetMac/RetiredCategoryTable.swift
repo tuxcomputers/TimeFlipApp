@@ -252,7 +252,7 @@ final class RetiredCategoryRow: NSStackView {
             labelWithString: CategoryLastUsedText.label(isCategoryActive: category.isCategoryActive, lastUsed: lastUsed) ?? ""
         )
         label.textColor = .secondaryLabelColor
-        label.lineBreakMode = .byTruncatingTail
+        LabelWidth.set(.singleLine, on: label)
         label.translatesAutoresizingMaskIntoConstraints = false
         label.setAccessibilityIdentifier("retired-category-last-used-\(category.id)")
         return label

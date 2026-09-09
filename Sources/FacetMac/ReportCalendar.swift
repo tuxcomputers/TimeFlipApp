@@ -374,7 +374,7 @@ final class ReportCalendar: NSView {
     private let monthHeader = NSView()
 
     private func addMonthHeader() {
-        monthLabel.lineBreakMode = .byTruncatingTail
+        LabelWidth.set(.wraps(lines: 2), on: monthLabel)
         monthLabel.translatesAutoresizingMaskIntoConstraints = false
         monthLabel.setAccessibilityIdentifier(Identifier.month(name))
 

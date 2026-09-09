@@ -161,10 +161,10 @@ final class ReportCategoryGroup: NSView {
 
         let swatch = ReportSwatch.make(total)
         let name = NSTextField(labelWithString: total.name)
-        name.lineBreakMode = .byTruncatingTail
-        // What makes the constraint below true rather than merely written: the figure keeps `.defaultHigh`,
-        // so a row short of room takes it out of the name.
-        LabelWidth.mayGiveWay(name)
+        // What makes the constraint below true rather than merely written: the figure keeps `.defaultHigh`, so a
+        // row short of room takes it out of the name. Single line because the row's height is pinned at 36pt by
+        // `heightAnchor.constraint(equalToConstant:)`, so a second line has nowhere to go until that is a minimum.
+        LabelWidth.set(.singleLine, on: name)
         name.translatesAutoresizingMaskIntoConstraints = false
 
         let duration = figure(ReportEntryText.duration(total.seconds, showingSeconds: showingSeconds))

@@ -155,15 +155,24 @@ empty space to the right of it. This is how the previous app drew every tab it h
 and the App tab's grouped form), and it is what makes the tabs read as one window rather than as pages
 that each chose their own width.
 
-It applies to whatever a tab grows, and it applies as the window is resized: a panel that spans at one
-size and stops short at another is the same fault seen later.
+It applies to whatever a tab grows.
+
+**The window is one width, 640, and the resize half of this rule is gone with the resizing** (2026-09-10).
+`makeWindow` pins it by setting `contentMinSize.width` and `contentMaxSize.width` to the same number; the height
+is still free. This used to read "it applies as the window is resized: a panel that spans at one size and stops
+short at another is the same fault seen later", which was the intermittent version of the fault and the expensive
+one to find. There is one width now, so there is one answer, and it is the width `SettingsMetricsTests` already
+hosts every pane at. Nothing was traded for it: nothing in the app listens for a resize, no `contentMaxSize` had
+ever been set, and the 560 minimum was provisional rather than measured.
 
 The trap that produces the wrong version, because it has already happened once: **a pane must keep its
 autoresizing frame.** `SettingsWindowController.makePane` hands each pane `autoresizingMask = [.width, .height]`
 and the tab view resizes it to the content rect from there, so a pane that sets
 `translatesAutoresizingMaskIntoConstraints = false` on *itself* throws that away and is then sized by
 its own contents -- which looks like a panel that stops short of the right-hand edge, with nothing in the
-constraints to explain it. Set it on the subviews, never on the pane.
+constraints to explain it. Set it on the subviews, never on the pane. **A fixed width does not retire this**, it
+only makes it show every time instead of at some sizes: a pane sized by its own contents still stops short of
+640.
 
 ## A collapsible group opens on its whole heading, not just its triangle
 

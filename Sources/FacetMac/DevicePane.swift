@@ -968,8 +968,7 @@ final class DevicePane: NSView {
         // them. `ScanUnavailable` is where the words live.
         scanStatusLabel = NSTextField(labelWithString: "")
         scanStatusLabel.textColor = .secondaryLabelColor
-        scanStatusLabel.lineBreakMode = .byWordWrapping
-        scanStatusLabel.maximumNumberOfLines = 2
+        LabelWidth.set(.wraps(lines: 2), on: scanStatusLabel)
         scanStatusLabel.translatesAutoresizingMaskIntoConstraints = false
         scanStatusLabel.setAccessibilityIdentifier(Identifier.scanStatus)
 
@@ -1028,7 +1027,12 @@ final class DevicePane: NSView {
         let name = NSButton(title: DeviceScanRules.label(for: device), target: self, action: #selector(devicePressed))
         name.isBordered = false
         name.alignment = .left
+        // **A button, not a label, so `LabelWidth` does not apply**: its recipe is written for `NSTextField`, and a
+        // scan result is a control somebody presses. A cube's advertised name is short by nature and this row is a
+        // list of candidates, so one line with a tail ellipsis is the right answer here rather than the wrapping
+        // the fields below take.
         name.lineBreakMode = .byTruncatingTail
+        name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         name.translatesAutoresizingMaskIntoConstraints = false
         name.setAccessibilityIdentifier(Identifier.scanResult(device.id))
         // The identifier is how the press finds its way back to a device: the button is the only thing that knows
@@ -1211,7 +1215,7 @@ final class DevicePane: NSView {
     private func value(identifier: String) -> NSTextField {
         let field = NSTextField(labelWithString: "")
         field.alignment = .right
-        field.lineBreakMode = .byTruncatingTail
+        LabelWidth.set(.wraps(lines: 2), on: field)
         field.translatesAutoresizingMaskIntoConstraints = false
         field.setAccessibilityIdentifier(identifier)
         return field

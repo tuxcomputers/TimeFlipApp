@@ -27,4 +27,46 @@ enum LabelWidth {
     static func mayGiveWay(_ label: NSTextField) {
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     }
+
+    /// How a label behaves when its text is longer than the room it has.
+    ///
+    /// **Four things have to be set together and only one place ever set all four**, which is why this exists.
+    /// `TimingView` had the whole recipe and everywhere else had part of it, so a label told
+    /// `maximumNumberOfLines = 2` and left on `.byTruncatingTail` drew one line and looked like the setting had no
+    /// effect. Measured, and recorded at that call site: an `NSTextFieldCell` holding a 56-character name at 40pt
+    /// in a 380pt column answers 47pt, one line, for truncating tail **whatever `maximumNumberOfLines` says**, and
+    /// 94pt for word wrapping.
+    ///
+    /// The four: the break mode has to be `.byWordWrapping` or nothing wraps; `maximumNumberOfLines` says how far;
+    /// `truncatesLastVisibleLine` puts the ellipsis on the last line the limit allows rather than stopping
+    /// mid-sentence; and `mayGiveWay` is what lets the label be short of room at all, without which it demands its
+    /// whole string on one line and widens the window instead of wrapping.
+    enum Wrapping {
+        /// One line, ellipsis at the end. For a row whose height is pinned and whose text is short by nature.
+        case singleLine
+        /// One line, ellipsis in the middle. For a path, where both ends carry more than the middle does.
+        case singleLinePath
+        /// Wraps as far as `lines`, with an ellipsis on the last. Two is the useful answer in a row that can grow
+        /// a little; `0` is as far as it needs.
+        case wraps(lines: Int)
+    }
+
+    /// Applies the whole recipe, so a caller cannot get three of the four right.
+    static func set(_ wrapping: Wrapping, on label: NSTextField) {
+        switch wrapping {
+        case .singleLine:
+            label.lineBreakMode = .byTruncatingTail
+            label.maximumNumberOfLines = 1
+        case .singleLinePath:
+            label.lineBreakMode = .byTruncatingMiddle
+            label.maximumNumberOfLines = 1
+        case let .wraps(lines):
+            label.lineBreakMode = .byWordWrapping
+            label.maximumNumberOfLines = lines
+            label.cell?.truncatesLastVisibleLine = true
+        }
+        // Every case, including the single-line ones: tail truncation has nothing to do either until the label can
+        // be given less room than it asked for.
+        mayGiveWay(label)
+    }
 }

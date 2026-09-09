@@ -176,8 +176,7 @@ final class EditableNameCell: NSView {
         button.identifier = NSUserInterfaceItemIdentifier(identifier)
         button.setAccessibilityIdentifier(identifier)
 
-        label.lineBreakMode = .byTruncatingTail
-        label.maximumNumberOfLines = 1
+        LabelWidth.set(.singleLine, on: label)
         label.alignment = alignment
         label.translatesAutoresizingMaskIntoConstraints = false
 

@@ -442,12 +442,9 @@ final class TimingView: NSView {
         // holding a 56-character name at 40pt in a 380pt column answers 47pt -- one line -- for truncating tail
         // whatever `maximumNumberOfLines` says, and 94pt for word wrapping. `truncatesLastVisibleLine` is what then
         // puts the ellipsis on the last line the limit allows, rather than stopping mid-sentence.
-        categoryNameLabel.lineBreakMode = .byWordWrapping
-        categoryNameLabel.maximumNumberOfLines = Layout.nameMaximumLines
-        categoryNameLabel.cell?.truncatesLastVisibleLine = true
-        // Without this the column is never short of room, so the label never wraps at all: it demands its whole
-        // string on one line and the window widens to hold it (`LabelWidth`).
-        LabelWidth.mayGiveWay(categoryNameLabel)
+        // The four settings this needs are `LabelWidth.set`, which is where the measurement above now lives:
+        // without the last of them the column is never short of room, so the label never wraps at all.
+        LabelWidth.set(.wraps(lines: Layout.nameMaximumLines), on: categoryNameLabel)
         categoryNameLabel.translatesAutoresizingMaskIntoConstraints = false
         categoryNameLabel.setAccessibilityIdentifier(Identifier.categoryName)
 

@@ -527,8 +527,7 @@ final class AppSettingsPane: NSView {
         googleNote.translatesAutoresizingMaskIntoConstraints = false
         googleNote.font = .preferredFont(forTextStyle: .footnote)
         googleNote.textColor = .secondaryLabelColor
-        googleNote.lineBreakMode = .byWordWrapping
-        googleNote.maximumNumberOfLines = 0
+        LabelWidth.set(.wraps(lines: 0), on: googleNote)
         googleNote.setAccessibilityIdentifier(Identifier.googleNote)
         wrap(googleNote)
 
@@ -701,7 +700,7 @@ final class AppSettingsPane: NSView {
         debugDirectoryValue.translatesAutoresizingMaskIntoConstraints = false
         // The path is the longest thing on this tab and the one row that cannot be shortened by rewording. Truncated
         // in the middle, since both ends carry the answer: which volume it is on, and which folder it ends in.
-        debugDirectoryValue.lineBreakMode = .byTruncatingMiddle
+        LabelWidth.set(.singleLinePath, on: debugDirectoryValue)
         debugDirectoryValue.setAccessibilityIdentifier(Identifier.debugDirectory)
         showDebugDirectory()
 
@@ -740,8 +739,7 @@ final class AppSettingsPane: NSView {
         note.translatesAutoresizingMaskIntoConstraints = false
         note.font = .preferredFont(forTextStyle: .footnote)
         note.textColor = .secondaryLabelColor
-        note.lineBreakMode = .byWordWrapping
-        note.maximumNumberOfLines = 0
+        LabelWidth.set(.wraps(lines: 0), on: note)
         note.setAccessibilityIdentifier(Identifier.debugNote)
         wrap(note)
         debugNote = note
