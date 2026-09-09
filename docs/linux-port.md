@@ -1029,6 +1029,44 @@ claim, but it stops at the bus and proves nothing about what BlueZ accepts. Coun
 reading. Asserting *which* error would make it honest on both machines and is the obvious improvement, but it
 changes what the test claims, so it is noted here rather than done.
 
+### Found: the container runs as root, and one test is right to fail there
+
+**Measured 2026-09-09, the first time the job was run in its own image** rather than by running its commands
+on this box. `podman` and `swift:6.2-noble`, the workflow's four steps extracted from the parsed YAML and
+executed as the shell will get them. It went red, and on nothing to do with D-Bus:
+
+    DevicePINSourceTests.testAFileThatWillNotGiveUpItsCopyIsNotReportedAsSettled
+      settleAtLaunch() -> .clearedARedundantCopy, expected .nothingToSettle
+      file.pin()       -> nil, expected 654321
+
+**Because root ignores mode bits.** That test sets the config file to `0o400` so the write is refused, and
+asserts the app does not then claim to have settled. A container job runs as root unless told otherwise, so
+the write succeeded, the copy was cleared, and the test failed against an app doing exactly the right thing.
+Proven in the image directly rather than inferred:
+
+    as root  a 0400 file is written without complaint
+    as ci    permission denied
+
+**This is the second time that same test has been broken by a platform declining to enforce a permission**,
+and its own comment records the first: it used to use `.immutable`, a BSD file flag corelibs does not
+implement, so on Linux the file stayed writable and the test failed the same way. The shape is worth keeping
+even though the cause differs -- a test whose premise is a refusal fails against correct behaviour wherever
+the refusal does not happen, and it looks like an app bug both times.
+
+So the job makes an unprivileged `ci` user, hands it the workspace with `chown -R`, and runs **both**
+`swift build` and `swift test` through `su ci`; only `apt-get` stays root. The bus daemon is started by `ci`
+too, so the socket belongs to whoever connects to it. With that, 1,047 pass in the image with 0 failures.
+
+**Two smaller things the run settled.** The `swift:6.2-noble` tag really is **6.2.4**, confirmed from the
+image rather than from Docker Hub's tag list, against 6.2.0 on this box -- and both compile and pass the same
+1,047. And swift-testing's 457 finish in **6.0s in the container against ~56s here**, which is a ninefold
+difference with no cause established; it is not BlueZ, since a private bus on this box was equally slow.
+Recorded as an observation rather than a finding.
+
+**What running it locally still does not cover:** GitHub's own runner. The image, the packages, the compiler
+and all four steps are exercised, but `actions/checkout`, the network and the runner's own filesystem are
+not, and cannot be until a pull request exists.
+
 ### What is left to do for this plan
 
 1. ~~**Start a system bus in the Linux job** and narrow the skip to the adapter-bound tests.~~ **Done
@@ -1043,9 +1081,13 @@ changes what the test claims, so it is noted here rather than done.
 3. **Let items 9, 10 and 11 return the other 38 files** as sign-in, the radio and the UI arrive on this
    platform. Each one should take files off `platformBoundTests` in the same change, rather than leaving the
    list to be audited later.
-4. **Keep the two compilers comparable, or know that they are not.** The job declares `swift:6.2-noble`,
-   which floats within the 6.2 line and was 6.2.4 when checked, where this box is on 6.2.0. A CI-only failure
-   should be checked against that difference first.
+4. ~~**Keep the two compilers comparable, or know that they are not.**~~ **Known, 2026-09-09.** The image
+   carries 6.2.4 and this box 6.2.0, confirmed by asking the image; both build and pass the same 1,047, so
+   the difference is recorded rather than a problem. It stays the first thing to check if CI ever fails where
+   a hand-run here passes.
+5. **Run it on a real runner.** Everything above was verified locally, in the image, which leaves
+   `actions/checkout`, the network and the runner filesystem untested. That needs a pull request, which needs
+   a push, which needs the `workflow` scope on this box's token.
 
 **A note on how this was worded before, because the wording was the fault.** `systems-info.md` recorded
 *nothing in CI compiles the project on Linux today* as a fact, dated and accurate, sitting in a table of

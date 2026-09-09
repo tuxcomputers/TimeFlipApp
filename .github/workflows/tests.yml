@@ -112,25 +112,25 @@ jobs:
           apt-get install -y --no-install-recommends \
             pkg-config dbus libsqlite3-dev libdbus-1-dev libgtk-3-dev libayatana-appindicator3-dev
 
-      # Builds the `FacetLinux` executable as well as the core, which is the half of the graph the macOS
-      # jobs never compile. It does not build an app bundle and is not meant to.
-      - name: Build
-        run: swift build
-
-      # **A system bus with no BlueZ on it, which is exactly what a runner is.** Five of the seven
-      # `SystemBusTests` ask `org.freedesktop.DBus` and nothing else, so a bus is the whole of what they
-      # need -- measured 2026-09-09 against a private daemon on the Linux box, where all five pass with no
-      # BlueZ present and only the two adapter-bound ones fail.
+      # **The build and the tests must not run as root, and one test proves it rather than arguing it.**
+      # `DevicePINSourceTests.testAFileThatWillNotGiveUpItsCopyIsNotReportedAsSettled` makes a config file
+      # `0o400` so that a write is refused, and asserts the app does not then claim to have settled.
+      # **Root ignores mode bits**, so the write succeeds, the copy is cleared, and the test fails against an
+      # app doing exactly the right thing. Measured in this image on 2026-09-09: as root a `0400` file is
+      # written without complaint; as an ordinary user it is refused. A container job runs as root unless it
+      # is told otherwise, so it is told.
       #
-      # A private daemon addressed through `DBUS_SYSTEM_BUS_ADDRESS`, rather than `dbus-daemon --system`,
-      # because it needs neither root nor a writable `/run/dbus` and it is the arrangement that was actually
-      # verified. `dbus_bus_get(DBUS_BUS_SYSTEM)` in `SystemBus.init` reads that variable, so nothing in the
-      # app has to know about this.
-      - name: Start a system bus for the D-Bus tests
+      # That test's own comment records this trap arriving once before from the other direction, when
+      # `.immutable` turned out to be a BSD flag corelibs does not implement. A permission the platform
+      # declines to enforce reads as an app misbehaving, both times.
+      #
+      # The bus configuration is written here, by root, because the heredoc is unreadable once it is nested
+      # inside the `su` below. `ci` only ever needs to read it.
+      - name: Make an unprivileged user for the build and the tests
         run: |
+          useradd --create-home ci
+          chown -R ci:ci "$GITHUB_WORKSPACE"
           cat > /tmp/facet-bus.conf <<'CONF'
-          <!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
-           "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
           <busconfig>
             <type>system</type>
             <listen>unix:tmpdir=/tmp</listen>
@@ -142,29 +142,45 @@ jobs:
             </policy>
           </busconfig>
           CONF
-          dbus-daemon --config-file=/tmp/facet-bus.conf --print-address --fork > /tmp/facet-bus.addr
-          echo "DBUS_SYSTEM_BUS_ADDRESS=$(cat /tmp/facet-bus.addr)" >> "$GITHUB_ENV"
+          chmod 0644 /tmp/facet-bus.conf
 
+      # Builds the `FacetLinux` executable as well as the core, which is the half of the graph the macOS
+      # jobs never compile. It does not build an app bundle and is not meant to.
+      - name: Build
+        run: su ci -c 'swift build'
+
+      # **A system bus with no BlueZ on it, which is exactly what a runner is.** Five of the seven
+      # `SystemBusTests` ask `org.freedesktop.DBus` and nothing else, so a bus is the whole of what they
+      # need -- measured 2026-09-09 against a private daemon, where all five pass with no BlueZ present and
+      # only the two adapter-bound ones fail. `dbus_bus_get(DBUS_BUS_SYSTEM)` in `SystemBus.init` reads
+      # `DBUS_SYSTEM_BUS_ADDRESS`, so nothing in the app has to know about this.
+      #
+      # The daemon is started by `ci` rather than by root, so the socket belongs to whoever connects to it.
+      # It lives inside the same `su` as the tests because the address has to reach them, which saves
+      # exporting it through `GITHUB_ENV` and keeps the bus with the thing that uses it.
+      #
       # **Two tests are skipped rather than the whole `SystemBusTests` suite**, which is what this job did
-      # until the five above were measured as passing without BlueZ. `theNestedObjectTreeIsWalkedToItsLeaves`
-      # and `aSignalArrivesAndItsValuesAreTyped` both look for a real `org.bluez.Adapter1` and record an
-      # issue when there is none, so they cannot pass on any runner and belong with `Tests/Scripted/`: their
+      # until the five above were measured. `theNestedObjectTreeIsWalkedToItsLeaves` and
+      # `aSignalArrivesAndItsValuesAreTyped` both look for a real `org.bluez.Adapter1` and record an issue
+      # when there is none, so they cannot pass on any runner and belong with `Tests/Scripted/`: their
       # absence is a fact about the machine rather than about the code.
       #
-      # That leaves **1,047 tests -- 590 under XCTest and 457 under swift-testing**, verified at exactly this
-      # command against a BlueZ-less bus on 2026-09-09.
+      # That leaves **1,047 tests -- 590 under XCTest and 457 under swift-testing**.
       #
-      # **One of the five passes for a different reason here than it does on a developer's machine**, and it
-      # is worth knowing which. `aByteArrayArgumentIsAcceptedByTheWire` calls `org.bluez` and asserts only
-      # that the call is *refused*. With BlueZ present the refusal is `UnknownObject`, from BlueZ, about the
-      # object path; with no BlueZ it is `ServiceUnknown`, from the bus, because nothing owns the name. So in
-      # CI it still proves libdbus marshalled the byte array and put it on the wire -- which is its stated
-      # claim -- but it stops at the bus and proves nothing about what BlueZ accepts.
+      # **One of the five passes for a different reason here than on a developer's machine**, and it is worth
+      # knowing which. `aByteArrayArgumentIsAcceptedByTheWire` calls `org.bluez` and asserts only that the
+      # call is *refused*. With BlueZ present the refusal is `UnknownObject`, from BlueZ, about the object
+      # path; with no BlueZ it is `ServiceUnknown`, from the bus, because nothing owns the name. So here it
+      # still proves libdbus marshalled the byte array and put it on the wire -- its stated claim -- but it
+      # stops at the bus and proves nothing about what BlueZ accepts.
       - name: Test
         run: |
-          swift test \
-            --skip theNestedObjectTreeIsWalkedToItsLeaves \
-            --skip aSignalArrivesAndItsValuesAreTyped
+          su ci -c '
+            set -e
+            dbus-daemon --config-file=/tmp/facet-bus.conf --print-address --fork > /tmp/facet-bus.addr
+            export DBUS_SYSTEM_BUS_ADDRESS=$(cat /tmp/facet-bus.addr)
+            swift test --skip theNestedObjectTreeIsWalkedToItsLeaves --skip aSignalArrivesAndItsValuesAreTyped
+          '
 
   # The one job branch protection should require by name. Individual test jobs above can be
   # renamed, added, or removed freely without ever touching the branch protection setting again --

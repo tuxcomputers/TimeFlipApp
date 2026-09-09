@@ -154,23 +154,48 @@ run_linux_job() {
         if command -v "$candidate" >/dev/null 2>&1; then runtime="$candidate"; break; fi
     done
 
+    # **The steps are read out of the workflow rather than written again here.** Two copies of a
+    # four-step job is exactly the drift this script exists to catch, and the copy would be the one
+    # nobody reruns. Needs PyYAML; without it, say so rather than silently testing something else.
+    local job_script
+    job_script="$(python3 - "$dir" <<'EXTRACT' 2>/dev/null
+import sys, yaml, io
+steps = yaml.safe_load(io.open(sys.argv[1] + "/.github/workflows/tests.yml"))["jobs"]["test-linux"]["steps"]
+print("set -euo pipefail")
+print("export GITHUB_WORKSPACE=/w GITHUB_ENV=/tmp/github_env")
+print(": > $GITHUB_ENV")
+for st in steps:
+    if "run" not in st:
+        continue
+    print('echo "--- %s"' % st["name"])
+    print(st["run"])
+    print("set -a; . $GITHUB_ENV; set +a")
+EXTRACT
+)"
+    if [ -z "$job_script" ]; then
+        warn "could not read test-linux out of the workflow (PyYAML missing?) -- skipping"
+        return
+    fi
+
     if [ -n "$runtime" ]; then
         printf "  container (%s, swift:6.2-noble) ... " "$runtime"
         local log; log="$(mktemp)"
-        # **`--scratch-path` outside the mount, and it is not tidiness.** The container is root and
-        # carries a different patch release, so letting it build into the host's `.build` would leave
-        # root-owned 6.2.4 artifacts for this machine's 6.2.0 to trip over afterwards.
-        if "$runtime" run --rm -v "$dir:/w" -w /w swift:6.2-noble bash -c '
-                set -e
-                apt-get update -qq
-                apt-get install -y -qq --no-install-recommends                     pkg-config dbus libsqlite3-dev libdbus-1-dev libgtk-3-dev                     libayatana-appindicator3-dev >/dev/null
-                swift --version
-                swift build --scratch-path /tmp/ci-build
-                BUSCONF=/tmp/facet-bus.conf; printf "%s\n" "<busconfig><type>system</type><listen>unix:tmpdir=/tmp</listen>" "<policy context=\"default\"><allow user=\"*\"/><allow own=\"*\"/>" "<allow send_destination=\"*\"/><allow receive_sender=\"*\"/></policy></busconfig>" > $BUSCONF; dbus-daemon --config-file=$BUSCONF --print-address --fork > /tmp/facet-bus.addr; export DBUS_SYSTEM_BUS_ADDRESS=$(cat /tmp/facet-bus.addr)
-                swift test --scratch-path /tmp/ci-build --skip theNestedObjectTreeIsWalkedToItsLeaves --skip aSignalArrivesAndItsValuesAreTyped
-            ' >"$log" 2>&1; then
+        # **Piped in rather than bind-mounted, and that is not a detail.** The job hands its workspace
+        # to an unprivileged user with `chown -R`, which through a bind mount would rewrite the
+        # ownership of the real files on this machine -- to a subuid under rootless podman, which the
+        # owner then cannot delete. A tar puts the tree in the container's own layer instead, and
+        # dropping `.build` and `.git` makes it the clean checkout CI actually gets.
+        # The job arrives in the environment rather than in the tar, stdin being taken by the tar.
+        if tar -c -C "$dir" --exclude=./.build --exclude=./.git . \
+            | "$runtime" run --rm -i -e "FACET_CI_JOB=$job_script" \
+                  docker.io/library/swift:6.2-noble bash -c '
+                  set -e
+                  mkdir -p /w && tar -x -C /w && cd /w
+                  printf "%s\\n" "$FACET_CI_JOB" > /tmp/facet-ci-job.sh
+                  bash /tmp/facet-ci-job.sh
+              ' >"$log" 2>&1; then
             printf "\r"; ok "container ($runtime, swift:6.2-noble)"
-            grep -E "Swift version|Executed [0-9]+ tests|Test run with" "$log" \
+            grep -E "Swift version|Executed [0-9]+ tests, with|Test run with" "$log" \
                 | sed 's/^/      /' | tail -4
         else
             printf "\r"; bad "container ($runtime, swift:6.2-noble)"
@@ -183,21 +208,21 @@ run_linux_job() {
 
     if [ "$(uname -s)" != "Linux" ]; then
         warn "no podman or docker, and this is not Linux -- CI's Linux job cannot be run here at all"
-        echo "          Install either one and this becomes the only CI job you can reproduce exactly."
+        echo "          Install either one and this becomes the only CI job reproducible exactly."
         return
     fi
 
-    warn "no podman or docker: running the job's commands natively instead"
-    echo "          Weaker than it looks. This machine has BlueZ, a system bus, its own compiler and"
-    echo "          whatever else is installed, and that is most of what the job's first run risks."
-    local label log
+    warn "no podman or docker: running the suite natively instead of the job"
+    echo "          Weaker, and in one specific way: the job runs its tests as an unprivileged user"
+    echo "          because root ignores mode bits, and DevicePINSourceTests needs a 0400 write to be"
+    echo "          refused. Natively that is already true, so the native path cannot catch a"
+    echo "          regression in how the job arranges it."
+    local label log cmd
     for label in build test; do
-        local cmd
         case "$label" in
             build) cmd=(swift build) ;;
-            # The workflow's two skips, against whatever bus this machine has rather than a
-            # private one: the point of the native path is the build and the suite.
-            test)  cmd=(swift test --skip theNestedObjectTreeIsWalkedToItsLeaves --skip aSignalArrivesAndItsValuesAreTyped) ;;
+            test)  cmd=(swift test --skip theNestedObjectTreeIsWalkedToItsLeaves
+                        --skip aSignalArrivesAndItsValuesAreTyped) ;;
         esac
         printf "  %s ... " "$label"
         log="$(mktemp)"
