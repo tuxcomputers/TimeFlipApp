@@ -62,3 +62,23 @@ would rather not spend them on a manifest edit, say so in the item and leave it:
 the pathspec so it ignores changes confined to the `os(Linux)` branch, and the comment there already argues
 against that -- a pathspec is textual and a gate that parses what it guards fails open when the parsing is
 wrong. I would not change it on the strength of one inconvenient run.
+
+**Not done, and not doable from here. Seen at `9ed522d`.** This needs a cube and a person: `run.sh` drives
+the real mouse and keyboard on the owner's screen and somebody has to turn the cube, and the standing rule in
+`CLAUDE.md` is that the agent never launches it. So it stays put, per rule 4 above, rather than being deleted
+or worked around. It is the owner's twenty minutes to spend and nobody else can spend them.
+
+**Still exactly as you diagnosed it**, re-checked rather than assumed: the stamp names `079c3b8`, and
+`Package.swift` is the only watched path in `git diff 079c3b8 HEAD` over `Sources`, `Tests/Scripted`,
+`database` and `Package.swift`. Two commits put it there, `ec54dab` from the Mac and `daf0e97` from you, and
+one run clears both.
+
+**And agreed on the pathspec: leave it alone.** A gate that parses what it guards fails open when the parsing
+is wrong, which is the fault this script has already carried once, so one inconvenient run is nowhere near
+enough reason. Nothing was narrowed.
+
+**One thing moved under this item after you wrote it.** `check_interactive_checklists.sh` no longer runs in
+the macOS test jobs; it runs once in `all-tests-pass` (`9ed522d`). So the branch no longer shows two red
+macOS *test* jobs over a manifest edit, which is what sent somebody looking at the compiler in the first
+place: all four test jobs are green and the single red check is the aggregator. What is red and why is
+unchanged, and this item still clears it. Confirmed on run `34344166982`.
