@@ -13,8 +13,8 @@ jobs:
   # not just breakage in the branch considered alone. For a push to main directly, there's no
   # merge to preview -- github.ref is just main's own tip, so this job is the only one that runs
   # (see test-branch-as-is's `if` below) and behaves exactly as before this file changed.
-  test-merge-result:
-    name: Test (after merge into base branch)
+  test-macos-merge-result:
+    name: Test (macOS, after merge into base branch)
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v5
@@ -44,8 +44,8 @@ jobs:
   # preview above), so a PR that only passes once merged with newer base-branch changes -- but
   # would fail standalone -- still gets caught, rather than only ever being tested combined with
   # that state.
-  test-branch-as-is:
-    name: Test (branch as-is, unmerged)
+  test-macos-branch-as-is:
+    name: Test (macOS, branch as-is, unmerged)
     if: github.event_name == 'pull_request'
     runs-on: macos-15
     steps:
@@ -68,7 +68,9 @@ jobs:
       - name: Verify interactive test checklists are complete
         run: ./scripts/check_interactive_checklists.sh --branch "${{ github.head_ref }}"
 
-  # **The two jobs above are both macOS, so neither of them can see a platform divergence.** The suite is
+  # **The two jobs above are both macOS, so neither of them can see a platform divergence.**
+  # These two mirror them on Linux, one for the merge preview and one for the branch as it stands,
+  # so each platform answers the same two questions and a job name says which platform asked. The suite is
   # one suite run in two places rather than two suites: there is no `#if os(Linux)` anywhere in `Sources/`,
   # and exactly 7 of the tests are Linux-only. The other ~1,042 are the same tests the Mac runs, and running
   # them against a different Foundation is the only thing that catches shared code behaving differently.
@@ -80,8 +82,8 @@ jobs:
   # Linux where Darwin follows it -- which `DatabaseBootstrap` reported as a database created successfully.
   # Both were found by somebody remembering to run the suite on the Linux box by hand. This job is that,
   # remembered automatically.
-  test-linux:
-    name: Test (Linux, the portable half)
+  test-linux-merge-result:
+    name: Test (Linux, after merge into base branch)
     runs-on: ubuntu-latest
     # The official image on the 6.2 line and on noble, which is the language version and the distribution
     # the port is measured against -- `swift-6.2-RELEASE-ubuntu24.04` in `docs/systems-info.md`. A container
@@ -182,6 +184,56 @@ jobs:
             swift test --skip theNestedObjectTreeIsWalkedToItsLeaves --skip aSignalArrivesAndItsValuesAreTyped
           '
 
+  # **The same job against the branch's own tip**, mirroring `test-macos-branch-as-is` above: the job before
+  # this one tests the merge preview, so on its own it can pass a branch that only works once combined with
+  # whatever has landed on the base since. Every step here is identical to that job's and the reasoning for
+  # each is written out there rather than repeated -- if one changes, both change.
+  test-linux-branch-as-is:
+    name: Test (Linux, branch as-is, unmerged)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    container: swift:6.2-noble
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Install the system libraries the Linux graph links
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            pkg-config dbus libsqlite3-dev libdbus-1-dev libgtk-3-dev libayatana-appindicator3-dev
+
+      - name: Make an unprivileged user for the build and the tests
+        run: |
+          useradd --create-home ci
+          chown -R ci:ci "$GITHUB_WORKSPACE"
+          cat > /tmp/facet-bus.conf <<'CONF'
+          <busconfig>
+            <type>system</type>
+            <listen>unix:tmpdir=/tmp</listen>
+            <policy context="default">
+              <allow user="*"/>
+              <allow own="*"/>
+              <allow send_destination="*"/>
+              <allow receive_sender="*"/>
+            </policy>
+          </busconfig>
+          CONF
+          chmod 0644 /tmp/facet-bus.conf
+
+      - name: Build
+        run: su ci -c 'swift build'
+
+      - name: Test
+        run: |
+          su ci -c '
+            set -e
+            dbus-daemon --config-file=/tmp/facet-bus.conf --print-address --fork > /tmp/facet-bus.addr
+            export DBUS_SYSTEM_BUS_ADDRESS=$(cat /tmp/facet-bus.addr)
+            swift test --skip theNestedObjectTreeIsWalkedToItsLeaves --skip aSignalArrivesAndItsValuesAreTyped
+          '
+
   # The one job branch protection should require by name. Individual test jobs above can be
   # renamed, added, or removed freely without ever touching the branch protection setting again --
   # only this job's name has to stay stable. `if: always()` makes sure it still runs (and can
@@ -189,24 +241,32 @@ jobs:
   all-tests-pass:
     name: All tests pass
     runs-on: ubuntu-latest
-    needs: [test-merge-result, test-branch-as-is, test-linux]
+    needs:
+      - test-macos-merge-result
+      - test-macos-branch-as-is
+      - test-linux-merge-result
+      - test-linux-branch-as-is
     if: always()
     steps:
       - name: Check required jobs succeeded
         run: |
-          if [[ "${{ needs.test-merge-result.result }}" != "success" ]]; then
-            echo "test-merge-result: ${{ needs.test-merge-result.result }}"
+          if [[ "${{ needs.test-macos-merge-result.result }}" != "success" ]]; then
+            echo "test-macos-merge-result: ${{ needs.test-macos-merge-result.result }}"
             exit 1
           fi
           # test-branch-as-is is PR-only (see its `if` above) -- "skipped" is expected on a
           # push-to-main event, not a failure.
-          if [[ "${{ needs.test-branch-as-is.result }}" != "success" && "${{ needs.test-branch-as-is.result }}" != "skipped" ]]; then
-            echo "test-branch-as-is: ${{ needs.test-branch-as-is.result }}"
+          if [[ "${{ needs.test-macos-branch-as-is.result }}" != "success" && "${{ needs.test-macos-branch-as-is.result }}" != "skipped" ]]; then
+            echo "test-macos-branch-as-is: ${{ needs.test-macos-branch-as-is.result }}"
             exit 1
           fi
-          # test-linux has no `if`, so it runs on both event types and "skipped" is not expected of it.
-          if [[ "${{ needs.test-linux.result }}" != "success" ]]; then
-            echo "test-linux: ${{ needs.test-linux.result }}"
+          if [[ "${{ needs.test-linux-merge-result.result }}" != "success" ]]; then
+            echo "test-linux-merge-result: ${{ needs.test-linux-merge-result.result }}"
+            exit 1
+          fi
+          # Skipped is expected of this one on a push to main, exactly as for its macOS counterpart.
+          if [[ "${{ needs.test-linux-branch-as-is.result }}" != "success" && "${{ needs.test-linux-branch-as-is.result }}" != "skipped" ]]; then
+            echo "test-linux-branch-as-is: ${{ needs.test-linux-branch-as-is.result }}"
             exit 1
           fi
           echo "All required jobs passed."

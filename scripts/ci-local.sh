@@ -14,7 +14,8 @@
 # below instead: the script prints the local toolchain against the one CI last used, so a divergence
 # is visible rather than assumed away.
 #
-# **The Linux job can be, and is.** `test-linux` was added on 2026-09-09 and is a real container --
+# **The Linux jobs can be, and one is.** Linux got a pair on 2026-09-09, mirroring the macOS pair --
+# merge preview and branch tip -- and they are real containers:
 # `swift:6.2-noble` plus four dev packages is the whole of its environment -- so running it under
 # podman or docker here is the thing itself rather than a stand-in. That matters more than it sounds:
 # the risk in that job is everything a bare container does *not* have, and a machine that already has
@@ -63,7 +64,8 @@ usage: ci-local.sh [--with-merge | --merge-only] [--no-fetch] [--no-linux]
   --merge-only   Only the merged-into-base job.
   --no-fetch     Don't `git fetch` first. Faster, but the merge preview is then
                  against a possibly stale base and can pass when real CI fails.
-  --no-linux     Skip CI's "test-linux" job. It runs in a `swift:6.2-noble`
+  --no-linux     Skip CI's "Test (Linux, branch as-is)" job. It runs in a
+                 `swift:6.2-noble`
                  container when podman or docker is installed, which is the only
                  exact reproduction of any CI job available here, and falls back
                  to running its commands natively when neither is.
@@ -160,7 +162,7 @@ run_linux_job() {
     local job_script
     job_script="$(python3 - "$dir" <<'EXTRACT' 2>/dev/null
 import sys, yaml, io
-steps = yaml.safe_load(io.open(sys.argv[1] + "/.github/workflows/tests.yml"))["jobs"]["test-linux"]["steps"]
+steps = yaml.safe_load(io.open(sys.argv[1] + "/.github/workflows/tests.yml"))["jobs"]["test-linux-branch-as-is"]["steps"]
 print("set -euo pipefail")
 print("export GITHUB_WORKSPACE=/w GITHUB_ENV=/tmp/github_env")
 print(": > $GITHUB_ENV")
@@ -173,7 +175,7 @@ for st in steps:
 EXTRACT
 )"
     if [ -z "$job_script" ]; then
-        warn "could not read test-linux out of the workflow (PyYAML missing?) -- skipping"
+        warn "could not read test-linux-branch-as-is out of the workflow (PyYAML missing?) -- skipping"
         return
     fi
 

@@ -384,9 +384,9 @@ and CI will refuse the branch until a fresh run is committed.
 | | |
 |---|---|
 | Where | GitHub Actions, `.github/workflows/tests.yml` |
-| macOS build and test jobs | `runs-on: macos-15` (two of them: merged-into-base, and branch as-is) |
+| macOS build and test jobs | `runs-on: macos-15`, two of them: `Test (macOS, after merge into base branch)` and `Test (macOS, branch as-is, unmerged)` |
 | What they run | `swift build`, `swift test`, `scripts/check_interactive_checklists.sh` (macOS jobs only) |
-| Linux build and test job | **`runs-on: ubuntu-latest` in `container: swift:6.2-noble`, added 2026-09-09.** `swift build`, a private `dbus-daemon` addressed through `DBUS_SYSTEM_BUS_ADDRESS`, then `swift test` less two tests by name, the build and the tests both through `su ci` because root ignores mode bits -- **1,047 tests**: the 1,042 the macOS jobs also run, plus 5 of the 7 D-Bus ones. The 2 skipped need a real BlueZ adapter. Verified in the image with podman on 2026-09-09, where it carries Swift **6.2.4** |
+| Linux build and test jobs | **`runs-on: ubuntu-latest` in `container: swift:6.2-noble`, added 2026-09-09, two of them mirroring the macOS pair.** `swift build`, a private `dbus-daemon` addressed through `DBUS_SYSTEM_BUS_ADDRESS`, then `swift test` less two tests by name, the build and the tests both through `su ci` because root ignores mode bits -- **1,047 tests**: the 1,042 the macOS jobs also run, plus 5 of the 7 D-Bus ones. The 2 skipped need a real BlueZ adapter. Verified in the image with podman on 2026-09-09, where it carries Swift **6.2.4** |
 | The `ubuntu-latest` aggregator | `all-tests-pass`. It requires the three jobs above and builds nothing. The one job branch protection names |
 
 **CI compiles and tests the project on both platforms, as of 2026-09-09.** Until then it did not, and the
@@ -498,7 +498,7 @@ remembering.
 | `libsqlite3-dev` | 3.45.1-1ubuntu2.7 | **installed 2026-09-07**, giving `/usr/include/sqlite3.h` and the unversioned `libsqlite3.so` |
 | `python3` | 3.12.3 | `/usr/bin/python3` (the system one) |
 | `python3-dbus` | 1.3.2 | importable as `dbus` |
-| `podman` | 4.9.3 | `/usr/bin/podman` (**installed 2026-09-09**), rootless with the `overlay` driver and `subuid`/`subgid` entries for the owner. What lets `scripts/ci-local.sh` run CI's `test-linux` job in the image it names rather than approximating it natively |
+| `podman` | 4.9.3 | `/usr/bin/podman` (**installed 2026-09-09**), rootless with the `overlay` driver and `subuid`/`subgid` entries for the owner. What lets `scripts/ci-local.sh` run CI's Linux job in the image it names rather than approximating it natively |
 | `python3-gi` | 3.48.2 | importable as `gi` |
 | `python3-pyatspi` | 2.46.1 | importable as `pyatspi` |
 | `bash` | **5.2.21(1)** | `/usr/bin/bash`, and `SHELL=/bin/bash` |

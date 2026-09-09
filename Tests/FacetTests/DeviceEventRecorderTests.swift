@@ -104,10 +104,28 @@ final class DeviceEventRecorderTests {
         #expect(column("start_time", ofRow: outcome.deviceEventID) == formatter.string(from: moment))
 
         // A real zone rather than the seeded Unknown fallback, resolved get-or-create by `TimezoneStore`.
-        #expect(database.string(
-                "SELECT timezone_name FROM timezone JOIN device_event USING (timezone_id) "
-                    + "WHERE device_event_id = \(outcome.deviceEventID);"
-            ) == TimeZone.current.identifier)
+        //
+        // **Compared through `timezone_lookup` rather than against the raw identifier**, because the two are
+        // different strings whenever the machine's zone is one of the 151 legacy aliases: a runner on `GMT`
+        // stores the canonical `Etc/GMT`, and `Cuba` would store `America/Havana`. That is `TimezoneStore`
+        // doing exactly what its doc comment says -- Foundation canonicalises none of them -- so it is not
+        // something for this test to object to. `DebugLogTests` had it right and this did not.
+        //
+        // Found on 2026-09-09 by the first CI run this branch ever had: green on two machines in
+        // Australia/Brisbane, red on a UTC runner, and reproducible anywhere with `TZ=GMT swift test`.
+        let storedZone = database.string(
+            "SELECT timezone_name FROM timezone JOIN device_event USING (timezone_id) "
+                + "WHERE device_event_id = \(outcome.deviceEventID);"
+        )
+        #expect(storedZone != "Unknown", "the seeded fallback means the zone was never resolved at all")
+        #expect(
+            storedZone == database.string(
+                "SELECT timezone_name FROM timezone WHERE timezone_id = "
+                    + "(SELECT timezone_id FROM timezone_lookup "
+                    + "WHERE timezone_name = '\(TimeZone.current.identifier)');"
+            ),
+            "the row should carry whatever canonical zone this machine's own zone resolves to"
+        )
     }
 
     @Test func testAFaceTheTableRefusesIsReportedRatherThanReturnedAsARow() {
