@@ -157,18 +157,25 @@ check_the_suite_was_run() {
   # every awk agrees on. The skip gate this replaced had the same bug and nobody saw it, because it only ran when
   # a skip existed and none ever did.
   #
-  # **Measured across three implementations on 2026-09-09**, once this check moved into `all-tests-pass` and so
-  # onto Linux. On the same stamp row, `[|]` gives `NF=7` and the right fields everywhere; `\|` mis-splits under
-  # **busybox awk** exactly as it does under macOS awk -- `NF=12`, `$3` coming back as `|` -- and happens to be
-  # harmless under **mawk**, which is what Debian and Ubuntu point `awk` at. So the bug reproduces in a second
-  # implementation and the fix is load-bearing rather than a macOS quirk, and mawk being forgiving is luck rather
-  # than a reason to relax it.
+  # **Measured across four implementations on 2026-09-09**, once this check moved into `all-tests-pass` and so
+  # onto Linux. On the same stamp row, `[|]` gives `NF=7` and the right fields in every one of them, and `\|`
+  # mis-splits in three of the four -- `NF=12` with `$3` coming back as the bar:
   #
-  # Both parser functions below were then driven against a doctored stamp under mawk and both bit: a row edited
-  # from `9 | 9` to `9 | 8` was reported as declaring 9 and running 8, and one edited to `0 | 0` was reported as
-  # declaring no checks at all, with the real stamp reporting neither. **What is still unestablished is the awk on
-  # the GitHub runner**, which is where this now actually runs; `gawk` is not installed on the Linux box, so that
-  # dialect is reasoned about rather than tested.
+  #     GNU Awk 5.2.1   [|] correct    \| mis-splits, and warns: escape sequence \| treated as plain |
+  #     macOS awk       --             \| mis-splits, which is the fail-open recorded above
+  #     busybox awk     [|] correct    \| mis-splits
+  #     mawk 1.3.4      [|] correct    \| happens to work
+  #
+  # **GNU awk is the one that matters, because it is what the runner uses**, and it mis-splits too -- so moving
+  # this check onto Linux did not quietly rescue the old bug, and the bracket expression is what holds it shut on
+  # the dialect CI actually runs. `mawk` is the only one of the four that tolerates the broken form, which is the
+  # trap rather than the reassurance: Debian and Ubuntu point `awk` at mawk by default, so a machine that had not
+  # installed gawk would pass this locally while CI failed open.
+  #
+  # Both parser functions below were driven against a doctored stamp under GNU Awk 5.2.1 -- the same version
+  # string the runner reports -- and both bit: a row edited from `9 | 9` to `9 | 8` was reported as declaring 9
+  # and running 8, and one edited to `0 | 0` was reported as declaring no checks at all, with the real stamp
+  # firing neither.
   #
   # Per script rather than as one number: "the run is 3 checks short" sends somebody to the table anyway, and the
   # table is what says which script and by how much.
@@ -314,9 +321,10 @@ echo "CI cannot run them: they drive a real window and read a real database."
 # **The awk is named rather than assumed, because this is the one check whose success proves nothing.** A
 # dialect that mis-splits `FS` compares every stamp row equal and passes everything silently -- see the `[|]`
 # comment in `check_the_suite_was_run` -- so a green tick here is not evidence the parsing worked. This check
-# moved into `all-tests-pass` on 2026-09-09 having only ever run under macOS awk, and the runner's own awk had
-# never been established: GitHub lists no awk package in its image manifest, so it is whatever Ubuntu defaults
-# to rather than a choice anybody made. Printing it puts the answer in every log from here on.
+# moved into `all-tests-pass` on 2026-09-09 having only ever run under macOS awk, so which awk it now meets was
+# worth establishing rather than inferring. **GitHub's image manifest lists no awk package at all**, which reads
+# as "whatever Ubuntu defaults to" and so as mawk -- and that inference was wrong: the runner reports GNU Awk
+# 5.2.1. This line is why that is known, and it keeps it known as the image moves.
 #
 # `|| true` because macOS awk has no `--version` and complains on stderr instead. A banner that cannot be read
 # is not a fault, and this line must never be the reason the gate fails.
