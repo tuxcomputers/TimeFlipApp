@@ -775,12 +775,12 @@ to-do item 12 rather than a piece of work in it.
 
 | | |
 |---|---|
-| `swift test` | **Runs. 1,066 tests, 0 failures, 60s wall** (2026-09-09) -- 590 under XCTest in 2.2s and 476 under swift-testing in 58s. That is 67 suites; **all 38 files excluded by name in `Package.swift` need AppKit, CoreBluetooth or a `FacetMac` type**, there being one exclusion list again |
+| `swift test` | **Runs. 1,095 tests, 0 failures, 61s wall** (2026-09-09) -- 590 under XCTest in 1.9s and 505 under swift-testing in 59s. That is 69 suites; **all 37 files excluded by name in `Package.swift` need AppKit, CoreBluetooth or a `FacetMac` type**, there being one exclusion list again |
 | `Tests/Scripted/` | **cannot run today**: no app binary to drive, and toolkit accessibility is off. The `sqlite3` half of that is fixed as of 2026-09-07 |
 | `swift build` | **Succeeds**, and builds no app -- the whole of why is below (2026-09-08) |
 | `swift build --target FacetCore` | **Succeeds**, 0.16s from a warm `.build` (2026-09-08) |
 
-**What the 1,066 are and are not.** They are the rules, the stores, the database layer and the device
+**What the 1,095 are and are not.** They are the rules, the stores, the database layer and the device
 protocol -- the half of the app that does not know what a window is -- exercised against real
 bootstrapped databases on this machine. They are not the UI, the radio or Google sign-in, none of which
 compiles here yet. The figure to compare them against is 1751, the whole suite on the Mac -- that being

@@ -2,7 +2,7 @@ import Foundation
 
 /// The radio as the reconnect loop needs it: what it is busy with, and the one instruction that reaches for a cube.
 ///
-/// **Five members, which is all `DeviceReconnector` touches.** `BluetoothRadio` is much larger than this, and every
+/// **Six members, which is all `DeviceReconnector` touches.** `BluetoothRadio` is much larger than this, and every
 /// other part of it belongs to whatever is talking to the cube rather than to the loop that decides when to try.
 ///
 /// Nothing here does any deciding. `DeviceReconnectRules` reads the four flags and answers whether an attempt is

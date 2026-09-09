@@ -20,7 +20,7 @@ moving is a finding that will be measured twice.
 | Does the app's core compile on Linux? | **Yes -- `FacetCore` entire**, 89 files, 0 errors, 0 warnings, from a deleted `.build` in 13s | 2026-09-07, Linux |
 | Does the logic behave? | **Yes**, 432 tests pass | 2026-09-06 |
 | Can the whole test suite run? | **Under XCTest no**, `@MainActor` blocks ~60%. **Under swift-testing yes** | 2026-09-06 |
-| Does any of the suite run on Linux? | **Yes. `swift test` passes 1,066 of 1,758 tests** across 67 suites -- 590 under XCTest in 2.2s, 476 under swift-testing in 58s. **All 38 files still excluded need AppKit, CoreBluetooth or a `FacetMac` type** and come back with items 10 and 11; there is one exclusion list again, the run-loop one having emptied | 2026-09-09, Linux |
+| Does any of the suite run on Linux? | **Yes. `swift test` passes 1,095 of 1,772 tests** across 69 suites -- 590 under XCTest in 1.9s, 505 under swift-testing in 59s. **All 37 files still excluded need AppKit, CoreBluetooth or a `FacetMac` type** and come back with items 10 and 11; there is one exclusion list again, the run-loop one having emptied | 2026-09-09, Linux |
 | Can Swift talk to BlueZ? | **Yes, in process, over libdbus.** `SystemBus` calls methods, marshals arguments both ways and receives signals with typed values; seven tests drive it against the real system bus | 2026-09-07, Linux |
 | Can it discover? | **Yes**, and the cube is found by `DeviceScanRules` -- the app's own rule, unchanged | 2026-09-07, Linux |
 | Can it drive the cube from Swift? | **Yes, every stage the app needs.** Connect, resolve, 16 characteristics by UUID, log in on the vendor PIN, read, the `0x10` status read-back parsed by the app's own rules, and **face turns arriving as notifications -- ten pushes over seven distinct faces**. Nothing but the PIN and `0x10` has been written | 2026-09-07, Linux |
@@ -240,11 +240,12 @@ timer plumbing untouched. That is what `fire()` is.
 | `WriteDebounce` | run green | yes, 2026-09-09 |
 | `LowBatteryWatch` | run green | yes, 2026-09-09 |
 | `DailyLimitWatch` | run green | **no** |
-| `DeviceReconnector` | **no suite at all** | no |
+| `DeviceReconnector` | run green, 14 tests | `attempt()` is one, 2026-09-09 |
 
-`DailyLimitWatch` is the one worth a second look: its tests pass here only because they never drive the
-timer, so that path is unverified on this platform and nothing in the suite says so. `DeviceReconnector`
-having no suite is candidate 2 of the architecture review, and its `RunLoop` is the reconnect backoff.
+`DailyLimitWatch` is the one left worth a second look: its tests pass here only because they never drive the
+timer, so that path is unverified on this platform and nothing in the suite says so. `DeviceReconnector` was
+the fifth and is done -- candidate 2 of the architecture review gave it a suite on 2026-09-09, and `attempt()`
+serves as its `fire()`, being what the backoff timer calls and all it calls.
 
 **A smaller Linux-only difference found beside it.** swift-corelibs-foundation does not mark
 `RunLoop.run(mode:before:)` `@discardableResult`, so the bare call warns here where it does not on Darwin.

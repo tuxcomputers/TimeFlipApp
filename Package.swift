@@ -69,7 +69,6 @@ let platformBoundTests = [
     "CreateStartsTimingTests.swift",
     "CubeNotFoundOfferTests.swift",
     "DevicePaneTests.swift",
-    "DeviceReconnectorOfferTests.swift",
     "EditableNameCellTests.swift",
     "FacesPaneTests.swift",
     "GoogleOAuthRulesTests.swift",

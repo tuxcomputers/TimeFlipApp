@@ -131,6 +131,8 @@ whatever its pause byte says, so pause is confirmed before the lock is sent.
 
 ### 2. `CubeRadio` is a hypothetical seam
 
+**Strong, and done on 2026-09-09. The seam is real now, and the diagnostic it was meant to yield came back negative -- see the end of this section.**
+
 **Strong.** `Sources/FacetCore/CubeRadio.swift:11-37`, `DeviceReconnector.swift:30` and `:99`,
 `Tests/FacetTests/DeviceReconnectorOfferTests.swift:63`, `Package.swift:61`.
 
@@ -157,6 +159,42 @@ polymorphically. One adapter is a hypothetical seam; two would make it real.
 **The proposal.** Write the in-memory adapter the split intended. Five members. It takes the file off the
 exclusion list and reaches `attempt()` (`DeviceReconnector.swift:126`) and `scheduleAttempt()` (`:264`),
 neither of which any test drives.
+
+#### What was done, 2026-09-09
+
+`Tests/FacetTests/InMemoryCubeRadio.swift`, 64 lines, is the second conformance. **Six members, not five** --
+the protocol's own comment said five and was one out, `forgetWhatWasFound` having been added without the count
+moving; that is corrected. Applying the deletion test again now fails, which is the point: two adapters make it
+a seam.
+
+- **`DeviceReconnectorOfferTests` is off the exclusion list**, 37 files there now rather than 38, and it no
+  longer builds a concrete macOS class for a module with no platform dependency. It kept its 15 tests and
+  gained the ability to assert `forgetWhatWasFound`, which it could not see before.
+- **`attempt()` is internal**, which is all it needed -- unlike the three `fire()` extractions of the same day
+  it was already the timer's whole body, so only the `private` was in the way.
+- **`DeviceReconnectorAttemptTests`, 14 tests**, drives `attempt()` and `scheduleAttempt()`. Mostly it asserts
+  the first rule in `CLAUDE.md`, which this module's doc comment is emphatic about and nothing checked: the
+  device, both names, the candidate PINs and the rotation target are read from the table *per attempt*, so a
+  rename lands on the next try and a forget stops the loop. A loop reading stale values looked identical from
+  outside until there was a double to record the arguments twice.
+- **The rotation target is the one that would have bitten.** `rotatingTo` is a closure because a release build
+  picks six random digits each time, so a captured target would put the same PIN on every cube a launch met.
+  Nothing tested that; a captured value passes every other test in the file.
+- **Mutation-tested rather than assumed.** Three deliberate breaks -- capture the rotation target, stop passing
+  the radio's `isScanning` through, read the remembered name from a literal -- were each caught by the
+  intended test. A suite that passes first time is worth checking bites.
+
+**The diagnostic came back negative, and that is a result.** *The sequence worth doing them in* proposed this
+as the cheap evidence for candidate 1: "if `DeviceReconnector` proves awkward to drive through those five
+members, that is the cheapest possible evidence that the seam is in the wrong place." It was not awkward. The
+six members were exactly what the loop needed, the double took 64 lines, and nothing had to be contorted to
+drive either private path.
+
+**What that does and does not say about candidate 1.** It does not weaken it, because the two are seams for
+different things: `CubeRadio` is the seam for the *reconnect loop*, and candidate 1 is about the seam under the
+~1,480 lines of *protocol sequencing* in `DeviceLogin` and `BluetoothRadio`, which `CubeRadio` does not touch.
+So this exercise says the reconnect seam is in the right place and offers no evidence either way about the
+sequencing one. Candidate 1 has to be argued on its own terms rather than inheriting a verdict from here.
 
 ### 3. One secret store, four copies of its answer
 
@@ -471,10 +509,11 @@ its colours are semantic AppKit ones; `name(of:)` is evidence the app already ne
    this listed as open was answered by neither option it named: not an injected `RunLoop` but a `fire()`
    extracted in each of the two, so their tests drive the timeout body instead of a run loop. What is
    genuinely left of this candidate is the falsifiability gate below, and nothing else.
-2. **Candidate 2 next**, because it is a day and it is diagnostic. Writing the in-memory adapter for
-   `CubeRadio` collects the leverage the FacetCore split promised. If `DeviceReconnector` proves awkward to
-   drive through those five members, that is the cheapest possible evidence that the seam is in the wrong
-   place, which is candidate 1's claim.
+2. ~~**Candidate 2 next**, because it is a day and it is diagnostic.~~ **Done 2026-09-09**, and it took an
+   hour rather than a day. The leverage the split promised is collected: a second conformance, a file off the
+   exclusion list, and 14 tests on two paths nothing drove. **The diagnostic came back negative** -- driving
+   `DeviceReconnector` through those members was not awkward at all -- so it yields no evidence for candidate
+   1, which is a different seam under a different concern and has to be argued on its own terms.
 3. **Then candidate 1**, which is the one that pays: ~1,480 lines of untested portable sequencing, and a
    rewrite budgeted at 600 to 1,000 lines that becomes an adapter instead.
 

@@ -1,39 +1,42 @@
-@testable import FacetMac
 @testable import FacetCore
-import XCTest
+import Foundation
+import Testing
 
 /// Covers the branch a paired launch takes when it cannot find its cube: whether it asks, and what each answer does.
 ///
-/// **Hermetic, and it stays that way because `device_uuid` is left empty.** The reconnector never touches a radio
-/// without a device to reach for -- `DeviceReconnectRules.target` answers `nil` and the attempt stops there -- so a
-/// `BluetoothRadio` can be built here and driven through the whole decision without a scan, a cube, or the system's
-/// Bluetooth prompt. What a real reconnection does is a device run's answer (see `Tests/Scripted`).
-@MainActor
-final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
-    private var database: TemporaryDatabase!
+/// **Hermetic because the radio is a double**, which it was not until 2026-09-09. This file built a real
+/// `BluetoothRadio` -- a concrete macOS class -- for a loop that depends only on `CubeRadio`, and got away with it
+/// because `device_uuid` is left empty: `DeviceReconnectRules.target` then answers `nil` and the attempt stops
+/// before the radio is touched. That is the bypass `docs/architecture-review-2026-09.md` candidate 2 names, and it
+/// is why this file sat on the Linux exclusion list for a module with no platform dependency at all.
+/// `InMemoryCubeRadio` took its place and the file runs on both platforms now.
+///
+/// **The empty `device_uuid` is still what most of these tests want**, the offer being about a cube that cannot be
+/// found -- but it is now a choice about the case under test rather than the thing keeping the suite honest. What a
+/// real reconnection does is still a device run's answer (see `Tests/Scripted`).
+@Suite @MainActor
+final class DeviceReconnectorOfferTests {
+    private let database: TemporaryDatabase
     private var settings: SettingStore!
     /// A real log, because what the loop does once it has stood down is *nothing* -- and the only way to tell nothing
     /// from a thing that failed silently is the row it writes on the way past.
     private var debugLog: DebugLog!
+    /// The radio the loop talks to: a test sets its flags and reads back what it was asked to reach for.
+    private let radio = InMemoryCubeRadio()
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
-        try MainActor.assumeIsolated {
-            database = TemporaryDatabase()
-            try database.bootstrap()
-            try database.bootstrapDebug()
-            settings = SettingStore(connection: database.connection())
-            debugLog = DebugLog(databaseURL: database.debugURL, isRecording: true)
-        }
+    init() throws {
+        database = TemporaryDatabase()
+        try database.bootstrap()
+        try database.bootstrapDebug()
+        settings = SettingStore(connection: database.connection())
+        debugLog = DebugLog(databaseURL: database.debugURL, isRecording: true)
     }
 
-    override func tearDown() {
-        MainActor.assumeIsolated {
-            debugLog = nil
-            settings = nil
-            database.remove()
-        }
-        super.tearDown()
+    deinit {
+        // **`deinit` rather than `tearDown`, and it is not isolated.** Releasing the stored properties by hand is
+        // what the old `MainActor.assumeIsolated` block was for; the instance is discarded whole here, so removing
+        // the directory is all that is left. `database` is a `let` for the same reason.
+        database.remove()
     }
 
     /// Whether the log holds a row matching `pattern`, which is a SQL `LIKE`.
@@ -47,7 +50,7 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
     }
 
     private func setPaired(_ paired: Bool) {
-        XCTAssertTrue(
+        #expect(
             database.execute(
                 "UPDATE setting SET setting_value = '{\"paired\":\(paired)}' WHERE setting_name = 'paired';"
             )
@@ -61,7 +64,7 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
         asked: @escaping (String) -> Void = { _ in }
     ) -> DeviceReconnector {
         let loop = DeviceReconnector(
-            radio: BluetoothRadio(debugLog: nil),
+            radio: radio,
             settings: settings,
             debugLog: debugLog,
             storedPINs: { [] }
@@ -73,17 +76,17 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
         return loop
     }
 
-    func testAPairedLaunchThatCannotFindItsCubeAsks() {
+    @Test func testAPairedLaunchThatCannotFindItsCubeAsks() {
         setPaired(true)
         var reasons: [String] = []
         let loop = reconnector(asked: { reasons.append($0) })
 
         loop.noteOutcome(.unreachable)
 
-        XCTAssertEqual(reasons, ["nothing answered"])
+        #expect(reasons == ["nothing answered"])
     }
 
-    func testTheReasonSaysWhichProblemItWas() {
+    @Test func testTheReasonSaysWhichProblemItWas() {
         // A cube that answered and refused the PIN is a different problem with a different fix from one that was not
         // there, and this line is the only place the two can be told apart.
         setPaired(true)
@@ -92,12 +95,12 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
 
         loop.noteOutcome(.wrongPIN)
 
-        XCTAssertEqual(reasons.count, 1)
-        XCTAssertEqual(reasons.first, CubeNotFoundOffer.reason(for: .wrongPIN))
-        XCTAssertNotEqual(reasons.first, CubeNotFoundOffer.reason(for: .unreachable))
+        #expect(reasons.count == 1)
+        #expect(reasons.first == CubeNotFoundOffer.reason(for: .wrongPIN))
+        #expect(reasons.first != CubeNotFoundOffer.reason(for: .unreachable))
     }
 
-    func testAnUnpairedAppIsNeverAsked() {
+    @Test func testAnUnpairedAppIsNeverAsked() {
         // There is no cube on record, so there is nothing to have failed to find and nothing to offer an alternative
         // to. An app with nothing paired is already its own clock, that being what timing by hand means.
         setPaired(false)
@@ -106,10 +109,10 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
 
         loop.noteOutcome(.unreachable)
 
-        XCTAssertEqual(asked, 0)
+        #expect(asked == 0)
     }
 
-    func testOnceTheCubeHasBeenReachedALaterFailureIsQuiet() {
+    @Test func testOnceTheCubeHasBeenReachedALaterFailureIsQuiet() {
         // The startup-only rule, through the loop: a drop hours later is retried on the backoff with no dialog.
         setPaired(true)
         var asked = 0
@@ -118,10 +121,10 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
         loop.noteOutcome(.loggedIn)
         loop.noteOutcome(.unreachable)
 
-        XCTAssertEqual(asked, 0)
+        #expect(asked == 0)
     }
 
-    func testRescanAsksAgainIfTheCubeIsStillNotThere() {
+    @Test func testRescanAsksAgainIfTheCubeIsStillNotThere() {
         // Rescan is one more attempt and the same question if that finds nothing too. The attempt it starts stops at
         // `device_uuid`, which is empty here, so what is asserted is the loop coming back round rather than a scan.
         setPaired(true)
@@ -131,10 +134,10 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
         loop.noteOutcome(.unreachable)
         loop.noteOutcome(.unreachable)
 
-        XCTAssertEqual(asked, 2)
+        #expect(asked == 2)
     }
 
-    func testChoosingToTimeByHandStopsThisLaunchLookingForTheCube() {
+    @Test func testChoosingToTimeByHandStopsThisLaunchLookingForTheCube() {
         // **The whole of what the answer promises, and it is per launch.** Paired, started, cube not found, timing by
         // hand chosen: nothing looks for that cube again until the app is restarted. Every route in is tried here --
         // another failed outcome, and a drop -- because the two gates that enforce it are in different methods, and
@@ -147,13 +150,13 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
         loop.noteDropped()
         loop.noteOutcome(.unreachable)
 
-        XCTAssertEqual(asked, 1, "the question came back after it had already been answered")
-        XCTAssertTrue(logged("Time by hand chosen%"))
-        XCTAssertTrue(logged("This launch was told to time by hand%"))
-        XCTAssertFalse(logged("Looking for the cube again%"), "and nothing was arranged behind the answer")
+        #expect(asked == 1, "the question came back after it had already been answered")
+        #expect(logged("Time by hand chosen%"))
+        #expect(logged("This launch was told to time by hand%"))
+        #expect(!(logged("Looking for the cube again%")), "and nothing was arranged behind the answer")
     }
 
-    func testChoosingToTimeByHandMakesTheAppItsOwnClock() {
+    @Test func testChoosingToTimeByHandMakesTheAppItsOwnClock() {
         // **The half that was missing, and the reason this bug existed.** The loop stopping is not the point of the
         // answer: being able to work is. `ManualTimerRules.isManualMode` reads this flag, so what is asserted here is
         // the flag it reads -- with the pairing deliberately checked as well, because the cube staying on record is
@@ -163,18 +166,18 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
 
         loop.noteOutcome(.unreachable)
 
-        XCTAssertTrue(loop.hasGivenUpOnCube)
-        XCTAssertTrue(
+        #expect(loop.hasGivenUpOnCube)
+        #expect(
             ManualTimerRules.isManualMode(isCubePaired: true, hasGivenUpOnCube: loop.hasGivenUpOnCube),
             "the app is still following a cube it has been told to get on without"
         )
-        XCTAssertEqual(
-            settings.flag("paired", field: "paired"), true,
+        #expect(
+            settings.flag("paired", field: "paired") == true,
             "the answer wrote the pairing away, so the cube cannot be come back to"
         )
     }
 
-    func testChoosingToTimeByHandRedrawsWhatCannotAskAgainOnItsOwn() {
+    @Test func testChoosingToTimeByHandRedrawsWhatCannotAskAgainOnItsOwn() {
         // The menu bar's tick does not run while nothing is being timed and the Faces tab repaints on a flip that
         // cannot arrive, so both are redrawn from here. Asserted because it is invisible: without it the answer is
         // correct everywhere and looks like it did nothing until something else happens to repaint.
@@ -185,10 +188,10 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
 
         loop.noteOutcome(.unreachable)
 
-        XCTAssertEqual(redraws, 1)
+        #expect(redraws == 1)
     }
 
-    func testQuitAsksToTerminateAndDecidesNothingElse() {
+    @Test func testQuitAsksToTerminateAndDecidesNothingElse() {
         // **Quit commits to nothing**, which is what it is for: the pairing is untouched, this launch is not made its
         // own clock, and the next launch therefore asks the same question. Nothing is arranged either, since the
         // process is going away.
@@ -199,14 +202,14 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
 
         loop.noteOutcome(.unreachable)
 
-        XCTAssertEqual(quits, 1)
-        XCTAssertFalse(loop.hasGivenUpOnCube, "quitting decided the launch was its own clock on the way out")
-        XCTAssertEqual(settings.flag("paired", field: "paired"), true)
-        XCTAssertTrue(logged("Quit chosen at the device offer%"))
-        XCTAssertFalse(logged("Looking for the cube again%"))
+        #expect(quits == 1)
+        #expect(!loop.hasGivenUpOnCube, "quitting decided the launch was its own clock on the way out")
+        #expect(settings.flag("paired", field: "paired") == true)
+        #expect(logged("Quit chosen at the device offer%"))
+        #expect(!(logged("Looking for the cube again%")))
     }
 
-    func testAnUnansweredOfferLeavesTheLoopWaiting() {
+    @Test func testAnUnansweredOfferLeavesTheLoopWaiting() {
         // The state the app spends the dialog in: asked, and nothing decided. Neither answer's consequence is in
         // place, and no attempt runs behind it.
         setPaired(true)
@@ -214,8 +217,8 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
 
         loop.noteOutcome(.unreachable)
 
-        XCTAssertFalse(loop.hasGivenUpOnCube)
-        XCTAssertFalse(logged("Looking for the cube again%"))
+        #expect(!loop.hasGivenUpOnCube)
+        #expect(!(logged("Looking for the cube again%")))
     }
 
     // MARK: - forgetting the device ends the loop, without a restart
@@ -227,7 +230,7 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
         return reconnector()
     }
 
-    func testADropSchedulesNothingOnceTheDeviceIsForgotten() {
+    @Test func testADropSchedulesNothingOnceTheDeviceIsForgotten() {
         // The gate in `attempt` would stand the attempt down anyway. What this is about is the arranging: without it
         // the log says "Looking for the cube again in 8s" and then quietly does not, which is a record of an app still
         // hunting for a cube it no longer has.
@@ -235,31 +238,31 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
 
         loop.noteDropped()
 
-        XCTAssertFalse(logged("Looking for the cube again%"), "an attempt was scheduled with nothing paired")
+        #expect(!(logged("Looking for the cube again%")), "an attempt was scheduled with nothing paired")
     }
 
-    func testAFailedOutcomeSchedulesNothingEither() {
+    @Test func testAFailedOutcomeSchedulesNothingEither() {
         // The other way into the scheduler. Both are covered by the one gate, and both are checked, because a gate
         // that covered one of two callers would be a loop that stopped only for some kinds of failure.
         let loop = loopWithNothingPaired()
 
         loop.noteOutcome(.unreachable)
 
-        XCTAssertFalse(logged("Looking for the cube again%"))
+        #expect(!(logged("Looking for the cube again%")))
     }
 
-    func testNothingIsArrangedForADeviceNobodyHas() {
+    @Test func testNothingIsArrangedForADeviceNobodyHas() {
         // An unpaired app never reaches the offer at all: `noteOutcome` stands down before it, since a failure to
         // reach a cube nobody has is not news. What is checked here is the end of it -- no attempt arranged either.
         let loop = loopWithNothingPaired()
 
         loop.noteOutcome(.unreachable)
 
-        XCTAssertFalse(logged("Looking for the cube again%"))
-        XCTAssertFalse(logged("Offering manual mode%"))
+        #expect(!(logged("Looking for the cube again%")))
+        #expect(!(logged("Offering manual mode%")))
     }
 
-    func testTheLoopReadsThePairingPerAttemptRatherThanRemembering() {
+    @Test func testTheLoopReadsThePairingPerAttemptRatherThanRemembering() {
         // **The whole of what makes a forget take effect without a restart, and a pairing too.** The loop is built
         // once and lives for the launch, so a copy of the answer taken when it was built would go on chasing a cube
         // the user gave up -- and would sit still beside one they had just paired. Both directions are driven here
@@ -267,20 +270,20 @@ final class DeviceReconnectorOfferTests: XCTestCase, @unchecked Sendable {
         setPaired(false)
         let loop = reconnector()
         loop.noteDropped()
-        XCTAssertFalse(logged("Looking for the cube again%"), "precondition: nothing paired, so nothing arranged")
+        #expect(!(logged("Looking for the cube again%")), "precondition: nothing paired, so nothing arranged")
 
         setPaired(true)
         loop.noteDropped()
 
-        XCTAssertTrue(logged("Looking for the cube again%"), "a cube paired mid-launch is followed without a restart")
+        #expect(logged("Looking for the cube again%"), "a cube paired mid-launch is followed without a restart")
     }
 
-    func testWithNoPresenterItRetriesRatherThanStopping() {
+    @Test func testWithNoPresenterItRetriesRatherThanStopping() {
         // A build with nowhere to put a dialog must not quietly stop reaching for the cube: an app that gave up with
         // no way to say so would simply look broken.
         setPaired(true)
         let loop = DeviceReconnector(
-            radio: BluetoothRadio(debugLog: nil),
+            radio: radio,
             settings: settings,
             debugLog: nil,
             storedPINs: { [] }

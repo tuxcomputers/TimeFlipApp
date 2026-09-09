@@ -123,7 +123,14 @@ package final class DeviceReconnector {
     }
 
     /// Reaches for the cube, or stands down until something changes.
-    private func attempt() {
+    ///
+    /// **Internal so a test can take the place of the run loop**, which is the bargain `HistoryTimer.fire`,
+    /// `WriteDebounce.fire` and `LowBatteryWatch.fire` all make. `scheduleAttempt` arms a `Timer` on `RunLoop.main`,
+    /// and a `@MainActor` swift-testing test is not on the main thread on Linux, so that timer never fires there
+    /// (`docs/linux-port.md`, *`@MainActor` is not the main thread*). Calling this is the whole of what the timer
+    /// does, so driving it directly skips `Timer` and nothing else. Unlike those three it needed no extracting --
+    /// it was already the body, and only the `private` was in the way.
+    func attempt() {
         next?.invalidate()
         next = nil
 
