@@ -119,6 +119,75 @@ Already paid for, and the audit names each one:
 So check the collisions section before reusing a name, and the alias table before inventing one. A branch that
 coins a synonym is the next row in that table.
 
+## The core is platform-blind, and every platform capability is a port
+
+**`FacetCore` holds no adapter and chooses no adapter.** It states what it needs as a protocol, and something
+outside it hands over the thing that does it. The core must not know whether it is running on a Mac, on Linux or
+on anything else, and it must not be able to find out.
+
+That is the whole rule. What follows is what it means in practice, why it is worth the ceremony, and how it is
+checked.
+
+**Every capability the platform provides is a *port*: a protocol in the core, named for what it does rather than
+for what performs it.** A store of secrets, not a Keychain. A radio, not CoreBluetooth. A menu bar, not
+`NSStatusItem`. The name is load-bearing, because a protocol called `KeychainStore` has already decided the
+answer and the second adapter arrives reading like a lie.
+
+**An adapter lives in the platform target**, `FacetMac` or `FacetLinux`, and **the composition root injects it**.
+`main.swift` is the only place that knows both halves, which is exactly what a composition root is for. A core
+type that picks its own implementation, however small the `#if`, is the core caring what platform it is on.
+
+**Modules of the same name interact identically on every platform.** A caller written against a port reads the
+same on both, and a difference between platforms is a difference between adapters and nowhere else. This is what
+makes the port worth having: not that the implementation *can* be swapped, but that nothing above it has to be
+read twice to find out whether it was.
+
+### The shape, in one example that is already right
+
+`Sources/FacetLinux/MenuBar.swift` is 191 lines of GTK that decides nothing:
+
+```swift
+private let label: @MainActor () -> (text: String, guide: String)
+private let items: @MainActor () -> [Item]
+// "Closures rather than values, so this type reads and never remembers."
+```
+
+The core does not know GTK exists and the adapter does not know what a category is. Its macOS counterpart,
+`MenuBarController`, is 679 lines and is **not** this shape yet. Point at the Linux one when in doubt.
+
+### What is an adapter, and what is merely a portability shim
+
+The rule is about adapters and not about the other thing, and conflating them makes it unusable.
+
+- **An adapter** performs a capability by talking to something only this platform has: `KeychainSecretStore`,
+  `BlueZRadio`, `SystemBus`, `BlueZGatt`. These belong in a platform target. Where one sits in the core today it
+  is on the allowlist below, and the allowlist is meant to empty.
+- **A portability shim** is the same code reaching the same Foundation through a different spelling:
+  `#if canImport(FoundationNetworking)` for `URLSession`, `CGFloat` behind `canImport(CoreGraphics)`, `setvbuf`
+  guarded to Darwin. These are noise rather than architecture and may stay in the core. They are not a licence to
+  put a decision behind one.
+
+The test between them: **would a third platform need a different implementation, or merely a different import?**
+Different implementation is a port. Different import is a shim.
+
+### It is checked rather than trusted
+
+`Tests/FacetTests/PlatformBlindCoreTests.swift` reads `Sources/FacetCore` and fails on a platform conditional it
+does not recognise, against a **shrinking allowlist** of what is known to be wrong today. Same tactic as
+`Package.swift`'s two exclusion lists and `LinkEndedFanOutTests`, and for the same reason: the type system will
+not answer "is anything violating this", so something has to read the sources.
+
+The allowlist is the debt, written down. **Adding to it is a decision to be argued for; removing from it is the
+work.** A new adapter in the core fails the test rather than joining the list quietly.
+
+### What this rule does not settle
+
+**The database rule and a remote backend are in tension, and this rule does not resolve it.** The first design
+rule says read from the database at the moment it is needed, every time, which is right for a local file and is a
+network round trip per question over an API. Whether the rule relaxes for a remote adapter, or the adapter is
+obliged to make reads cheap, is an open decision. It has to be settled before a non-SQLite adapter is written,
+and settled here rather than inside whoever writes it.
+
 ## The previous implementation is in the git history, not in the tree
 
 The app was rebuilt from the ground up, and the previous implementation used to sit in `Archive/`. It was
