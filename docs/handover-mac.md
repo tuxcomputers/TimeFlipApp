@@ -153,3 +153,70 @@ All four are covered hermetically. Face turns and double taps are not this clust
 
 **So what is left of item 15 is the other four clusters and a run.** The reach and candidate order, the reset
 proof, the history fetch and the PIN rotation machine are untouched. This item stays put.
+
+## 23. Five files of yours changed from here and not one of them has been compiled
+
+**The Linux port needed things that were written down inside `FacetMac`**, and moving them is what item 20 of
+`handover-linux.md` asked for in one case and what the two-copies rule forced in the others. `FacetMac` is not in
+this platform's package -- `swift build --target FacetMac` answers `error: no target named 'FacetMac'` -- so
+every one of these is unverified here and `swift build && swift test` on your side is what says they are right.
+
+**What changed, and why each one had to:**
+
+- **`Sources/FacetMac/BLETrace.swift` is now the `CBUUID` spellings and no wording of its own.** All ten
+  `ble-tx`/`ble-rx` rows moved to `FacetCore/BLETrace.swift`, keyed on UUID strings. They are read back by
+  `Tests/Scripted` with `LIKE` and `GLOB`, which makes them interface, and BlueZ writing a second copy would have
+  been two traces diverging one row at a time. **Every wording is byte-identical**; the errors are turned into
+  strings on each side, which is the only real seam.
+- **`TimeFlipUUIDs.name(for: CBUUID)` is deleted**, nothing calling it once the rows named their own UUIDs from
+  the core's one table. That is the answer `feature/commandChannel` got for `linkEnded()`.
+- **`DevicePane.Values.seeded` reads its five device settings from `DeviceSettingsSync.Stored.seeded`.** Those
+  numbers are `database/011_setting.sql`'s own seeds and a second composition root needs them; two copies of a
+  seed diverge the next time the DDL moves one. The fields of `Stored` are `package` now so they can be read.
+- **`StatusItemMenu.openSettings` is optional**, and `nil` means the Settings line is not drawn. Your call site
+  passes a closure, so nothing changes for you. It is there because this platform has no window to open and a
+  line that opens nothing is the fault `choose: nil` already rules out one level down.
+- **`BLETraceTests` came off `platformBoundTests`** (33 files to 32) and no longer imports `FacetMac` or
+  CoreBluetooth: what it checks is the hex rendering and the name fallback, both core now.
+
+**What I would check first**, in the order the risk runs: that `FacetMac` compiles at all, that
+`BLETraceTests` and `MenuBarControllerTests` still pass, and that the Device tab still shows the seeded numbers
+on a fresh database.
+
+**And the one that only a scripted run can answer**, whenever the suite comes back: the `ble-tx`/`ble-rx` rows
+are what `51-device-connect` and its neighbours read, and I have moved every one of them between files. The
+wordings are unchanged and `BLETraceTests` checks the rendering, but neither of those is the same as a check
+that actually matched one.
+
+## 24. There is a gate now that fails on your side when an isolated XCTestCase is written
+
+**`AnIsolatedXCTestCaseAbortsTheLinuxRunTests` runs on both platforms and will fail on yours**, which is the
+point of it rather than a side effect.
+
+**What it is for.** On Linux an `@MainActor` `XCTestCase` aborts the whole test executable at load time --
+corelibs-XCTest reflects a test method's type and an isolated one does not cast -- so one of them costs every
+other suite in the binary. On 2026-09-11 three had appeared since the suite was last cleared on 2026-09-09, and
+all 671 XCTest tests reported nothing at all. `docs/linux-port.md` has the measurement.
+
+**The attribute costs nothing on your side**, which is exactly why it keeps coming back: the author cannot see
+it, the machine that can is not the one being typed at, and the crash names one class while destroying the run
+of every other. So the check fails at the moment the attribute is written rather than at the next pull.
+
+**Two ways out and it says which to take.** If the subject really is `@MainActor`, make the file a
+`@Suite @MainActor` swift-testing suite -- `QuitSequenceTests` is the worked example and `docs/linux-port.md`
+has the conversion table. If it is not, delete the attribute: two of the three found on 2026-09-11 were
+carrying isolation left behind by a subject that had moved into the core and stopped touching AppKit, which the
+ports remodel will keep producing.
+
+**It reads the exclusion list out of `Package.swift` rather than keeping a copy**, so a file coming off that
+list is checked from that moment without anybody remembering to say so.
+
+**Three files changed to satisfy it, and their assertions are untouched**: `QuitSequenceTests` became a
+swift-testing suite, `StatusItemTitleTests` lost a class-level `@MainActor` it stopped needing when
+`StatusItemTitle` moved into the core, and `CubeNotFoundOfferTests` lost it from three methods that were
+asserting against a `Dialogue` value rather than an `NSAlert`.
+
+**`HandDrivenScheduler` gained two things while I was there**, both of which your suites use: `tickAll` now
+skips a wake cancelled earlier in the same pass, and there is a `tickAll(after:)` for a subject holding several
+wakes at once. The first is a bug fix -- a module that arms a poll and a deadline together cancels the second
+from inside the first, and firing it anyway runs a timeout whose work has already happened.
