@@ -1,4 +1,3 @@
-import CoreBluetooth
 import FacetCore
 import Foundation
 
@@ -63,7 +62,12 @@ final class DeviceLogin: NSObject {
         case confirming
     }
 
-    private let peripheral: CBPeripheral
+    private let gatt: CubeGatt
+
+    /// Which services the cube turned out to have, canonical. **Kept because the answer accumulates and the
+    /// question does not identify itself**: three discoveries are asked for and each reply carries everything
+    /// found so far, so "is the battery service there yet" can only be asked of what has arrived.
+    private var services: Set<String> = []
     private let pin: String
     private let rotatingTo: String?
     private let debugLog: DebugLog?
@@ -140,9 +144,9 @@ final class DeviceLogin: NSObject {
 
     private var deadline: ScheduledWake?
     private var isFinished = false
-    private var password: CBCharacteristic?
-    private var commandResult: CBCharacteristic?
-    private var command: CBCharacteristic?
+    private var password: String?
+    private var commandResult: String?
+    private var command: String?
 
     /// The history characteristic, which is its own channel: a request is written to it and the answer arrives on it.
     ///
@@ -150,7 +154,7 @@ final class DeviceLogin: NSObject {
     /// here exists because one characteristic answers three different questions and a value on it is otherwise
     /// unattributable. History has none of that problem -- the only thing that ever arrives here is history -- so a
     /// fetch can be out at the same time as a command without either having to know about the other.
-    private var history: CBCharacteristic?
+    private var history: String?
 
     /// The history request that is out, if any.
     private var fetch: HistoryFetch?
@@ -197,7 +201,7 @@ final class DeviceLogin: NSObject {
         scheduler: scheduler,
         transmit: { [weak self] payload in
             guard let self, let command = self.command else { return }
-            self.write(payload, to: command, type: .withResponse)
+            self.write(payload, to: command, expectingAcknowledgement: true)
         },
         readResult: { [weak self] in
             guard let self, let commandResult = self.commandResult else { return }
@@ -231,7 +235,7 @@ final class DeviceLogin: NSObject {
     private var tapDeadline: ScheduledWake?
     /// The characteristics asked for and not yet answered. Built from what discovery actually found rather than from
     /// the four that were asked for, so a cube missing one does not leave this waiting on a read nobody will answer.
-    private var awaitingInfo: Set<CBUUID> = []
+    private var awaitingInfo: Set<String> = []
     private var info = DeviceInfo()
     private var infoDeadline: ScheduledWake?
 
@@ -255,7 +259,7 @@ final class DeviceLogin: NSObject {
     ///     command is read back. Unlike the two above, the cube never volunteers this: nothing is pushed when a
     ///     double tap pauses it, so what arrives here is only ever an answer to a question this app asked.
     init(
-        peripheral: CBPeripheral,
+        gatt: CubeGatt,
         pin: String,
         rotatingTo: String?,
         debugLog: DebugLog?,
@@ -278,7 +282,7 @@ final class DeviceLogin: NSObject {
         finished: @escaping (DeviceLoginOutcome) -> Void
     ) {
         self.scheduler = scheduler
-        self.peripheral = peripheral
+        self.gatt = gatt
         self.pin = pin
         self.rotatingTo = rotatingTo
         self.debugLog = debugLog
@@ -300,7 +304,7 @@ final class DeviceLogin: NSObject {
 
     /// Starts the exchange on a peripheral that is already connected.
     func begin() {
-        peripheral.delegate = self
+        gatt.events = self
         deadline?.cancel()
         deadline = scheduler.wake(in: Self.timeoutSeconds) { [weak self] in
             self?.debugLog?.record(.login, "The cube stopped answering part way through the login")
@@ -310,7 +314,7 @@ final class DeviceLogin: NSObject {
         // everything here would be several round trips spent in front of the one answer somebody is waiting for --
         // which is why Device Information is discovered separately once the verdict is out (`readDeviceInfo`), and
         // why battery will be too.
-        discoverServices([TimeFlipUUIDs.service])
+        discoverServices([TimeFlipUUIDs.serviceString])
     }
 
     private func finish(_ outcome: DeviceLoginOutcome) {
@@ -371,7 +375,7 @@ final class DeviceLogin: NSObject {
             }
             let payload = Data([DeviceLoginRules.factoryReset])
             self.debugLog?.record(.pair, "Sending the factory reset command")
-            self.write(payload, to: command, type: .withResponse)
+            self.write(payload, to: command, expectingAcknowledgement: true)
         }
     }
 
@@ -469,7 +473,7 @@ final class DeviceLogin: NSObject {
         debugLog?.record(.history, "Asking the cube for \(what)")
         // **Written with a response.** A request that never reached the cube and one it is still thinking about look
         // identical from here, and the deadline would blame the cube for a write that was dropped.
-        write(payload, to: history, type: .withResponse)
+        write(payload, to: history, expectingAcknowledgement: true)
     }
 
     /// Ends the fetch that is out, with whatever it has.
@@ -553,7 +557,9 @@ final class DeviceLogin: NSObject {
     /// **`begin` asked for the TimeFlip service alone and this asks for a second one**, rather than the two being
     /// discovered together at the start. That is the same reasoning `begin` gives, now paid off: a login that waited
     /// on a service it does not need would spend round trips in front of the only answer anybody is waiting for.
-    private func readDeviceInfo() {
+    /// Internal so the sequence can be driven from a test. Nothing outside this file calls it: the login
+    /// reaches it on its own once a PIN is accepted.
+    func readDeviceInfo() {
         isReadingDeviceInfo = true
         infoDeadline?.cancel()
         infoDeadline = scheduler.wake(in: Self.infoTimeoutSeconds) { [weak self] in
@@ -561,7 +567,7 @@ final class DeviceLogin: NSObject {
             self?.reportDeviceInfo()
         }
         debugLog?.record(.info, "Asking the cube what it is")
-        discoverServices([TimeFlipUUIDs.deviceInformation])
+        discoverServices([TimeFlipUUIDs.deviceInformationString])
     }
 
     /// Hands over what arrived, whether that is four values, some of them, or none.
@@ -591,14 +597,18 @@ final class DeviceLogin: NSObject {
     }
 
     /// Files one answered read, and reports the lot once nothing is outstanding.
-    private func received(_ value: Data?, for uuid: CBUUID) {
-        guard awaitingInfo.remove(uuid) != nil else { return }
+    private func received(_ value: Data?, for uuid: String) {
+        // **Canonical on both sides of every comparison in here.** The four Device Information UUIDs are written
+        // in the vendor's 16-bit shorthand (`2A29`) and arrive expanded, so a switch over the shorthand matches
+        // nothing at all: the values would be read, filed nowhere, and the tab would sit empty with no error.
+        let arrived = TimeFlipUUIDs.canonical(uuid)
+        guard awaitingInfo.remove(arrived) != nil else { return }
         let text = DeviceInfoRules.reported(value)
-        switch uuid {
-        case TimeFlipUUIDs.manufacturerName: info.manufacturer = text
-        case TimeFlipUUIDs.modelNumber: info.model = text
-        case TimeFlipUUIDs.hardwareRevision: info.hardware = text
-        case TimeFlipUUIDs.firmwareRevision: info.firmware = text
+        switch arrived {
+        case TimeFlipUUIDs.canonical(TimeFlipUUIDs.manufacturerNameString): info.manufacturer = text
+        case TimeFlipUUIDs.canonical(TimeFlipUUIDs.modelNumberString): info.model = text
+        case TimeFlipUUIDs.canonical(TimeFlipUUIDs.hardwareRevisionString): info.hardware = text
+        case TimeFlipUUIDs.canonical(TimeFlipUUIDs.firmwareRevisionString): info.firmware = text
         default: break
         }
         if awaitingInfo.isEmpty { reportDeviceInfo() }
@@ -624,7 +634,7 @@ final class DeviceLogin: NSObject {
     private func followBattery() {
         isFollowingBattery = true
         debugLog?.record(.battery, "Asking the cube for its charge")
-        discoverServices([TimeFlipUUIDs.batteryService])
+        discoverServices([TimeFlipUUIDs.batteryServiceString])
     }
 
     // MARK: - hearing everything else it says
@@ -650,16 +660,16 @@ final class DeviceLogin: NSObject {
     /// each. What is kept is its reason for logging every arrival at the top of the delegate callback, before any
     /// dispatch, so a value nothing handles is still recorded rather than dropped a few lines later.
     private func listenToTheCube() {
-        guard let service = peripheral.services?.first(where: { $0.uuid == TimeFlipUUIDs.service }) else { return }
+        guard has(TimeFlipUUIDs.serviceString) else { return }
         isListening = true
         // Everything, rather than the three the login needed: this is the phase whose job is to find out what there
         // is, and asking for a list would be assuming the answer.
-        discoverCharacteristics(nil, of: service)
+        discoverCharacteristics(nil, of: TimeFlipUUIDs.serviceString)
     }
 
     /// Subscribes to each one that says it can notify, and says so when a cube offers none.
-    private func listen(to service: CBService, error: Error?) {
-        guard error == nil else { return }
+    private func listen(to found: [DiscoveredCharacteristic], failed: String?) {
+        guard failed == nil else { return }
         // **Taken here because here is where it exists.** This is the discovery that asked for everything; the
         // login's asked for the three characteristics a login needs, so nothing before this point has ever seen
         // `F1196F58`. Held rather than looked up per fetch for the reason every other characteristic is: it is the
@@ -667,19 +677,19 @@ final class DeviceLogin: NSObject {
         //
         // A cube without one can still be reached, timed against and looked at. What it cannot do is bring its own
         // record of the day back, which is why `readLastEvent` and `fetchHistory` say so rather than failing quietly.
-        history = service.characteristics?.first { $0.uuid == TimeFlipUUIDs.history }
+        history = found.first { TimeFlipUUIDs.match($0.uuid, TimeFlipUUIDs.historyString) }?.uuid
         debugLog?.record(
             .history,
             history == nil
                 ? "This cube offers no history characteristic, so it cannot be asked what it has been doing"
                 : "The history characteristic is there, so its record of the day can be asked for"
         )
-        let pushable = (service.characteristics ?? []).filter { $0.properties.contains(.notify) }
+        let pushable = found.filter(\.canNotify)
         guard !pushable.isEmpty else {
             debugLog?.record(.login, "Nothing on the TimeFlip service can notify, so there is nothing to listen to")
             return
         }
-        for characteristic in pushable { subscribe(to: characteristic) }
+        for characteristic in pushable { subscribe(to: characteristic.uuid) }
         // **Said after the subscriptions and before the reads**, which is the order the answers need rather than a
         // preference. A history request is answered by notifications on the characteristic it is written to, so
         // asking before subscribing would send the question and miss the reply; CoreBluetooth serialises operations on
@@ -687,8 +697,8 @@ final class DeviceLogin: NSObject {
         // it comes before the reads so whoever wants the cube's record of the day is first in the queue rather than
         // behind two round trips of face and double-tap.
         ready()
-        askWhatStateTheCubeIsIn(on: service)
-        askWhichFaceIsUp(on: service)
+        askWhatStateTheCubeIsIn(among: found)
+        askWhichFaceIsUp(among: found)
         // The state question follows this one rather than sitting beside it -- see `askWhatStateItIsIn`.
         askWhatMakesADoubleTap()
     }
@@ -751,22 +761,22 @@ final class DeviceLogin: NSObject {
     ///
     /// **No deadline**, matching the face and the charge: nothing downstream waits on it, and a cube that never
     /// answers leaves the request itself in the trace.
-    private func askWhatStateTheCubeIsIn(on service: CBService) {
-        guard let state = service.characteristics?.first(where: { $0.uuid == TimeFlipUUIDs.systemState }) else {
+    private func askWhatStateTheCubeIsIn(among found: [DiscoveredCharacteristic]) {
+        guard found.contains(where: { TimeFlipUUIDs.match($0.uuid, TimeFlipUUIDs.systemStateString) }) else {
             debugLog?.record(.info, "This cube has no system state characteristic, so it cannot say how it is")
             return
         }
         debugLog?.record(.info, "Asking the cube how it is")
-        read(state)
+        read(TimeFlipUUIDs.systemStateString)
     }
 
-    private func askWhichFaceIsUp(on service: CBService) {
-        guard let faces = service.characteristics?.first(where: { $0.uuid == TimeFlipUUIDs.faces }) else {
+    private func askWhichFaceIsUp(among found: [DiscoveredCharacteristic]) {
+        guard found.contains(where: { TimeFlipUUIDs.match($0.uuid, TimeFlipUUIDs.facesString) }) else {
             debugLog?.record(.face, "This cube has no faces characteristic, so there is no face to ask about")
             return
         }
         debugLog?.record(.face, "Asking the cube which face is up")
-        read(faces)
+        read(TimeFlipUUIDs.facesString)
     }
 
     /// Asks the cube what its accelerometer is set to (`0x17`), and writes the answer down.
@@ -798,7 +808,7 @@ final class DeviceLogin: NSObject {
             // lock, and this is the one question the dropdown cannot draw itself without.
             self.askWhatStateItIsIn()
         }
-        write(Data([DoubleTapRules.read]), to: command, type: .withResponse)
+        write(Data([DoubleTapRules.read]), to: command, expectingAcknowledgement: true)
     }
 
     /// Asks the cube whether it is locked and whether it is paused, once the link is up.
@@ -880,7 +890,7 @@ final class DeviceLogin: NSObject {
         // is the difference between a cube to reconnect and a cube to take the batteries out of.
         debugLog?.record(.pin, "Setting the PIN on the cube to \(newPIN)")
         let payload = Data([DeviceLoginRules.setPIN]) + Data(newPIN.utf8)
-        write(payload, to: command, type: .withResponse)
+        write(payload, to: command, expectingAcknowledgement: true)
     }
 
     /// The cube's answer to `0x30`, which is read for the record and then not judged.
@@ -900,7 +910,7 @@ final class DeviceLogin: NSObject {
         step = .confirming
         debugLog?.record(.pin, "Presenting \(newPIN), so the cube has to prove it took it")
         let data = Data(newPIN.utf8)
-        write(data, to: password, type: .withResponse)
+        write(data, to: password, expectingAcknowledgement: true)
     }
 
     /// The verdict on the new PIN, which is what makes it the cube's PIN as far as this app is concerned.
@@ -929,82 +939,75 @@ final class DeviceLogin: NSObject {
 /// inbound ones, because writes were traced at their call sites and reads, subscriptions and discoveries were not
 /// traced at all -- so the log recorded the cube's half of a conversation whose other half was invisible.
 extension DeviceLogin {
-    func discoverServices(_ uuids: [CBUUID]) {
-        debugLog?.discovering(services: uuids)
-        peripheral.discoverServices(uuids)
+    func discoverServices(_ uuids: [String]) {
+        gatt.discoverServices(uuids)
     }
 
     /// `nil` asks for every characteristic the service has, which is what the listening phase wants: the point there
     /// is to find whatever the cube offers, including anything the spec does not mention.
-    func discoverCharacteristics(_ uuids: [CBUUID]?, of service: CBService) {
-        debugLog?.discovering(characteristics: uuids, of: service.uuid)
-        peripheral.discoverCharacteristics(uuids, for: service)
+    func discoverCharacteristics(_ uuids: [String]?, of service: String) {
+        gatt.discoverCharacteristics(uuids, ofService: service)
     }
 
-    func read(_ characteristic: CBCharacteristic) {
-        debugLog?.requested(characteristic.uuid)
-        peripheral.readValue(for: characteristic)
+    func read(_ characteristic: String) {
+        gatt.read(characteristic)
     }
 
-    func subscribe(to characteristic: CBCharacteristic) {
-        debugLog?.subscribing(true, to: characteristic.uuid)
-        peripheral.setNotifyValue(true, for: characteristic)
+    func subscribe(to characteristic: String) {
+        gatt.subscribe(to: characteristic)
     }
 
-    func write(_ data: Data, to characteristic: CBCharacteristic, type: CBCharacteristicWriteType) {
-        debugLog?.transmitted(data, to: characteristic.uuid, type: type)
-        peripheral.writeValue(data, for: characteristic, type: type)
+    func write(_ data: Data, to characteristic: String, expectingAcknowledgement: Bool) {
+        gatt.write(data, to: characteristic, expectingAcknowledgement: expectingAcknowledgement)
     }
 }
 
-// `@preconcurrency`, for the reason given on `BluetoothRadio`'s conformance: the manager is created with
-// `queue: .main`, so these arrive on the main thread, and a `CBPeripheral` has no value form to carry across.
-extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
-    func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
-        // Traced before it is acted on, like every inbound thing here.
-        debugLog?.discovered(services: peripheral.services?.map(\.uuid) ?? [], error: error)
+/// What the cube's GATT table answers. Every one of these was a `CBPeripheralDelegate` method before the radio
+/// became a port, and none of them was ever about CoreBluetooth: what is here is which phase an answer belongs
+/// to and what to do about it.
+extension DeviceLogin: CubeGattEvents {
+    func servicesDiscovered(_ uuids: [String], failed: String?) {
+        services = Set(uuids)
         // The login's discovery, the Device Information one and the battery one land in the same callback, and which
-        // is which is not in the arguments: `peripheral.services` accumulates, so by the third call it holds all
+        // is which is not in the arguments: the answer accumulates, so by the third call it holds all
         // three. The phase is what tells them apart, and they are checked first so a late failure cannot be read as a
         // login that never happened. The phases run in sequence and never overlap, which is what lets one flag each
         // be enough.
         if isFollowingBattery {
-            guard error == nil,
-                  let service = peripheral.services?.first(where: { $0.uuid == TimeFlipUUIDs.batteryService })
-            else {
+            guard failed == nil, has(TimeFlipUUIDs.batteryServiceString) else {
                 debugLog?.record(
                     .battery,
-                    error.map { "Looking for the Battery service failed: \($0.localizedDescription)" }
+                    failed.map { "Looking for the Battery service failed: \($0)" }
                         ?? "This cube has no Battery service, so there is no charge to report"
                 )
                 isFollowingBattery = false
                 listenToTheCube()
                 return
             }
-            discoverCharacteristics([TimeFlipUUIDs.batteryLevel], of: service)
+            discoverCharacteristics([TimeFlipUUIDs.batteryLevelString], of: TimeFlipUUIDs.batteryServiceString)
             return
         }
         if isReadingDeviceInfo {
-            guard error == nil,
-                  let service = peripheral.services?.first(where: { $0.uuid == TimeFlipUUIDs.deviceInformation })
-            else {
+            guard failed == nil, has(TimeFlipUUIDs.deviceInformationString) else {
                 debugLog?.record(
                     .info,
-                    error.map { "Looking for the Device Information service failed: \($0.localizedDescription)" }
+                    failed.map { "Looking for the Device Information service failed: \($0)" }
                         ?? "This cube has no Device Information service"
                 )
                 reportDeviceInfo()
                 return
             }
-            discoverCharacteristics(TimeFlipUUIDs.deviceInformationCharacteristics, of: service)
+            discoverCharacteristics(
+                TimeFlipUUIDs.deviceInformationCharacteristicStrings, of: TimeFlipUUIDs.deviceInformationString
+            )
             return
         }
-        if let error {
-            debugLog?.record(.login, "Service discovery failed: \(error.localizedDescription)")
+        if let failed {
+            debugLog?.record(.login, "Service discovery failed: \(failed)")
             finish(.unreachable)
             return
         }
-        guard let service = peripheral.services?.first(where: { $0.uuid == TimeFlipUUIDs.service }) else {
+        guard has(TimeFlipUUIDs.serviceString) else {
             // **This is what tells a TimeFlip from anything else that answered the scan**, and it is a better test
             // than the name the filter used to get here: names are chosen by people and this is the hardware saying
             // what it is.
@@ -1013,29 +1016,35 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
             return
         }
         discoverCharacteristics(
-            [TimeFlipUUIDs.password, TimeFlipUUIDs.commandResult, TimeFlipUUIDs.command], of: service
+            [TimeFlipUUIDs.passwordString, TimeFlipUUIDs.commandResultString, TimeFlipUUIDs.commandString],
+            of: TimeFlipUUIDs.serviceString
         )
     }
 
-    func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
-        debugLog?.discovered(
-            characteristics: (service.characteristics ?? []).map(\.uuid), of: service.uuid, error: error
-        )
+    /// Whether the cube turned out to have a service, whichever way each side spells the UUID.
+    private func has(_ service: String) -> Bool {
+        services.contains { TimeFlipUUIDs.match($0, service) }
+    }
+
+    func characteristicsDiscovered(
+        _ found: [DiscoveredCharacteristic],
+        ofService service: String,
+        failed: String?
+    ) {
         // **Before the login's branch below**, which is the one that writes a PIN: the listening phase asks the
         // TimeFlip service for its characteristics a second time, and without this that answer would be read as a
         // login starting over.
-        if isListening, service.uuid == TimeFlipUUIDs.service {
-            listen(to: service, error: error)
+        if isListening, TimeFlipUUIDs.match(service, TimeFlipUUIDs.serviceString) {
+            listen(to: found, failed: failed)
             return
         }
-        if service.uuid == TimeFlipUUIDs.batteryService {
-            guard error == nil,
-                  let characteristic = service.characteristics?
-                      .first(where: { $0.uuid == TimeFlipUUIDs.batteryLevel })
+        if TimeFlipUUIDs.match(service, TimeFlipUUIDs.batteryServiceString) {
+            guard failed == nil,
+                  found.contains(where: { TimeFlipUUIDs.match($0.uuid, TimeFlipUUIDs.batteryLevelString) })
             else {
                 debugLog?.record(
                     .battery,
-                    error.map { "Battery discovery failed: \($0.localizedDescription)" }
+                    failed.map { "Battery discovery failed: \($0)" }
                         ?? "The Battery service has no level characteristic"
                 )
                 isFollowingBattery = false
@@ -1044,22 +1053,22 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
             }
             // The pull, then the push. Both are queued on the same connection and CoreBluetooth serialises them, so
             // the order here is the order they happen: a figure now, and every change to it after that.
-            read(characteristic)
-            subscribe(to: characteristic)
+            read(TimeFlipUUIDs.batteryLevelString)
+            subscribe(to: TimeFlipUUIDs.batteryLevelString)
             listenToTheCube()
             return
         }
-        if service.uuid == TimeFlipUUIDs.deviceInformation {
-            if let error {
-                debugLog?.record(.info, "Device Information discovery failed: \(error.localizedDescription)")
+        if TimeFlipUUIDs.match(service, TimeFlipUUIDs.deviceInformationString) {
+            if let failed {
+                debugLog?.record(.info, "Device Information discovery failed: \(failed)")
                 reportDeviceInfo()
                 return
             }
             // Only the four that are actually there. A cube exposing three of them answers three reads and reports
             // three values, rather than the whole lot timing out behind one that was never going to arrive.
-            let wanted = Set(TimeFlipUUIDs.deviceInformationCharacteristics)
-            let present = (service.characteristics ?? []).filter { wanted.contains($0.uuid) }
-            awaitingInfo = Set(present.map(\.uuid))
+            let wanted = Set(TimeFlipUUIDs.deviceInformationCharacteristicStrings.map(TimeFlipUUIDs.canonical))
+            let present = found.map(\.uuid).filter { wanted.contains($0) }
+            awaitingInfo = Set(present)
             guard !present.isEmpty else {
                 debugLog?.record(.info, "The Device Information service has none of the four values")
                 reportDeviceInfo()
@@ -1068,23 +1077,17 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
             for characteristic in present { read(characteristic) }
             return
         }
-        if let error {
-            debugLog?.record(.login, "Characteristic discovery failed: \(error.localizedDescription)")
+        if let failed {
+            debugLog?.record(.login, "Characteristic discovery failed: \(failed)")
             finish(.unreachable)
             return
         }
-        for characteristic in service.characteristics ?? [] {
-            // The properties go in the log because they are the answer to "why did that write do nothing": a
-            // characteristic that turns out not to be writable is invisible otherwise.
-            debugLog?.record(
-                .login,
-                "Found characteristic \(TimeFlipUUIDs.name(for: characteristic.uuid))"
-                    + " (properties 0x\(String(characteristic.properties.rawValue, radix: 16)))"
-            )
+        for characteristic in found {
+            debugLog?.record(.login, "Found characteristic \(TimeFlipUUIDs.name(for: characteristic.uuid) ?? characteristic.uuid)")
             switch characteristic.uuid {
-            case TimeFlipUUIDs.password: password = characteristic
-            case TimeFlipUUIDs.commandResult: commandResult = characteristic
-            case TimeFlipUUIDs.command: command = characteristic
+            case TimeFlipUUIDs.canonical(TimeFlipUUIDs.passwordString): password = characteristic.uuid
+            case TimeFlipUUIDs.canonical(TimeFlipUUIDs.commandResultString): commandResult = characteristic.uuid
+            case TimeFlipUUIDs.canonical(TimeFlipUUIDs.commandString): command = characteristic.uuid
             // **The history characteristic is deliberately not picked up here**, and a version of this that tried to
             // was worse than useless. This branch answers the login's own discovery, which asks for exactly the three
             // above -- so `F1196F58` is never in the list, the case never fired, and every fetch reported "this cube
@@ -1103,19 +1106,20 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
         }
         let data = Data(pin.utf8)
         debugLog?.record(.login, "Presenting a PIN")
-        // `.withResponse`, so a write that the cube refused is distinguishable from one it took. The verdict is read
+        // Acknowledged, so a write the cube refused is distinguishable from one it took. The verdict is read
         // only once that acknowledgement arrives, since reading before the cube has processed the write is how a
         // stale command result gets mistaken for an answer.
         step = .presenting
-        write(data, to: password, type: .withResponse)
+        write(data, to: password, expectingAcknowledgement: true)
     }
 
-    func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
-        debugLog?.acknowledged(characteristic.uuid, error: error)
+    /// The verdict on the new PIN, which is what makes it the cube's PIN as far as this app is concerned.
+
+    func writeAcknowledged(to characteristic: String, failed: String?) {
         // Both of these run long after the login, when `step` is nil, so they are asked before the guard below that
         // would otherwise discard the acknowledgement they are waiting on.
-        if isReadingDoubleTap, characteristic.uuid == TimeFlipUUIDs.command, let commandResult {
-            guard error == nil else {
+        if isReadingDoubleTap, TimeFlipUUIDs.match(characteristic, TimeFlipUUIDs.commandString), let commandResult {
+            guard failed == nil else {
                 isReadingDoubleTap = false
                 debugLog?.record(.tap, "The cube would not take the question about double taps")
                 commandChannel.startNextIfIdle()
@@ -1124,8 +1128,8 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
             read(commandResult)
             return
         }
-        if isFactoryResetRunning, characteristic.uuid == TimeFlipUUIDs.command {
-            finishReset(error == nil)
+        if isFactoryResetRunning, TimeFlipUUIDs.match(characteristic, TimeFlipUUIDs.commandString) {
+            finishReset(failed == nil)
             return
         }
         // Also long after the login, and above the guard for the same reason. Last of the three, so a reset or a
@@ -1133,8 +1137,8 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
         // **Which of the two writes this acknowledges is the channel's to decide**, and nothing here can: the
         // command and the question asking whether the command took are both writes to this same characteristic.
         // The two branches that used to be here are `CubeCommandChannel.acknowledged`.
-        if commandChannel.isCommandInFlight, characteristic.uuid == TimeFlipUUIDs.command {
-            commandChannel.acknowledged(landed: error == nil)
+        if commandChannel.isCommandInFlight, TimeFlipUUIDs.match(characteristic, TimeFlipUUIDs.commandString) {
+            commandChannel.acknowledged(landed: failed == nil)
             return
         }
         // **A single-frame request is answered by a read, and waiting for a notification never works.** The archive
@@ -1145,8 +1149,8 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
         //
         // So the acknowledgement is the cue to go and read the value, which is the only difference between the two
         // requests. Streaming needs nothing here: its frames arrive as notifications, which is what it asked for.
-        if let outstanding = fetch, outstanding.isSingleFrameRequest, characteristic.uuid == TimeFlipUUIDs.history {
-            guard error == nil, let history else {
+        if let outstanding = fetch, outstanding.isSingleFrameRequest, TimeFlipUUIDs.match(characteristic, TimeFlipUUIDs.historyString) {
+            guard failed == nil, let history else {
                 finishFetch("the cube would not take the question")
                 return
             }
@@ -1157,31 +1161,32 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
         // The reason is already in the row above; what matters here is that the cube never took the write, so there
         // is nothing to read an answer from. Which step it happened on decides what it means: a refused PIN write is
         // a link that has gone, while a refused command or confirmation is a PIN that did not get set.
-        if error != nil {
+        if failed != nil {
             finish(step == .presenting ? .unreachable : .newPINRefused)
             return
         }
         // Every step reads the same characteristic for its answer; what differs is where the write went.
-        let awaited = step == .setting ? TimeFlipUUIDs.command : TimeFlipUUIDs.password
-        guard characteristic.uuid == awaited, let commandResult else { return }
+        let awaited = step == .setting ? TimeFlipUUIDs.commandString : TimeFlipUUIDs.passwordString
+        // `match` and not `==`, like every other comparison in here: what arrives is canonical and the
+        // constants are not. This one hid behind a local, which is why it survived the sweep of the rest.
+        guard TimeFlipUUIDs.match(characteristic, awaited), let commandResult else { return }
         read(commandResult)
     }
 
-    func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
+    func valueArrived(_ value: Data?, from characteristic: String, failed: String?) {
         // **Logged before anything is made of it, and logged whatever it is.** This is the single point every
         // inbound byte passes through, so a value this app has no handler for is recorded here rather than dropped
         // silently a few lines down -- which is the archive's reasoning at its own version of this line, and half of
         // what makes the trace worth having. The other half is `listenToTheCube`: a characteristic nobody subscribed
         // to is not ignored, it is never delivered.
-        debugLog?.received(characteristic.value, from: characteristic.uuid, error: error)
         // **The one value that arrives both ways**: the read this app asked for on connecting, and every notification
         // the cube sends afterwards. They are indistinguishable here and do not need to be told apart -- a percentage
         // is a percentage however it got here, and `BluetoothRadio` judges a run of them rather than each one.
-        if characteristic.uuid == TimeFlipUUIDs.batteryLevel {
-            guard error == nil, let level = characteristic.value?.first else {
+        if TimeFlipUUIDs.match(characteristic, TimeFlipUUIDs.batteryLevelString) {
+            guard failed == nil, let level = value?.first else {
                 debugLog?.record(
                     .battery,
-                    error.map { "The charge could not be read: \($0.localizedDescription)" }
+                    failed.map { "The charge could not be read: \($0)" }
                         ?? "The cube answered with no charge in it"
                 )
                 return
@@ -1192,11 +1197,11 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
         // **The other value that arrives both ways**, and on the same terms as the charge: the read this login makes
         // on connecting, and every flip afterwards. Which of the two it is does not matter here -- a face is a face
         // however it got here.
-        if characteristic.uuid == TimeFlipUUIDs.faces {
-            guard error == nil, let up = DeviceFaceRules.face(from: characteristic.value) else {
+        if TimeFlipUUIDs.match(characteristic, TimeFlipUUIDs.facesString) {
+            guard failed == nil, let up = DeviceFaceRules.face(from: value) else {
                 debugLog?.record(
                     .face,
-                    error.map { "The face could not be read: \($0.localizedDescription)" }
+                    failed.map { "The face could not be read: \($0)" }
                         // The bytes themselves are already in the trace above, so what is worth saying here is that
                         // they were not a face this app will draw -- which is a different thing from silence.
                         ?? "The cube named no face this app recognises"
@@ -1208,8 +1213,8 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
         }
         // Its own characteristic, so no guard about which question is out: nothing else arrives here, and it arrives
         // both as the answer to the read taken when the link came up and unasked whenever the cube's state moves.
-        if characteristic.uuid == TimeFlipUUIDs.systemState {
-            guard let state = DeviceSystemStateRules.state(from: characteristic.value) else {
+        if TimeFlipUUIDs.match(characteristic, TimeFlipUUIDs.systemStateString) {
+            guard let state = DeviceSystemStateRules.state(from: value) else {
                 debugLog?.record(.info, "The system state came back as something this app cannot read")
                 return
             }
@@ -1217,47 +1222,47 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
             return
         }
         // History is its own channel, so this needs no guard about which question is out: nothing else arrives here.
-        if characteristic.uuid == TimeFlipUUIDs.history {
-            guard error == nil else {
-                debugLog?.record(.history, "The history could not be read: \(error?.localizedDescription ?? "")")
+        if TimeFlipUUIDs.match(characteristic, TimeFlipUUIDs.historyString) {
+            guard failed == nil else {
+                debugLog?.record(.history, "The history could not be read: \(failed ?? "")")
                 finishFetch("the cube reported an error")
                 return
             }
-            received(historyFrame: characteristic.value)
+            received(historyFrame: value)
             return
         }
-        if isReadingDoubleTap, characteristic.uuid == TimeFlipUUIDs.commandResult, error == nil {
-            taps(answered: characteristic.value)
+        if isReadingDoubleTap, TimeFlipUUIDs.match(characteristic, TimeFlipUUIDs.commandResultString), failed == nil {
+            taps(answered: value)
             return
         }
         // The answer to "did it take". Asked for above the login's own guard for the same reason the taps question is:
         // it runs long after the login, when `step` is nil.
-        if commandChannel.isAwaitingResult, characteristic.uuid == TimeFlipUUIDs.commandResult {
-            commandChannel.resultArrived(error == nil ? characteristic.value : nil)
+        if commandChannel.isAwaitingResult, TimeFlipUUIDs.match(characteristic, TimeFlipUUIDs.commandResultString) {
+            commandChannel.resultArrived(failed == nil ? value : nil)
             return
         }
         // Asked for before the login's own answer, because these have a characteristic each and so are attributable
         // on sight -- there is no `Step` to consult and nothing to disambiguate. An error is filed as an absence: the
         // cube did not say, which is the same thing to everyone downstream as a cube that had nothing to say.
-        if isReadingDeviceInfo, awaitingInfo.contains(characteristic.uuid) {
-            if let error {
+        if isReadingDeviceInfo, awaitingInfo.contains(TimeFlipUUIDs.canonical(characteristic)) {
+            if let failed {
                 debugLog?.record(
                     .info,
-                    "\(TimeFlipUUIDs.name(for: characteristic.uuid)) could not be read: \(error.localizedDescription)"
+                    "\(TimeFlipUUIDs.name(for: characteristic)) could not be read: \(failed)"
                 )
             }
-            received(error == nil ? characteristic.value : nil, for: characteristic.uuid)
+            received(failed == nil ? value : nil, for: characteristic)
             return
         }
-        guard let step, characteristic.uuid == TimeFlipUUIDs.commandResult else { return }
-        if error != nil {
+        guard let step, TimeFlipUUIDs.match(characteristic, TimeFlipUUIDs.commandResultString) else { return }
+        if failed != nil {
             finish(step == .presenting ? .unreachable : .newPINRefused)
             return
         }
         switch step {
-        case .presenting: presentationAnswered(characteristic.value)
+        case .presenting: presentationAnswered(value)
         case .setting: settingAnswered()
-        case .confirming: confirmationAnswered(characteristic.value)
+        case .confirming: confirmationAnswered(value)
         }
     }
 
@@ -1285,14 +1290,6 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
     /// **A refused subscription and a characteristic that never changes are identical from here**: both are silence.
     /// Without this row a charge that stopped arriving would be indistinguishable from a charge that had not moved,
     /// and the app would go on showing a figure nobody could date.
-    func peripheral(
-        _ peripheral: CBPeripheral,
-        didUpdateNotificationStateFor characteristic: CBCharacteristic,
-        error: Error?
-    ) {
-        debugLog?.notifying(characteristic.uuid, isNotifying: characteristic.isNotifying, error: error)
-    }
-
     /// The cube saying what it is called, which macOS delivers a second or two into a connection once it has re-read
     /// GAP.
     ///
@@ -1300,10 +1297,8 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
     /// `nameReported`. A name that has not changed still arrives here, and is written down all the same: the recorder
     /// moves `previous_name` only when the name really moves (`DevicePairingRules.previousName`), so a connection that
     /// reports what was already stored costs a write that changes nothing rather than needing a guard here.
-    func peripheralDidUpdateName(_ peripheral: CBPeripheral) {
-        let name = peripheral.name ?? ""
+    func nameArrived(_ name: String) {
         debugLog?.record(.login, "The cube now reports its name as \(name)")
-        guard !name.isEmpty else { return }
         nameReported(name)
     }
 }

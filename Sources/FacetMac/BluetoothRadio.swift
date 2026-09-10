@@ -1282,8 +1282,11 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
         connectTimeout?.invalidate()
         connectTimeout = nil
         debugLog?.record(.login, "Connected to \(peripheral.identifier.uuidString), presenting a PIN")
+        // **The peripheral stops here.** `CoreBluetoothGatt` owns it and is its delegate, and what the login
+        // gets is `CubeGatt`: read, write, subscribe, addressed by UUID. Nothing above this line holds a
+        // `CBCharacteristic` any more.
         let login = DeviceLogin(
-            peripheral: peripheral,
+            gatt: CoreBluetoothGatt(peripheral: peripheral, debugLog: debugLog),
             pin: attempt.presenting,
             rotatingTo: attempt.rotatingTo,
             debugLog: debugLog,

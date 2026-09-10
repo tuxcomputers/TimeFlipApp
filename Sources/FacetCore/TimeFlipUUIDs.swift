@@ -63,6 +63,16 @@ package enum TimeFlipUUIDs {
     /// byte, read **and notify**. Both halves of that are used and both are needed: the cube pushes a value only when
     /// it changes, so a subscription on its own leaves a freshly connected app with no figure at all until the charge
     /// next moves -- which on the archive's logged traffic was sometimes over an hour. See `DeviceLogin.followBattery`.
+    /// The four values a cube is asked for out of Device Information, and the whole of what this app wants from
+    /// that service.
+    ///
+    /// **Which four is a decision, not a spelling**, so it is here rather than beside the platform's UUID type:
+    /// a cube exposing three of them is read three times and reports three values, rather than the whole lot
+    /// timing out behind one that was never going to arrive.
+    package static let deviceInformationCharacteristicStrings = [
+        manufacturerNameString, modelNumberString, hardwareRevisionString, firmwareRevisionString,
+    ]
+
     package static let batteryServiceString = "180F"
     package static let batteryLevelString = "2A19"
 
