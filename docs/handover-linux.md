@@ -59,7 +59,7 @@ which items unblock the most, and where the milestone is.
 4. ~~**18, `CubeRadio`.**~~ **Done 2026-09-11**: `BlueZCubeRadio`, 21 tests, unverified on a cube.
 5. **19, compose the device half.** ⇐ **the milestone: a Linux Facet that pairs with the cube and records
    time.** No window, and it would already be doing the thing the app is for.
-6. **20, the menu bar onto the core modules**, then **21, the dialogues.** Both are drawing.
+6. ~~**20, the menu bar onto the core modules**~~ **done 2026-09-11**, then **21, the dialogues.**
 7. **22 is not a task**, it is a warning about the one part of the Mac that is not ready for you.
 
 ## 19. Compose the device half in `main.swift`, and the app starts working
@@ -74,20 +74,6 @@ yet, which is why the clock port has not broken this target despite `Scheduler` 
 
 **This is the milestone worth aiming at.** At the end of it there is a Linux Facet with no window that pairs
 with a cube, logs in, follows face turns and writes time entries. Everything after it is drawing.
-
-## 20. The menu bar's meaning is in the core; GTK should only draw
-
-`Sources/FacetLinux/MenuBar.swift` is 191 lines and `CLAUDE.md` holds it up as the right shape, which it was
-when it was written. It now predates four core modules that took the decisions off it:
-
-    StatusItemMenu      220 lines   what the items are, and what each does
-    StatusItemReadout   137 lines   what the title and the tooltip say
-    StatusItemGesture   135 lines   what a click means, including the double-tap window
-    StatusColour         39 lines   which colour a state is
-
-The macOS side went from 679 lines to 518 doing this, and what is left there is `NSStatusItem` and drawing.
-**Point this file at those four and delete whatever it was deciding for itself**, so the two platforms cannot
-disagree about what the menu says.
 
 ## 21. A GTK slot in the dialogue square
 
