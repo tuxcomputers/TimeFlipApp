@@ -185,8 +185,12 @@ sitting in the repo.
       down to 630 (the commit message for this says 596, which was written before it was counted). `CubeReading` moved into the core with it, being three core states and no platform anything.
 - [x] The identifiers move too, so a check addressing the dropdown reads the same string on either platform,
       through `AXIdentifier` on a Mac and `com.canonical.dbusmenu`'s `GetLayout` on Linux.
-- [ ] **The title.** `redraw` still holds the tick decision, the has-it-changed comparison and the two rules
-      about which `debug_log` rows to write. `StatusItemTitle` is already core; these are what sit around it.
+- [x] **The title.** `StatusItemReadout` in the core holds the first-reading latch, the title, the tick
+      decision, the has-it-changed comparison and the two rules about which `debug_log` rows a change is
+      worth. `redraw` turns an answer into pixels and decides nothing. **The two logging rules had no unit
+      coverage at all** before this, being reachable only through a Mac-only method, so the only thing
+      checking them was the scripted suite, which is set aside; they are the only way the colours are
+      visible, the accessibility tree carrying none.
 - [ ] **The click.** `handleClick` already asks `StatusItemClickRouter`; what is left is reading the event and
       the `DispatchWorkItem` that holds a cube pause back for `NSEvent.doubleClickInterval`.
 

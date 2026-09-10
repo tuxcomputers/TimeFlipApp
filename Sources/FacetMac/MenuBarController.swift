@@ -100,11 +100,6 @@ final class MenuBarController: NSObject {
     /// test that never mentions a cube should not have to say so to get the line it expects.
     private let isManualMode: () -> Bool
 
-    /// Whether this launch has yet read its cube, which is the other half of that title. Held rather than derived,
-    /// and it is the one thing on this class that is: the facts behind it are cleared by every drop, so the question
-    /// "has this launch ever had them" cannot be asked of the cube afterwards. See `CubeFirstReading`.
-    private var firstReading = CubeFirstReading()
-
     /// Locks the cube, or starts it again -- whichever the item is offering. What that means in commands is
     /// `CubeLock`'s, not this class's.
     ///
@@ -164,11 +159,8 @@ final class MenuBarController: NSObject {
     /// same closures the title is drawn from, so the menu and the line in the bar cannot answer differently.
     private var dropdown: StatusItemMenu!
 
-    /// What was last painted, so an unchanged title is not re-applied. **What was drawn, not what is true**: it is
-    /// compared against a fresh reading every time and never read as an answer, which is what keeps it clear of the
-    /// database rule. Without it the fixed one-second tick would re-lay-out the item every second even with
-    /// `display_seconds` off, where the figure only changes once a minute.
-    private var lastDrawn: StatusItemTitle?
+    /// What the line in the bar should say, which this controller also asks and does not decide.
+    private var readout: StatusItemReadout!
 
     /// Repaints while the clock is running, and only then: with it stopped, nothing on the item can change until
     /// something the app itself did, and each of those redraws by hand.
@@ -213,6 +205,16 @@ final class MenuBarController: NSObject {
             quit: { NSApp.terminate(nil) },
             debugLog: debugLog
         )
+        readout = StatusItemReadout(
+            appLabel: Self.appLabel,
+            timing: timing,
+            cube: cube,
+            showingSeconds: showingSeconds,
+            isLimitReached: isLimitReached,
+            lowBattery: lowBattery,
+            isManualMode: isManualMode,
+            debugLog: debugLog
+        )
     }
 
     /// Creates the item and puts it in the menu bar.
@@ -241,99 +243,35 @@ final class MenuBarController: NSObject {
     /// Called on every tick, and by hand the moment the app changes what is being timed -- a category picked, a
     /// pause. Waiting for the next tick instead would leave a click's own feedback up to a second behind it.
     func redraw() {
-        let reading = timing()
-        // **Offered every draw, and it latches on the first complete one.** The lock comes from `cube()` and the
-        // face and the pause from the reading, which is where each of them is already read -- so this asks nothing
-        // extra of the radio and cannot come to a different answer from the line it is deciding.
-        let cubeNow = cube()
-        firstReading.record(
-            isCubeConnected: cubeNow.isCubeConnected,
-            cubeFace: reading.cubeFace,
-            cubePauseState: reading.cubePauseState,
-            cubeLockState: cubeNow.cubeLockState
-        )
-        // **Decided from the reading, before there is anything to paint into.** The tick is about whether the figure
-        // moves, which is a question about the session and not about the item -- and taking it first is what lets it
-        // be asserted without putting a real status item in the menu bar of whoever is running the tests, the same
-        // reason `makeTitle` and `width(of:)` are reachable.
-        //
-        // **On whether the figure moves, not on whether this app is the one measuring.** A followed cube leaves
-        // `state` idle for the whole session, so ticking on that meant the item stood still while a cube timed and
-        // jumped a whole history interval whenever a fetch redrew it. See `TimingReadout.Reading.isCounting`.
-        if reading.isCounting {
+        // **The whole of what to say is `StatusItemReadout`'s**, in `FacetCore`: the latch on the first cube
+        // reading, the title, whether the clock should be ticking, whether anything moved and which rows that
+        // is worth. What is left here is turning an answer into pixels.
+        let update = readout.read()
+        // **Taken before there is anything to paint into**, deliberately. The tick is about whether the figure
+        // moves, which is a question about the session and not about the item, so it is answered even in a test
+        // with no real status item in the menu bar.
+        if update.isTicking {
             startTicking()
         } else {
             stopTicking()
         }
-        guard let button = statusItem?.button else { return }
-        let title = StatusItemTitle.make(
-            appLabel: Self.appLabel,
-            reading: reading,
-            showingSeconds: showingSeconds(),
-            // Asked per draw, like everything else here: the limit lands part way through a session, so a copy taken
-            // when the item was built would go on drawing green through the one state the colour exists to warn about.
-            isLimitReached: isLimitReached(),
-            // Likewise per draw, and the reason is sharper still: this changes twice a second while it is up, so a
-            // copy taken anywhere other than here would be a flash frozen on one of its two phases.
-            lowBattery: lowBattery(),
-            // The same answer the dropdown's Lock item reads. Asked per draw, though it can only change when the app
-            // itself sends a command or reaches a cube: the badge has to come off the moment the link goes, and the
-            // link going is not something this class is told about.
-            cubeLockState: cubeNow.cubeLockState,
-            // **Read per draw, both halves.** `isManualMode` moves the moment somebody answers the cube-not-found
-            // offer, and the latch moves the moment the cube finishes answering, so a copy of either taken when the
-            // item was built would leave the line saying `Connecting…` at a cube that is plainly connected.
-            isConnecting: firstReading.isConnecting(isManualMode: isManualMode())
-        )
-        if title != lastDrawn {
-            let drawn = makeTitle(title)
-            button.attributedTitle = drawn
-            // **The item is measured and its width set on every change**, rather than left to `variableLength`.
-            //
-            // macOS 26 draws a rounded background behind each status item and sizes it from `NSStatusItem.length`.
-            // Left to itself that length did not follow a title that grew: timing "1" and then switching to
-            // "SCRIPTED 1 REACTIVATE" drew the longer text spilling out of a capsule still the width of the shorter
-            // one. The text was right and its backdrop was a title behind (seen 2026-08-16).
-            //
-            // There is no way to turn that background off, so the only fix available is to make it the right size,
-            // which means telling the item how wide it now is instead of hoping it notices.
-            statusItem?.length = width(of: drawn)
-            // A label as well as an identifier: the identifier is for scripts, the label is what VoiceOver reads,
-            // and a button whose only name is its title reads as its title -- which is now a duration, and "0:07"
-            // is not a description of anything.
-            button.setAccessibilityLabel(title.spoken)
-            // **A row when the colour changes, and only then.** `DebugLog.record` notes that a tag logging on a
-            // timer would need a queue first, and this is drawn from one: the figure moves every second, so a row
-            // per drawn title is a row per second for the life of the launch. A colour moves when the app changes
-            // what it is doing, which is the rate the rest of the log is written at.
-            //
-            // **It is the only way this is visible.** The accessibility tree carries no colour, so without the row
-            // a scripted check has nothing to read and the whole scheme can only be confirmed by somebody looking
-            // at the menu bar and saying it seemed right.
-            if title.colourDescription != lastDrawn?.colourDescription {
-                debugLog?.record(.status, "Menu bar: \(title.colourDescription)")
-            }
-            // **A row of its own, because the colours cannot say this one.** A line reaching for the cube is drawn
-            // entirely in the label colour, which is exactly what the idle line is drawn in, so the row above reports
-            // the two identically. What tells them apart is the words, and this is a state worth being able to
-            // confirm from the table: it is on screen only until a cube answers, which is no time at all to be
-            // watching a menu bar.
-            //
-            // **Under `reaching` and never under `status`.** `expect_colours` reads the newest `status` row as what
-            // the line is drawn in right now, so putting this there makes that read answer the wrong question -- which
-            // it did, failing `55-device-face` on run 167 against a menu bar that was correct.
-            let wasConnecting = lastDrawn?.text == StatusItemTitle.connecting
-            let isNowConnecting = title.text == StatusItemTitle.connecting
-            if isNowConnecting != wasConnecting {
-                debugLog?.record(
-                    .reaching,
-                    isNowConnecting
-                        ? "The status item is reaching for the cube"
-                        : "The status item has read the cube and stops reaching"
-                )
-            }
-            lastDrawn = title
-        }
+        guard update.hasChanged, let button = statusItem?.button else { return }
+        let drawn = makeTitle(update.title)
+        button.attributedTitle = drawn
+        // **The item is measured and its width set on every change**, rather than left to `variableLength`.
+        //
+        // macOS 26 draws a rounded background behind each status item and sizes it from `NSStatusItem.length`.
+        // Left to itself that length did not follow a title that grew: timing "1" and then switching to
+        // "SCRIPTED 1 REACTIVATE" drew the longer text spilling out of a capsule still the width of the shorter
+        // one. The text was right and its backdrop was a title behind (seen 2026-08-16).
+        //
+        // There is no way to turn that background off, so the only fix available is to make it the right size,
+        // which means telling the item how wide it now is instead of hoping it notices.
+        statusItem?.length = width(of: drawn)
+        // A label as well as an identifier: the identifier is for scripts, the label is what VoiceOver reads,
+        // and a button whose only name is its title reads as its title -- which is now a duration, and "0:07"
+        // is not a description of anything.
+        button.setAccessibilityLabel(update.title.spoken)
     }
 
     /// Whether the once-a-second repaint is running. Internal so it can be asserted without waiting a second for a
@@ -459,9 +397,8 @@ final class MenuBarController: NSObject {
         tick = nil
     }
 
-    /// The dropdown. Internal so its shape can be asserted without putting a real status item in the menu
-    /// bar, which is what `start()` does.
-    /// The dropdown, built from what `StatusItemMenu` says it should be.
+    /// The dropdown, built from what `StatusItemMenu` says it should be. Internal so its shape can be asserted
+    /// without putting a real status item in the menu bar, which is what `start()` does.
     ///
     /// **This method decides nothing.** Which lines there are, what they say, whether they can be chosen and
     /// what choosing them does are all `StatusItemMenu`'s, in `FacetCore`, so the Linux indicator draws the same

@@ -61,57 +61,22 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
         usesWhiteLines: false, dailyLimitMinutes: 0, isCategoryActive: true
     )
 
-    func testTheItemTicksWhileACubeIsTiming() {
-        // **The fix this exists for.** A followed cube leaves `state` idle for the whole session, and the tick was
-        // started on `state` -- so the item stood still while a cube timed and jumped a whole history interval
-        // whenever a fetch redrew it. The figure was growing on every read the entire time.
-        reading = TimingReadout.Reading(
-            category: Self.meeting,
-            timingState: .idle,
-            seconds: 30,
-            isCounting: true,
-            cubeFace: 5,
-            cubePauseState: .running
-        )
-        let controller = controller()
-
-        controller.redraw()
-
-        XCTAssertTrue(controller.isRepaintTicking)
-        // Put down rather than left on the run loop for the rest of the suite.
-        controller.stopTicking()
-    }
-
-    func testAStandingFigureDoesNotTick() {
-        // A paused cube, which is a figure that cannot change until something happens -- and something happening is
-        // what redraws the item. A timer repainting an unchanging number is a wake-up a second for nothing.
-        reading = TimingReadout.Reading(
-            category: Self.meeting,
-            timingState: .idle,
-            seconds: 30,
-            isCounting: false,
-            cubeFace: 5,
-            cubePauseState: .paused
-        )
-        let controller = controller()
-
-        controller.redraw()
-
-        XCTAssertFalse(controller.isRepaintTicking)
-    }
-
-    func testTheTickStopsWhenTheFigureStops() {
+    func testTheReadoutsAnswerStartsAndStopsARealTimer() {
+        // **Whether it should tick is `StatusItemReadoutTests`**, in the core, where the run-116-shaped case
+        // lives: a followed cube leaves `timingState` idle while the figure moves. What is left here is that
+        // the answer reaches a `Timer` at all, and that it is put down again when the figure stops.
         reading = TimingReadout.Reading(
             category: Self.meeting, timingState: .running, seconds: 30, isCounting: true
         )
         let controller = controller()
+
         controller.redraw()
-        XCTAssertTrue(controller.isRepaintTicking, "precondition")
+        XCTAssertTrue(controller.isRepaintTicking)
 
         reading = TimingReadout.Reading(category: Self.meeting, timingState: .paused, seconds: 30)
         controller.redraw()
 
-        XCTAssertFalse(controller.isRepaintTicking)
+        XCTAssertFalse(controller.isRepaintTicking, "and it is put down rather than left on the run loop")
     }
 
     // MARK: - how wide the item has to be
