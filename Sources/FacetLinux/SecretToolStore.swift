@@ -54,7 +54,7 @@ package struct SecretToolStore: SecretStore {
     /// exit code alone would be a cube nobody can log into.
     @discardableResult
     package func store(service: String, account: String, label: String, secret: String) -> Bool {
-        guard let result = run(
+        guard let result = Self.run(
             ["store", "--label", label, "service", service, "account", account],
             input: secret
         ) else { return false }
@@ -64,10 +64,10 @@ package struct SecretToolStore: SecretStore {
 
     /// What is stored under `service`/`account`.
     package func lookUp(service: String, account: String) -> SecretLookup {
-        guard let result = run(["lookup", "service", service, "account", account]) else {
-            return .unavailable(couldNotRun)
+        guard let result = Self.run(["lookup", "service", service, "account", account]) else {
+            return .unavailable(Self.couldNotRun)
         }
-        return answer(status: result.status, out: result.out, err: result.err)
+        return Self.answer(status: result.status, out: result.out, err: result.err)
     }
 
     /// Forgets it. **`true` when there was nothing to forget**, matching the Darwin path: the caller asked
@@ -75,7 +75,7 @@ package struct SecretToolStore: SecretStore {
     /// stderr test tells it from a keyring that would not answer (measured 2026-09-07).
     @discardableResult
     package func clear(service: String, account: String) -> Bool {
-        guard let result = run(["clear", "service", service, "account", account]) else { return false }
+        guard let result = Self.run(["clear", "service", service, "account", account]) else { return false }
         if result.status == 0 { return true }
         return result.err.isEmpty
     }
