@@ -34,18 +34,17 @@
        A black slot means the code for that platform exists but is not yet through a port. A dashed slot means
        it has not been written.
 
-       A GREEN ARM INTO A BLACK SLOT is the ordinary middle of this, not a mistake, and two squares are in it.
+       A GREEN ARM INTO A BLACK SLOT is the ordinary middle of this, not a mistake, and one square is in it.
 
        `Windows and dialogs`: the arm carries `what to show, and which answer came back`, and it does, all
        nineteen dialogues being `Dialogue` values decided in the core and rendered by `AlertPresenter`. The
        slot stands for the whole AppKit adapter, and its other half, the Settings window and its five tabs,
-       is still written directly rather than behind a port.
+       is still written directly rather than behind a port. That is the last of this work.
 
-       `Radio`: the arm carries all four of `connect, read, write, subscribe`, the last three through
-       `CubeGatt` and the first through `CubeRadio`. `DeviceLogin` is 1,303 lines in the core now and holds
-       the whole login sequence, the history fetch, the factory reset and the device-info gather with no
-       CoreBluetooth in any of it. The slot is black because `BluetoothRadio` is not: 696 lines of central
-       manager, scanning and attempt state, of which the core sees six members.
+       WHAT MAKES A SLOT GREEN is that the adapter is an adapter, not that it is small. `MenuBarController`
+       is 518 lines and green; `BluetoothRadio` is 696 and green, being a central manager, a peripherals
+       table and a scan-and-connect state machine, with its decisions delegated to core rules 24 times over
+       and its twenty callbacks pointing inwards, which is the platform reaching in and needs no port.
 
        THERE IS NO GREY ANY MORE, and its going is worth recording. It was a fourth state, meaning a capability
        that turned out not to need a port because one implementation already answered it everywhere, and
@@ -115,7 +114,7 @@
   <g>
     <rect x="535" y="118" width="210" height="112" rx="4" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
     <text x="640" y="140" text-anchor="middle" font-size="13" font-weight="600" fill="#0f172a">Radio</text>
-    <rect x="547" y="150" width="186" height="22" rx="3" fill="#0f172a"/>
+    <rect x="547" y="150" width="186" height="22" rx="3" fill="#059669"/>
     <text x="640" y="165" text-anchor="middle" font-size="10" fill="#ffffff">macOS: CoreBluetooth</text>
     <rect x="547" y="176" width="186" height="22" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
     <text x="640" y="191" text-anchor="middle" font-size="10" fill="#94a3b8">Linux: BlueZ</text>

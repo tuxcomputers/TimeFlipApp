@@ -33,8 +33,8 @@ The cheap and the blocking come first, the large and the discretionary last.
 | 3 | Starting and stopping | **done** | Landed with `QuitSequence`. Turned out to need no protocol at all: see its section. |
 | 2 | Files and folders | **not an arm** | Off the diagram on 2026-09-10, like storage: it is in the core and there is nothing to select. |
 | 4 | Menu bar | **done** | The **second adapter already exists** and is the right shape. A real seam with one outlier, not a hypothetical one. |
-| 5 | Radio | **done**, slot black |  The biggest port with a protocol already standing. Wants `feature/commandChannel` landed first. |
-| 6 | Windows and dialogs | arm green, slot black | 3,536 lines and the least mechanical work in the app. Everything above teaches something it needs. |
+| 5 | Radio | **done** |  The biggest port with a protocol already standing. Wants `feature/commandChannel` landed first. |
+| 6 | Windows and dialogs | arm green, panes left | 3,536 lines and the least mechanical work in the app. Everything above teaches something it needs. |
 | 7 | Storage | **not an arm** | Off the diagram on 2026-09-10. It is in the core and was never a platform capability. |
 
 Reorder this table as the work teaches something. An item that turns out to block another moves above it,
@@ -219,6 +219,11 @@ sitting in the repo.
       meant and none could say what happened next, that being a `DispatchWorkItem` inside a Mac-only class.
 - [x] The repaint tick moved onto `Scheduler` too, so **the last hand-rolled `.common` timer in the app is
       gone** and `MenuBarController` names no `Timer` and no `RunLoop`.
+
+**The macOS slot is green as of 2026-09-10**, and the standard is worth stating because it is not size: a
+slot goes green when the adapter is an adapter. `MenuBarController` is 518 lines and green; `BluetoothRadio`
+is 696 and green. What disqualifies a slot is holding decisions or unported halves, which is why windows and
+dialogs stays black: its Settings window and five tabs are not behind a port at all.
 
 **683 lines to 518**, and what is left in it is `NSStatusItem`, `NSMenu`, the attributed string and the
 measuring. Four core pieces came out: `StatusItemTitle` (already there), `StatusItemMenu`, `StatusItemReadout`
