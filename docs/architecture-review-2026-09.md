@@ -7,11 +7,17 @@
 holds every finding and every measurement, and it is the one that syncs to both machines. The diagrams are
 the only thing that lives solely at that link.
 
-**Nine candidates for making modules deeper**, found on 2026-09-09 against `ea4c4e6` on `feature/linuxPort`,
-with a clean tree. Scoped to the Linux port because that is where the last sixty commits are. Nothing here has
-been acted on, and nothing here is a decision: it is a list of places where a small interface would buy more
-than the one that is there now, ordered as found rather than by priority. The sequence worth doing them in is
-at the end.
+**Nine candidates for making modules deeper**, found on 2026-09-09 against `ea4c4e6` on `feature/linuxPort`
+with a clean tree. Scoped to the Linux port because that is where the last sixty commits are. It is a list of
+places where a small interface would buy more than the one that is there now, ordered as found rather than by
+priority.
+
+**Four are struck through as done** (2, 3, 4 and 5). Candidates 1 and 7 are partly done and say so in their
+headings; 6, 8 and 9 are open. *Where the candidates stand* is the table near the end, and every section that
+has been acted on finishes with a *What was done* recording what actually happened, **including where the work
+departed from the proposal above it**. Two did: candidate 4's rule does not take the inputs this file said it
+should, and candidate 5's proposal would have introduced the bug its own section warns about. Those notes are
+the point of keeping the original text rather than rewriting it.
 
 The vocabulary is deliberate and is used the same way throughout. A **module** is anything with an interface
 and an implementation. Its **interface** is everything a caller has to know: the signature, but also the
@@ -88,18 +94,24 @@ of through a seam.
 
 ## The candidates
 
-### 1. Put the radio seam below the sequencing, not above it
+### 1. Put the radio seam below the sequencing, not above it (one cluster of five done)
 
-**Strong, and handed to the Mac on 2026-09-09 as `handover-mac.md` item 15.** Not started: the Linux box
+**Strong, and handed to the Mac on 2026-09-09 as `handover-mac.md` item 15. One of its five clusters is done**,
+on `feature/commandChannel` and confirmed against the cube on 2026-09-10: the command channel, its queue and its
+read-back discipline. Unmerged, deliberately. The four still open are the reach and candidate order, the reset
+proof, the history fetch and the PIN rotation machine, and *What was done* at the end of this section has the
+detail.
+
+`Sources/FacetMac/BluetoothRadio.swift` (1418), `DeviceLogin.swift` (1482), `Sources/FacetCore/BlueZRadio.swift`
+(227), `BlueZGatt.swift` (121).
+
+**Why it is a branch rather than a landing.** The Linux box
 cannot compile the two files it rewrites -- `swift build --target FacetMac` there answers `error: no target
 named 'FacetMac'` -- and the only thing that verifies them is a hardware suite that is currently set aside.
 Three things worth carrying into it are in that item: the diagnostic from candidate 2 came back negative so
 this stands on its own terms; the payoff is *not* test files coming off the Linux exclusion list, which was
 measured rather than assumed (30 of the 37 there are AppKit-only and exactly one is the radio alone); and
 anything with a timer that moves into `FacetCore` needs a `fire()`, for the reason four modules now have one.
-
-**Strong.** `Sources/FacetMac/BluetoothRadio.swift` (1418), `DeviceLogin.swift` (1482),
-`Sources/FacetCore/BlueZRadio.swift` (227), `BlueZGatt.swift` (121).
 
 **40 of 1,520 code lines in the two macOS radio modules touch a CoreBluetooth symbol.** The other ~1,480 are
 protocol sequencing that could sit in `FacetCore`:
@@ -137,7 +149,41 @@ two measured traps have to survive the move: a `0x10` answer carries no echoed c
 trustworthy only when read strictly after its own acknowledgement; and a locked cube reports itself paused
 whatever its pause byte says, so pause is confirmed before the lock is sent.
 
-### 2. `CubeRadio` is a hypothetical seam
+#### What was done: one cluster of five, 2026-09-10
+
+**The command channel, on `feature/commandChannel`, two commits, unmerged.** `CubeCommandChannel` in
+`FacetCore` holds the queue of whole write-and-await exchanges, the pending slots, the read-back sequencing and
+the deadline. `DeviceLogin.swift` went from 1,477 lines to 1,315, `send` and `askStatus` are two lines each,
+and the delegate's two dispatch points lost their branches: which of two writes an acknowledgement belongs to
+is not a question anything at the delegate can answer, both being writes to the same characteristic.
+
+**16 tests where the sequencing had none**, and three mutations all fail the suite. The one worth recording
+survived the first pass: moving the two `nil`s after the completions in `finishExchange` leaves everything
+green, because that method ends with `startNextIfIdle` and so a slot left full merely delays the next write by
+a hop rather than losing it. What pins it is asserting the lock has *already* gone out by the time the pause's
+completion returns, which is the ordering `CubeLock` depends on. "It went out eventually" would have passed
+the bug.
+
+**The queue turned out to serve four kinds of exchange, not two.** The factory reset and the `0x17` double-tap
+read are on it as well, so the channel carries `enqueueOther`, `isOtherExchangeInFlight` and a package
+`startNextIfIdle`. Those three are the part of its interface that is still a seam waiting to close, and its
+doc says so rather than pretending otherwise: they go the day those two exchanges move in too.
+
+**Confirmed on the cube**, once the owner cleared the way, against a copy of the production database. The
+unlock is the sequence worth having, because it is the first trap in the act of working:
+
+    command  Sending 04 02
+    ble-rx   command: write acknowledged        <- routed to acknowledgedCommand
+    command  Asking whether it took: 10         <- isReadingBack now true
+    ble-rx   command: write acknowledged        <- the same signal, now to askedForConfirmation
+    ble-tx   commandResult: read requested      <- only here, after the question's own acknowledgement
+    command  The cube confirms it took
+
+The relock then went `06 01` confirmed before `04 01`, so pause is still confirmed before the lock is sent.
+Five channel paths ran; the deadline, a refused write, a read-back the cube denies and `linkEnded` are covered
+hermetically only, none being reachable without provoking a fault on the device.
+
+### ~~2. `CubeRadio` is a hypothetical seam~~
 
 **Strong, and done on 2026-09-09. The seam is real now, and the diagnostic it was meant to yield came back negative -- see the end of this section.**
 
@@ -204,7 +250,7 @@ different things: `CubeRadio` is the seam for the *reconnect loop*, and candidat
 So this exercise says the reconnect seam is in the right place and offers no evidence either way about the
 sequencing one. Candidate 1 has to be argued on its own terms rather than inheriting a verdict from here.
 
-### 3. One secret store, four copies of its answer
+### ~~3. One secret store, four copies of its answer~~
 
 **Strong. Done 2026-09-10**, see *What was done* at the end of this section. `Sources/FacetCore/SecretToolStore.swift` (131), `DevicePINStore.swift` (144),
 `GoogleTokenStore.swift` (136), `GoogleAccountRules.swift:71`, `DevicePINSource.swift:21-22`.
@@ -262,7 +308,7 @@ deliberately: what actually differs is the row saying the app could not tell, so
 **`GoogleAccountRules.Credential` stays**, and is no longer a fourth copy but a projection: it drops the secret
 itself, which is right for a rules type, and there is one conversion point rather than a mirrored declaration.
 
-### 4. The daily limit is one fact asked five ways
+### ~~4. The daily limit is one fact asked five ways~~
 
 **Strong. Done 2026-09-10**, see *What was done* at the end of this section. `ManualTimerRules.swift:111`, `PauseMenuRules.swift:62`, `StatusItemClickRouter.swift:80`,
 `CubeLock.swift:135` and `:235`.
@@ -317,7 +363,7 @@ around the arithmetic, which was never in doubt, to around the set of paths obli
 `state-reference.md` already names this fact `isLimitReached` and says "Naming it does not merge them; it
 makes the fact that they have to agree visible." This is the merge that note defers.
 
-### 5. The link lifecycle is three hand-written lines
+### ~~5. The link lifecycle is three hand-written lines~~
 
 **Worth exploring. Done 2026-09-10**, and narrower than this section claims: see *What was done*. `Sources/FacetMac/main.swift:633-650`, `HistoryIngestor.swift:162`,
 `FaceColourSync.swift:197`, `DeviceSettingsSync.swift:211`.
@@ -376,7 +422,7 @@ two.
 **The proposal.** One queue module parameterised by key and payload. Each caller keeps only what it sends and
 when it is stale.
 
-### 7. A quarter of the Linux test exclusions are an unused import
+### 7. A quarter of the Linux test exclusions are an unused import (done bar two follow-ons)
 
 **Strong, and the cheapest thing here. Acted on 2026-09-09, and the figure below was wrong.**
 `Package.swift:41-92`.
@@ -590,11 +636,21 @@ its colours are semantic AppKit ones; `name(of:)` is evidence the app already ne
 3. **Then candidate 1**, which is the one that pays: ~1,480 lines of untested portable sequencing, and a
    rewrite budgeted at 600 to 1,000 lines that becomes an adapter instead. **Handed to the Mac on 2026-09-09,
    `handover-mac.md` item 15**, being 2,900 lines the Linux box cannot compile. The recommendation sent with
-   it is not to land it while the scripted suite is set aside: it moves the code that talks to the cube, and
-   the two measured traps in *what it must not break* have no unit test today.
+   it was not to land it while the scripted suite is set aside: it moves the code that talks to the cube, and
+   the two measured traps in *what it must not break* had no unit test. **One of its five clusters is now
+   done and confirmed on the cube** (2026-09-10), on `feature/commandChannel` and still unmerged, which is
+   that recommendation followed rather than overruled: the branch exists, the traps have tests, and the
+   landing is the owner's call. Four clusters remain.
+
+**Then 3, 4 and 5, which this sequence did not rank and which went next anyway**, all on 2026-09-10. They
+were the ones that needed no hardware, and two of the three ended up contradicting the proposal written above
+them, which is recorded in each *What was done* rather than tidied away.
 
 Candidate 8 is the same argument about the Settings window and is much the largest. It is worth agreeing as a
-direction before it is scheduled as a change.
+direction before it is scheduled as a change. **The owner settled its direction on 2026-09-10**: the
+platform UI is a presentation layer and the decisions belong in the core, rules to be edited or deleted where
+they get in the way. The window is one fixed width as a first consequence, and the tab-width rule in
+`CLAUDE.md` lost its resize half. The rest of the candidate is not started.
 
 ### Where the candidates stand, 2026-09-10
 
