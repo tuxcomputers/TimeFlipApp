@@ -12,6 +12,29 @@ import Testing
 /// **Same tactic as `Package.swift`'s two exclusion lists and `LinkEndedFanOutTests`**, and the same shape: a
 /// shrinking allowlist that is the debt written down. Adding to it is a decision to be argued for; removing from
 /// it is the work. A new adapter in the core fails here rather than joining the list quietly.
+///
+/// ## What this cannot see, which matters as much as what it can
+///
+/// **It only catches a violation that announces itself with a platform conditional.** An adapter that reaches a
+/// platform capability through a concrete type or a hard static carries no `#if`, so it is invisible here and
+/// never joins the allowlist. **This list emptying would therefore not mean the target had been reached**, and
+/// the rule in `CLAUDE.md` should not be read as saying it would.
+///
+/// Measured on 2026-09-10: the allowlist is 7 files and at least 22 files in the core reach for a platform
+/// capability with no conditional at all. The sharpest example is `InstanceLock`, which is `flock`, `errno` and
+/// `strerror` with **zero** `#if` in the file. It does not compile on Windows, where the equivalent is a named
+/// mutex or `LockFileEx`, which is a different implementation and so a port by this rule's own test. This check
+/// will never report it.
+///
+/// Others in the same position: `DatabaseConnection` and three more files on `sqlite3_*`; `RunLoop.main` in five
+/// modules; `FileManager.default.urls(for: .applicationSupportDirectory, ...)` in five; `Bundle.main` in four.
+///
+/// **Widening this to catch them is a real candidate and not a small one**: it means naming the platform-only
+/// symbols worth failing on, which is a judgement per symbol rather than a pattern. Until that exists, treat a
+/// green run here as "nothing new has declared itself", not as "the core is platform-blind".
+///
+/// The scan is also **not recursive** (`contentsOfDirectory` below). `Sources/FacetCore` is flat today apart from
+/// `Resources/`, so nothing is missed; a subdirectory would carry adapters past it silently.
 @Suite
 struct PlatformBlindCoreTests {
     private static var core: URL {

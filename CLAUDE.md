@@ -180,6 +180,17 @@ not answer "is anything violating this", so something has to read the sources.
 The allowlist is the debt, written down. **Adding to it is a decision to be argued for; removing from it is the
 work.** A new adapter in the core fails the test rather than joining the list quietly.
 
+**What that check cannot see, which is most of it.** It catches a violation only where the violation announces
+itself with a platform conditional. An adapter reaching a platform capability through a concrete type or a hard
+static carries no `#if` and is invisible to it. Measured on 2026-09-10: the allowlist is 7 files and at least 22
+files in the core reach for a platform capability with no conditional at all. `InstanceLock` is the sharpest,
+being `flock`, `errno` and `strerror` with none, and it does not compile on Windows.
+
+**So the allowlist emptying would not mean this rule was satisfied**, and a green run means "nothing new has
+declared itself" rather than "the core is platform-blind". The judgement is still a person's. Widening the check
+means naming the platform-only symbols worth failing on, one at a time, which is a decision per symbol rather
+than a pattern to match.
+
 ### What this rule does not settle
 
 **The database rule and a remote backend are in tension, and this rule does not resolve it.** The first design
