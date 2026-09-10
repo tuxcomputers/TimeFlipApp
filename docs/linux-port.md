@@ -37,6 +37,13 @@ moving is a finding that will be measured twice.
 11,000 lines of decision logic and the hermetic suite come across rather than being rewritten against the
 documents. That was the fork the spike existed to resolve.
 
+**A remodel is under way that this document predates.** `docs/architecture-ports-plan.md` is turning the
+core into ports and platform adapters, and it moves the line between `FacetCore` and `FacetMac` as it goes.
+**Every measurement here is still true** -- the radio stages, D-Bus and the tray, the XDG resolution, the
+resource-bundle fault, the corelibs symlink finding -- because those are facts about machines. What ages is
+the file counts, the test counts and any sentence about which side a file sits on. Where the two disagree,
+the plan is newer. Sections it has overturned are marked where they stand rather than deleted.
+
 ## The machines it was measured on
 
 **The Mac**, for anything below marked as measured there: macOS 26 (Darwin 25.6.0) on arm64, Xcode 26.6,
@@ -386,20 +393,32 @@ incomplete**, which the compiler settled on the Mac on 2026-09-06:
   `GoogleCredentials.builtIn` reads it through `Bundle.module` and that accessor is per-target.
   `.gitignore` and `scripts/generate-credentials.sh` name the new path.
 
-### `StatusItemTitle` stays on the platform side, and it is not a file-count problem
+### ~~`StatusItemTitle` stays on the platform side~~ It moved, on 2026-09-10
 
-**It is the one file on the 83-file move list that the split had to refuse.** Its colours are
+**Overturned by the ports remodel** (`docs/architecture-ports-plan.md`). What this section said is kept
+below because the reasoning was right and the conclusion still inverted, which is worth being able to see.
+
+**It said:** this was the one file on the 83-file move list the split had to refuse. Its colours are
 deliberately *semantic* AppKit ones -- `.labelColor`, `.systemCyan`, `.systemRed`, `.systemGreen`,
-`.systemYellow` -- and the file already carries the reason above the property: the menu bar tints from
-the wallpaper rather than from the appearance setting, so a colour resolved before the draw is a frozen
-answer. Four fixed components cannot express that. `colourDescription` also switches on those constants
+`.systemYellow` -- and the file carried the reason above the property: the menu bar tints from the
+wallpaper rather than from the appearance setting, so a colour resolved before the draw is a frozen
+answer. Four fixed components cannot express that. `colourDescription` also switched on those constants
 to put the drawn line into words, which is what the scripted checks read, the accessibility tree
-carrying no colour at all.
+carrying no colour at all. So a Linux UI would need its own equivalent regardless.
 
-So the portable colour type is **`Colour`**, four sRGB `Double`s, and it covers the other five:
-`CategoryStore`, `TimeEntryStore`, `ColourStore`, `FaceColourRules` and `DeviceFaceRules`. The UI
-converts at the point it draws, through `Colour.nsColor`. A Linux UI needs its own equivalent of
-`StatusItemTitle` regardless, tray text being a toolkit question rather than a shared one.
+**What was missed is in that last sentence.** `colourDescription` turning each `NSColor` back into
+"cyan", "green", "red" was the tell: the *word* was the answer all along and the `NSColor` was a detour.
+`StatusColour` is five named cases with the word as the raw value, `StatusItemTitle` chooses between
+them knowing nothing about how a Mac draws, and `FacetMac.StatusColourDrawing` is a five-line table from
+case to `NSColor`. The semantic colours are still semantic and still resolve at draw time, because what
+crosses the arm is the *question* rather than an answer to it. The move **deleted** code rather than
+relocating it: `name(of:)` and its `default` returning "unnamed" both went, an enum having no fallthrough.
+
+So the portable colour type for everything else is still **`Colour`**, four sRGB `Double`s, covering
+`CategoryStore`, `TimeEntryStore`, `ColourStore`, `FaceColourRules` and `DeviceFaceRules`, converted at
+the point of drawing through `Colour.nsColor`. That part stands. What does not is the idea that a menu
+bar title is a toolkit question: **the words and the colour names are shared, and only the drawing is
+the toolkit's.** `StatusItemMenu` went the same way on the same day, so the dropdown is shared too.
 
 Two consequences worth knowing before the same conversion is done anywhere else:
 
@@ -979,7 +998,7 @@ Open questions, with what would answer each.
 | **Is `contentsOfDirectory(at:)` on a symlink a known corelibs bug or intended?** Worth reporting upstream if the former. **Narrowed 2026-09-07, Linux**: it is specific to a symlinked *directory*. A symlinked **file** inside a real directory is listed by both `at:` and `atPath:` and read straight through by `String(contentsOf:)` -- measured on `database/500_timezone.sql`, 13 of 13 `.sql` files found either way. So a report has a smaller and sharper case than the original finding suggested | Check the swift-corelibs-foundation tracker |
 | ~~**Does SwiftPM follow the symlinked resources directory on macOS?**~~ **Yes**, before and after the split: 13 `.sql` files in the built bundle, flattened to its root | Answered 2026-09-06, Mac |
 | ~~Does `Thread.isMainThread` matter?~~ **No.** It reads `false` inside a `@MainActor` test on Linux -- isolation holds, the OS thread simply is not thread 1 -- and nothing in `Sources/` calls it | Answered 2026-09-06 |
-| ~~**What do the 41 platform files actually need?**~~ **35 of them, and now assessed by the compiler.** `FacetMac` is what did not move: the panes and views, `BluetoothRadio`, `DeviceLogin`, `BLETrace`, `TimeFlipUUIDs`, `MenuBarController`, `MainMenu`, `ActivityIcon`, `GoogleOAuthClient`, `QuitSequence`, `StatusItemTitle`, `ColourDrawing` and `main.swift` | Answered 2026-09-06, Mac |
+| ~~**What do the 41 platform files actually need?**~~ **35 of them, and now assessed by the compiler.** `FacetMac` is what did not move: the panes and views, `BluetoothRadio`, `DeviceLogin`, `BLETrace`, `TimeFlipUUIDs`, `MenuBarController`, `MainMenu`, `ActivityIcon`, `GoogleOAuthClient`, `QuitSequence`, `StatusItemTitle`, `ColourDrawing` and `main.swift`. **Three of those have since moved** (2026-09-10): `GoogleOAuthClient`, `QuitSequence` and `StatusItemTitle`, leaving `QuitDelegate` and `StatusColourDrawing` behind them | Answered 2026-09-06, Mac; partly superseded 2026-09-10 |
 | ~~**How many members does stage 3 actually have to widen?**~~ **437 members, over 152 types, 589 `package` declarations in total.** The loop was run and the section above carries the working; the type count of 94 this row quoted was low by more than half, because what the compiler asks for is the types `FacetMac` names *plus* everything that comes with them | Answered 2026-09-07, Mac |
 | ~~**Does the scripted suite still pass after the split?**~~ **Yes, in full**, reported by the owner from a shakedown run on the Mac. Not a stamped run and not evidence for CI, which still wants one -- but it answers the question this row was asking, which was whether moving `Sources/` wholesale had broken the app on hardware. It had not | Answered 2026-09-07, Mac |
 | **Does the rename apply immediately or is it deferred?** Open since August; finding 1 wants a second BLE central with no cached record, and this box is one | Rename from the Mac, read the GAP name from Linux |
