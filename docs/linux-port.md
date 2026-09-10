@@ -218,6 +218,29 @@ alone (3.87s to 0.06s) and takes a bootstrap from 6.2s to 0.9s. The 540 XCTest t
 spike left it -- parallelism is fine and `.serialized` is not needed -- but for a different reason than
 it gave, and the number that matters is the per-statement fsync rather than the DDL's size.
 
+### It came back twice over, so there is a check now
+
+**Measured 2026-09-11.** The suite was cleared of isolated `XCTestCase`s on 2026-09-09 and had three again by
+2026-09-10: `QuitSequenceTests`, `StatusItemTitleTests` and three methods of `CubeNotFoundOfferTests`. Each was
+written on the Mac, where the attribute costs nothing, and each aborted the entire test executable here --
+**671 XCTest tests reported nothing at all**, and the only output was the cast message above naming one class.
+
+**The shape of the fault is why it does not stay fixed on its own.** The author cannot see it, the machine that
+can see it is not the one being typed at, and the failure names one file while destroying the run of every
+other. Nothing in the source says the attribute is dangerous.
+
+**`AnIsolatedXCTestCaseAbortsTheLinuxRunTests` is the guard**, and it runs on both platforms, which is the whole
+point: it fails on the Mac at the moment the attribute is typed. It scans `Tests/FacetTests` for a file that
+names `XCTestCase` on a non-comment line and carries a `@MainActor` on another, and it reads the exclusion list
+**out of `Package.swift` rather than keeping a copy**, so a file coming off that list is checked from that moment
+without anybody remembering to say so.
+
+**Two ways out, and which one each of the three took.** If the subject really is `@MainActor`, the file becomes a
+`@Suite @MainActor` swift-testing suite -- that is what `QuitSequenceTests` did, `CubeLockTests` being the shape,
+and the conversion table above is the whole of it. If it is not, the attribute is simply deleted: the other two
+were carrying isolation left behind by a subject that had moved into the core and stopped touching AppKit, which
+is a thing the ports remodel will keep producing.
+
 ### And it does not fix everything: on Linux, `@MainActor` is not the main thread
 
 **Measured 2026-09-09**, migrating the last six files off the exclusion list. Inside a `@Suite @MainActor`
