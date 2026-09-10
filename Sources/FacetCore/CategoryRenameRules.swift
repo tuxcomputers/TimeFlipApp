@@ -77,10 +77,31 @@ package enum CategoryRenameRules {
         }
     }
 
-    /// Which choice a button at `index` is, given the buttons that were offered. `nil` for an index none occupies.
-    package static func choice(forButtonIndex index: Int, offering choices: [Choice]) -> Choice? {
-        guard choices.indices.contains(index) else { return nil }
-        return choices[index]
+    /// The whole dialogue for a decision, or `nil` for one that raises none.
+    ///
+    /// **Assembled here rather than at the surface.** The heading, the wording, the buttons and which of them
+    /// is the way out are four halves of one decision, and a surface that fetched them separately could put
+    /// three of them together with the fourth from somewhere else. `DialoguePresenter.ask(_:offering:)` takes
+    /// this and the matching `choices(for:)`, and the positions line up because both come from here.
+    ///
+    /// **`choice(forButtonIndex:offering:)` used to live here and is gone with the port.** It was three lines
+    /// of array lookup, written once here and once in `CategoryCreateRules`, and it existed only because an
+    /// AppKit button index had to be translated back into a decision. Nothing outside an adapter counts
+    /// buttons now.
+    package static func dialogue(for decision: Decision, currentName: String) -> Dialogue? {
+        guard
+            let title = title(for: decision),
+            let message = message(for: decision, currentName: currentName)
+        else {
+            return nil
+        }
+        let offered = choices(for: decision)
+        return Dialogue(
+            title: title,
+            message: message,
+            choices: offered.map(\.buttonTitle),
+            wayOut: offered.firstIndex(of: .cancel)
+        )
     }
 
     /// The heading of the dialogue. `nil` when there is none to raise.

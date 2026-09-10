@@ -70,16 +70,31 @@ package enum CategoryCreateRules {
             ? "There is one category with the same name."
             : "There are \(count) categories with the same name."
     }
-
-    /// Which choice a button at `index` is, given the buttons that were offered. `nil` for an index none of them
-    /// occupies.
+    /// The whole dialogue about retired namesakes, and the choices it offers, in one answer so their order
+    /// on screen and the meaning of the reply cannot drift apart.
     ///
-    /// Turning an answer back into a choice lives here rather than at the alert, and takes the same list the buttons
-    /// were built from, so the order on screen and the meaning of the answer cannot drift apart -- including when
-    /// the list is the shorter one.
-    package static func choice(forButtonIndex index: Int, offering choices: [RetiredNamesakeChoice]) -> RetiredNamesakeChoice? {
-        guard choices.indices.contains(index) else { return nil }
-        return choices[index]
+    /// **`wayOut` is deliberately `nil`, which preserves what this dialogue does today** rather than quietly
+    /// improving it. Its siblings put Return on Cancel because the answer that changes something already
+    /// recorded must not be the one a stray Return lands on; this one never set a key equivalent at all, so
+    /// AppKit relocates Cancel to the left and Return lands on "Create new one". Whether that is right is a
+    /// question for whoever owns the behaviour, not something to change inside a port.
+    ///
+    /// **`choice(forButtonIndex:offering:)` used to live here and is gone with the port**, along with its twin
+    /// in `CategoryRenameRules`. Both were the same three lines of array lookup, and both existed only because
+    /// an AppKit button index had to be turned back into a decision.
+    package static func retiredNamesakeDialogue(
+        name: String,
+        count: Int
+    ) -> (dialogue: Dialogue, choices: [RetiredNamesakeChoice]) {
+        let offered = choices(retiredNamesakes: count)
+        return (
+            Dialogue(
+                title: retiredNamesakeMessage(name: name),
+                message: retiredNamesakeCount(count),
+                choices: offered.map(\.buttonTitle)
+            ),
+            offered
+        )
     }
 
     /// The most characters a category name may hold.

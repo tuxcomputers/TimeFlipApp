@@ -237,14 +237,6 @@ final class CategoryRenameRulesTests: XCTestCase {
         XCTAssertFalse(CategoryRenameRules.Choice.cancel.isRename)
     }
 
-    func testAnAnswerIsTurnedBackIntoTheChoiceThatWasOffered() {
-        let choices = CategoryRenameRules.choices(for: .confirm(name: "Admin"))
-
-        XCTAssertEqual(CategoryRenameRules.choice(forButtonIndex: 0, offering: choices), .cancel)
-        XCTAssertEqual(CategoryRenameRules.choice(forButtonIndex: 1, offering: choices), .rename)
-        XCTAssertNil(CategoryRenameRules.choice(forButtonIndex: 2, offering: choices), "no button of ours")
-    }
-
     func testNothingIsAskedWhenThereIsNothingToDo() {
         XCTAssertNil(CategoryRenameRules.title(for: .ignore))
         XCTAssertNil(CategoryRenameRules.message(for: .ignore, currentName: "Break"))

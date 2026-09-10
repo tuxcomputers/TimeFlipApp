@@ -42,6 +42,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// The *tab* it was left on is deliberately not kept: every open selects `tabOnOpen`. See there.
     private lazy var window: NSWindow = makeWindow()
 
+    /// Where a question or a notice goes. `Dialogue` values are decided in `FacetCore` and this turns them
+    /// into sheets, which is the whole of what a Mac contributes to asking somebody something.
+    private lazy var dialogues: DialoguePresenter = AlertPresenter(window: window, debugLog: debugLog)
+
     /// `nil` in a build without the dev flag.
     /// Where the Google refresh token and the cube's PIN are kept.
     ///
@@ -2385,10 +2389,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             matching: categories.matching(name:)
         )
         let choices = CategoryRenameRules.choices(for: decision)
-        guard
-            let title = CategoryRenameRules.title(for: decision),
-            let message = CategoryRenameRules.message(for: decision, currentName: category.name)
-        else {
+        guard let asking = CategoryRenameRules.dialogue(for: decision, currentName: category.name) else {
             // `.ignore`: nothing typed, or the name already reads that way. The field has closed itself, and a
             // dialogue saying nothing happened would be worse than nothing happening.
             debugLog?.record(.field, "Category \(category.name) rename ignored, nothing changed")
@@ -2399,38 +2400,18 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         let name = renamedName(from: decision)
         debugLog?.record(
             .field,
-            "Category \(category.name) rename -> \(CategoryCreateRules.normalise(typed)), asking: \(title)"
+            "Category \(category.name) rename -> \(CategoryCreateRules.normalise(typed)), asking: \(asking.title)"
         )
 
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
-        for choice in choices {
-            alert.addButton(withTitle: choice.buttonTitle)
-        }
-        // **Return has to be put on Cancel, not merely aimed at it by adding Cancel first.** AppKit relocates a button
-        // titled "Cancel" to the left, which takes it out of the rightmost place Return fires, so the button that
-        // agrees becomes the default one. Measured on 2026-08-16: this sheet listed "Cancel | Rename anyway" while the
-        // calendar delete, which does set its key equivalents, listed "Delete Calendar | Cancel" -- the two differing
-        // in nothing else. Left alone, Return here agreed to a rename.
-        //
-        // The same trap and the same fix as `carryOutGoogleCalendarDelete`, and for the same reason: the answer that
-        // changes something already recorded must not be the one a stray Return lands on.
-        for (index, choice) in choices.enumerated() where index < alert.buttons.count {
-            alert.buttons[index].keyEquivalent = choice == .cancel ? "\r" : ""
-        }
-        alert.beginSheetModal(for: window) { [weak self] response in
+        // The wording, the buttons and which of them Return may land on are all `CategoryRenameRules`', in one
+        // answer, so their order on screen and the meaning of the reply cannot drift apart. What this method
+        // does with them is nothing.
+        dialogues.ask(asking, offering: choices) { [weak self] choice in
             guard let name else {
                 self?.debugLog?.record(.click, "Button clicked: Cancel, \(category.name) rename refused, name taken")
                 return
             }
-            let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
-            self?.act(
-                on: CategoryRenameRules.choice(forButtonIndex: index, offering: choices),
-                renaming: category,
-                to: name,
-                in: categories
-            )
+            self?.act(on: choice, renaming: category, to: name, in: categories)
         }
     }
 
@@ -3445,17 +3426,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// date that tells them apart.
     private func askAboutRetiredNamesakes(_ existing: [CategoryRecord], startsTiming: Bool = false) {
         guard let categories, let first = existing.first else { return }
-        let choices = CategoryCreateRules.choices(retiredNamesakes: existing.count)
-        let alert = NSAlert()
-        alert.messageText = CategoryCreateRules.retiredNamesakeMessage(name: first.name)
-        alert.informativeText = CategoryCreateRules.retiredNamesakeCount(existing.count)
-        for choice in choices {
-            alert.addButton(withTitle: choice.buttonTitle)
-        }
-        alert.beginSheetModal(for: window) { [weak self] response in
-            let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        let asking = CategoryCreateRules.retiredNamesakeDialogue(name: first.name, count: existing.count)
+        dialogues.ask(asking.dialogue, offering: asking.choices) { [weak self] choice in
             self?.act(
-                on: CategoryCreateRules.choice(forButtonIndex: index, offering: choices),
+                on: choice,
                 about: first,
                 named: first.name,
                 in: categories,

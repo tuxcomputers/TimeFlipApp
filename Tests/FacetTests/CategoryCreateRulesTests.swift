@@ -119,30 +119,6 @@ final class CategoryCreateRulesTests: XCTestCase {
         )
     }
 
-    func testEachButtonMeansItsOwnChoice() {
-        // The order on screen and the meaning of the answer are one list, so a button added in the middle cannot
-        // silently repoint the others.
-        let three = CategoryCreateRules.choices(retiredNamesakes: 1)
-        XCTAssertEqual(CategoryCreateRules.choice(forButtonIndex: 0, offering: three), .reactivate)
-        XCTAssertEqual(CategoryCreateRules.choice(forButtonIndex: 1, offering: three), .createNew)
-        XCTAssertEqual(CategoryCreateRules.choice(forButtonIndex: 2, offering: three), .cancel)
-    }
-
-    func testTheShorterListMeansTheFirstButtonIsCreateRatherThanReactivate() {
-        // The case this pairing exists for: the same index means a different thing depending on what was offered.
-        let two = CategoryCreateRules.choices(retiredNamesakes: 2)
-        XCTAssertEqual(CategoryCreateRules.choice(forButtonIndex: 0, offering: two), .createNew)
-        XCTAssertEqual(CategoryCreateRules.choice(forButtonIndex: 1, offering: two), .cancel)
-        XCTAssertNil(CategoryCreateRules.choice(forButtonIndex: 2, offering: two))
-    }
-
-    func testAnAnswerFromNoButtonOfOursIsNothing() {
-        // A sheet dismissed by something else. The caller treats it as Cancel rather than guessing.
-        let three = CategoryCreateRules.choices(retiredNamesakes: 1)
-        XCTAssertNil(CategoryCreateRules.choice(forButtonIndex: 3, offering: three))
-        XCTAssertNil(CategoryCreateRules.choice(forButtonIndex: -1, offering: three))
-    }
-
     func testTheMessageNamesTheCategoryInQuotes() {
         XCTAssertEqual(
             CategoryCreateRules.retiredNamesakeMessage(name: "Reading"),
