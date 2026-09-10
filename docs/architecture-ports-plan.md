@@ -34,7 +34,7 @@ The cheap and the blocking come first, the large and the discretionary last.
 | 2 | Files and folders | **not an arm** | Off the diagram on 2026-09-10, like storage: it is in the core and there is nothing to select. |
 | 4 | Menu bar | **done** | The **second adapter already exists** and is the right shape. A real seam with one outlier, not a hypothetical one. |
 | 5 | Radio | **done** |  The biggest port with a protocol already standing. Wants `feature/commandChannel` landed first. |
-| 6 | Windows and dialogs | arm green, panes left | 3,536 lines and the least mechanical work in the app. Everything above teaches something it needs. |
+| 6 | Windows and dialogs | arm green, two rows left | 3,487 lines and the least mechanical work in the app. Everything above teaches something it needs. |
 | 7 | Storage | **not an arm** | Off the diagram on 2026-09-10. It is in the core and was never a platform capability. |
 
 Reorder this table as the work teaches something. An item that turns out to block another moves above it,
@@ -355,9 +355,21 @@ something it needs.
 - [ ] The double-tap pair, `applyDoubleTapEnabled` and `applyDoubleTapValues`, are the same shape and have
       not moved yet: both carry extra steps around the sequence (cancelling a pending write, sending four
       registers with the flag) that want reading before they are folded in.
+
+      **The verb is the obstacle, and it is a decision rather than a chore.** `applyDoubleTapValues` already
+      writes exactly what `DeviceSettingWrite` would (`Double tap: sending <the four>`), so it folds in
+      cleanly. `applyDoubleTapEnabled` does not: it writes `Double tap: turning it off, sending <the four>`,
+      and `send` fixes the verb at `sending`. Three checks in `59-double-tap` read that row and all three
+      passed on the cube in run 179, so folding it plainly breaks green hardware-verified checks. Either
+      `DeviceSettingWrite` grows a way to carry the verb, which weakens the one property that makes it worth
+      having, or those rows change and the checks are updated with them. **Worth taking to the owner rather
+      than deciding on the way past**, since the second option spends a device run.
 - [ ] `renameDevice` / `sendRename` is the eighth, and the odd one: its read-back is functional rather than
       a command, so it does not fit `send` as it stands.
-- [ ] The rest of the window is view construction and tab wiring, which is what an adapter is for.
+- [ ] ~~The rest of the window is view construction and tab wiring.~~ **Struck: it is not work.** That is
+      what an adapter is *for*, so the sentence was saying the code is already where it belongs while
+      wearing an unticked box. Moving any of it would be making the number smaller rather than making
+      the model truer.
 
 ## 7. Storage
 
