@@ -37,6 +37,7 @@ from the using end.
 - **[The two systems](docs/systems-info.md)** - measured facts each of the Mac and the Linux box needs about the other
 - **[Handover: for the Mac](docs/handover-mac.md)** and **[for the Linux box](docs/handover-linux.md)** - what each machine is asking the other to do, deleted an item at a time as it is done
 - **[State Reference](docs/state-reference.md)** - the one name every state in the app goes by
+- **[The architecture model](docs/architecture-model.svg)** - the core as a circle, each platform capability leaving it along one arm to a square of adapters
 - **[Scripted checks](Tests/Scripted/README.md)** - the suite that drives the real app against a real device
 
 ## Architecture

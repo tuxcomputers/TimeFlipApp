@@ -128,6 +128,12 @@ on anything else, and it must not be able to find out.
 That is the whole rule. What follows is what it means in practice, why it is worth the ceremony, and how it is
 checked.
 
+**[`docs/architecture-model.svg`](docs/architecture-model.svg) is the picture of it**, and it is the owner's own
+figure rather than an illustration added afterwards: the core is a circle whose modules link freely to one
+another, each platform capability leaves it along one arm, and each arm ends at a square holding a slot per
+platform of which the build selects one. What travels an arm is the same whichever slot was built. The diagram
+also marks where the app actually is, which is one arm of eight.
+
 **Every capability the platform provides is a *port*: a protocol in the core, named for what it does rather than
 for what performs it.** A store of secrets, not a Keychain. A radio, not CoreBluetooth. A menu bar, not
 `NSStatusItem`. The name is load-bearing, because a protocol called `KeychainStore` has already decided the
