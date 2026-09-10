@@ -67,7 +67,7 @@ final class RenamingTheCubeReachesItFirstTests: XCTestCase, @unchecked Sendable 
     private var controller: SettingsWindowController!
 
     @discardableResult
-    private func window(with radio: BluetoothRadio = BluetoothRadio(debugLog: nil)) -> SettingsWindowController {
+    private func window(with radio: BluetoothRadio = BluetoothRadio(debugLog: nil, scheduler: HandDrivenScheduler())) -> SettingsWindowController {
         controller = SettingsWindowController(
             debugLog: debugLog, categories: nil, faces: nil, settings: settings, radio: radio
         )
@@ -206,7 +206,7 @@ final class RenamingTheCubeReachesItFirstTests: XCTestCase, @unchecked Sendable 
 
     func testANameTheCubeReportsIsWrittenDown() throws {
         // The path that catches a cube renamed in the vendor's app, and the one that confirms a rename made here.
-        let radio = BluetoothRadio(debugLog: nil)
+        let radio = BluetoothRadio(debugLog: nil, scheduler: HandDrivenScheduler())
         window(with: radio)
 
         reportName("Wobble", from: cube, on: radio)
@@ -221,7 +221,7 @@ final class RenamingTheCubeReachesItFirstTests: XCTestCase, @unchecked Sendable 
         // undo the rename on the tab and in the row the scan filter is built from, and put it back a connection later.
         XCTAssertTrue(settings.write("device_name", field: "name", "Plopper"))
         XCTAssertTrue(settings.write("device_name", field: "previous_name", "Dibby"))
-        let radio = BluetoothRadio(debugLog: nil)
+        let radio = BluetoothRadio(debugLog: nil, scheduler: HandDrivenScheduler())
         window(with: radio)
 
         reportName("Dibby", from: cube, on: radio)
@@ -234,7 +234,7 @@ final class RenamingTheCubeReachesItFirstTests: XCTestCase, @unchecked Sendable 
     func testTheNameAlreadyOnRecordWritesNothingAndSaysNothing() throws {
         // Every connection reports a name, so a row per connection saying the name has not changed would be the loop
         // of the app burying what the cube actually did.
-        let radio = BluetoothRadio(debugLog: nil)
+        let radio = BluetoothRadio(debugLog: nil, scheduler: HandDrivenScheduler())
         window(with: radio)
 
         reportName("Dibby", from: cube, on: radio)
@@ -248,7 +248,7 @@ final class RenamingTheCubeReachesItFirstTests: XCTestCase, @unchecked Sendable 
         // Every connection reports a name, including the one that proves a factory reset and any made to a device
         // that turns out to be somebody else's. Writing one of those into `device_name` would rename the pairing
         // after a cube it is not to.
-        let radio = BluetoothRadio(debugLog: nil)
+        let radio = BluetoothRadio(debugLog: nil, scheduler: HandDrivenScheduler())
         window(with: radio)
 
         reportName("Somebody elses cube", from: UUID(), on: radio)
@@ -259,7 +259,7 @@ final class RenamingTheCubeReachesItFirstTests: XCTestCase, @unchecked Sendable 
 
     func testTheTabFollowsTheNameTheCubeReports() throws {
         // The tab is redrawn from the table rather than from what arrived, which is the rule every write on it keeps.
-        let radio = BluetoothRadio(debugLog: nil)
+        let radio = BluetoothRadio(debugLog: nil, scheduler: HandDrivenScheduler())
         let window = window(with: radio)
         _ = try devicePane(in: window)
 

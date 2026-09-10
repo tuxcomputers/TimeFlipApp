@@ -67,7 +67,7 @@ final class AutoPauseSettlesBeforeItIsSentTests: XCTestCase, @unchecked Sendable
     /// makes that visible at the top of each test.
     private func window() -> SettingsWindowController {
         SettingsWindowController(
-            debugLog: debugLog, categories: nil, faces: nil, settings: settings, radio: BluetoothRadio(debugLog: nil)
+            debugLog: debugLog, categories: nil, faces: nil, settings: settings, radio: BluetoothRadio(debugLog: nil, scheduler: HandDrivenScheduler())
         )
     }
 

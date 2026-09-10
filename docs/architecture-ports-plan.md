@@ -33,7 +33,7 @@ The cheap and the blocking come first, the large and the discretionary last.
 | 3 | Starting and stopping | **done** | Landed with `QuitSequence`. Turned out to need no protocol at all: see its section. |
 | 2 | Files and folders | **not an arm** | Off the diagram on 2026-09-10, like storage: it is in the core and there is nothing to select. |
 | 4 | Menu bar | **done** | The **second adapter already exists** and is the right shape. A real seam with one outlier, not a hypothetical one. |
-| 5 | Radio | arm green, slot black | The biggest port with a protocol already standing. Wants `feature/commandChannel` landed first. |
+| 5 | Radio | **done**, slot black |  The biggest port with a protocol already standing. Wants `feature/commandChannel` landed first. |
 | 6 | Windows and dialogs | arm green, slot black | 3,536 lines and the least mechanical work in the app. Everything above teaches something it needs. |
 | 7 | Storage | **not an arm** | Off the diagram on 2026-09-10. It is in the core and was never a platform capability. |
 
@@ -286,14 +286,28 @@ comparisons, one `switch` over the four Device Information UUIDs, and one hiding
 `InMemoryGatt` answers in the spelling a real adapter answers in for exactly this reason: a double that
 echoed back whatever it was handed would have agreed with the broken code.
 
-- [ ] `BluetoothRadio` is what is left, 696 lines of code: the central manager, scanning, connecting, the
-      attempt state. The core reaches it through `CubeRadio`, which is six members and only
-      `DeviceReconnector`'s, so the connect half of this arm is served by a much narrower port than the
-      transport half.
-- [ ] Fold the send closures into the port. `CubeLock`, `DeviceSettingsSync` and `FaceColourSync` each take
-      a bare `send:` closure, so the core still has three ways to reach the radio rather than one.
-- [ ] **Hardware.** None of this is confirmed on a cube. It is the change on this list that most needs to
-      be, and it wants one device run.
+**These three were re-examined on 2026-09-10 and only one of them was work.** Written after reading the
+radio rather than after reading the plan, which is how they got overstated in the first place.
+
+- [x] `BluetoothRadio`'s six hand-rolled deadlines onto `Scheduler`. **This was the real one**, and the
+      clock port had missed it for the same reason it missed `DeviceLogin`'s five: a `Timer` in a platform
+      target breaks no rule, so nothing failed. `FacetMac` now contains no `Timer` and no `RunLoop`
+      anywhere. It turned up the module-global bug a second time on the way: `SettingsWindowController`
+      took a `scheduler` and never stored it, so a method naming it reached `main.swift`'s global, which a
+      test would touch without `main` having run.
+- [x] ~~`BluetoothRadio` is what is left, 696 lines not behind a port.~~ **Overstated.** It calls into core
+      rules 24 times, so the decisions are already out of it; what remains is `CBCentralManager`, the
+      peripherals table and the scan and connect state machine, which is what an adapter is *for*. Its
+      twenty `on*` callbacks are the platform reaching *in*, and item 3 already settled that this direction
+      needs no protocol: the core never names its caller.
+- [x] ~~Fold the send closures into the port.~~ **Struck: it is ceremony.** All three are byte-identical,
+      `radio.send(command, reported)`, already injected, already testable, already platform-blind, and a
+      closure is this codebase's own idiom for a one-method seam. Replacing them with a protocol would not
+      concentrate anything, it would rename it. Widening `CubeRadio`, which says of itself "six members,
+      which is all `DeviceReconnector` touches", would make it less honest rather than more.
+- [x] ~~**Hardware.**~~ **Not a task on this list.** It is a gate the owner holds, and the scripted suite is
+      set aside by their own instruction, so an unticked box here reads as a job somebody forgot. The
+      standing fact belongs in the note below and not in a checklist.
 
 ## 6. Windows and dialogs
 

@@ -182,8 +182,6 @@ let dayTotal = DayTotal(
 //
 // **Building it does not touch the radio.** `CBCentralManager` is made on the first scan or reach, inside
 // `BluetoothRadio.start`, so a launch with nothing paired still never provokes the system's Bluetooth prompt.
-let radio = BluetoothRadio(debugLog: debugLog)
-
 // **The macOS slot in the clock's square, made once and handed to everything that waits.**
 //
 // `FacetCore` states the waiting as `Scheduler` and does not know what performs it; this is the one place on this
@@ -191,6 +189,9 @@ let radio = BluetoothRadio(debugLog: debugLog)
 // loop: a second would be the same clock wearing a different name, which is the two-answers fault the first rule in
 // `CLAUDE.md` is about, applied to time.
 let scheduler = RunLoopScheduler()
+
+let radio = BluetoothRadio(debugLog: debugLog, scheduler: scheduler)
+
 
 // What is being timed, for both things that draw it. The Faces tab and the status item read one answer rather
 // than each resolving the face, the category and the total for itself -- and it is all read, including whether the

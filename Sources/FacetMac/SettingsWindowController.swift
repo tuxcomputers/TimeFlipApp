@@ -42,6 +42,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// The *tab* it was left on is deliberately not kept: every open selects `tabOnOpen`. See there.
     private lazy var window: NSWindow = makeWindow()
 
+    /// What does the waiting, for the debounced writes and for any radio this window has to build itself.
+    ///
+    /// **Stored rather than only used in `init`.** A top-level `let` in `main.swift` is a module global, so a
+    /// method naming `scheduler` without this compiles perfectly and reaches that global instead, which a test
+    /// would touch without `main` ever having run. `MenuBarController` had exactly that and it was invisible.
+    private let scheduler: Scheduler
+
     /// Where a question or a notice goes. `Dialogue` values are decided in `FacetCore` and this turns them
     /// into sheets, which is the whole of what a Mac contributes to asking somebody something.
     private lazy var dialogues: DialoguePresenter = AlertPresenter(window: window, debugLog: debugLog)
@@ -226,6 +233,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // `FacetCore` would have been the core choosing, which it does not.
         scheduler: Scheduler = RunLoopScheduler()
     ) {
+        self.scheduler = scheduler
         self.doubleTapWrite = WriteDebounce(scheduler: scheduler)
         self.ledBrightnessWrite = WriteDebounce(scheduler: scheduler)
         self.ledBlinkWrite = WriteDebounce(scheduler: scheduler)
@@ -1450,7 +1458,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
 
     private func deviceRadio() -> BluetoothRadio {
         if let radio { return radio }
-        let made = BluetoothRadio(debugLog: debugLog)
+        let made = BluetoothRadio(debugLog: debugLog, scheduler: scheduler)
         adopt(made)
         return made
     }

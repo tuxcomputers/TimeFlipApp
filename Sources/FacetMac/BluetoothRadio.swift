@@ -203,9 +203,10 @@ final class BluetoothRadio: NSObject, CubeRadio {
     static let settleSeconds: TimeInterval = 1
 
     private let debugLog: DebugLog?
+    private let scheduler: Scheduler
     private var central: CBCentralManager?
     private var found: [UUID: ScannedDevice] = [:]
-    private var timeout: Timer?
+    private var timeout: ScheduledWake?
 
     /// The peripherals behind the values in `found`.
     ///
@@ -276,11 +277,11 @@ final class BluetoothRadio: NSObject, CubeRadio {
     static let resetRetrySeconds: TimeInterval = 3
 
     private var resetConfirmation: ResetConfirmation?
-    private var resetDeadline: Timer?
+    private var resetDeadline: ScheduledWake?
 
     private var attempt: Attempt?
-    private var connectTimeout: Timer?
-    private var settle: Timer?
+    private var connectTimeout: ScheduledWake?
+    private var settle: ScheduledWake?
     /// Set while a disconnect is this app's doing, so the delegate can tell one apart from a cube that went away.
     private var isDisconnectingDeliberately = false
 
@@ -360,8 +361,9 @@ final class BluetoothRadio: NSObject, CubeRadio {
     /// cube offers no gesture that locks itself.
     private(set) var cubeStatus: DeviceCommandRules.Status?
 
-    init(debugLog: DebugLog?) {
+    init(debugLog: DebugLog?, scheduler: Scheduler) {
         self.debugLog = debugLog
+        self.scheduler = scheduler
         super.init()
     }
 
@@ -431,7 +433,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
     /// Stops, saying why in the log. The reason is not shown to the user: what they see is the list and whether it
     /// is still growing, and "timed out" against a list with the cube in it would read as a failure.
     private func stop(because reason: String) {
-        timeout?.invalidate()
+        timeout?.cancel()
         timeout = nil
         // **Withdrawn ahead of the guard, not inside it.** A stop can land while the manager is still powering up, when
         // there is no scan yet to stop -- pressing Scan with the radio off and pressing it again to cancel is exactly
@@ -509,17 +511,14 @@ final class BluetoothRadio: NSObject, CubeRadio {
         reaching!.tried.insert(id)
         let candidates = reaching!.candidates
         let rotatingTo = reaching!.rotatingTo
-        settleThenConnect = Timer(timeInterval: Self.settleSeconds, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, self.reaching != nil, self.attempt == nil else { return }
-                self.debugLog?.record(
-                    .login,
-                    "Trying \(id.uuidString), \(self.reaching!.queue.count) more with the name behind it"
-                )
-                self.connect(to: id, presenting: candidates, rotatingTo: rotatingTo)
-            }
+        settleThenConnect = scheduler.wake(in: Self.settleSeconds) { [weak self] in
+            guard let self, self.reaching != nil, self.attempt == nil else { return }
+            self.debugLog?.record(
+                .login,
+                "Trying \(id.uuidString), \(self.reaching!.queue.count) more with the name behind it"
+            )
+            self.connect(to: id, presenting: candidates, rotatingTo: rotatingTo)
         }
-        if let settleThenConnect { RunLoop.main.add(settleThenConnect, forMode: .common) }
     }
 
     /// Ends a reach that has run out of devices to ask, and says which of the two answers it is.
@@ -530,7 +529,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
     private func endReach(because reason: String) {
         guard let target = reaching else { return }
         reaching = nil
-        settleThenConnect?.invalidate()
+        settleThenConnect?.cancel()
         settleThenConnect = nil
         let outcome: DeviceLoginOutcome = target.anyRefused ? .wrongPIN : .unreachable
         debugLog?.record(
@@ -571,12 +570,10 @@ final class BluetoothRadio: NSObject, CubeRadio {
         debugLog?.record(.scan, "Scan started, listening for advertisements")
         // Armed here rather than in `start`, because `start` may only have built the manager: the clock should
         // measure the time the radio was actually listening, not the wait for it to power on.
-        timeout?.invalidate()
-        timeout = Timer(timeInterval: Self.timeoutSeconds, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated { self?.stop(because: "timed out after \(Int(Self.timeoutSeconds))s") }
+        timeout?.cancel()
+        timeout = scheduler.wake(in: Self.timeoutSeconds) { [weak self] in
+            self?.stop(because: "timed out after \(Int(Self.timeoutSeconds))s")
         }
-        // `.common`, so a scan still ends on time while a menu is being held open.
-        if let timeout { RunLoop.main.add(timeout, forMode: .common) }
         onScanningChanged?(true)
     }
 
@@ -757,7 +754,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
 
     /// The wait between one candidate and the next, on `settleSeconds` -- the same constant, and for the same reason
     /// it already existed: letting a refused link finish coming down before anything touches the radio again.
-    private var settleThenConnect: Timer?
+    private var settleThenConnect: ScheduledWake?
 
     /// Whether the radio is looking for a cube of its own accord, as opposed to for somebody watching the list.
     var isReachingForCube: Bool { reaching != nil || attempt != nil }
@@ -846,18 +843,15 @@ final class BluetoothRadio: NSObject, CubeRadio {
         }
         // Armed first, for the reason above: the drop that follows is part of the reset.
         resetConfirmation = ResetConfirmation(id: id, reported: reported)
-        resetDeadline?.invalidate()
-        resetDeadline = Timer(timeInterval: Self.resetConfirmSeconds, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.debugLog?.record(
-                    .pair,
-                    "The cube never came back on the vendor PIN within \(Int(Self.resetConfirmSeconds))s,"
-                        + " so the reset is not confirmed"
-                )
-                self?.endReset(.notConfirmed)
-            }
+        resetDeadline?.cancel()
+        resetDeadline = scheduler.wake(in: Self.resetConfirmSeconds) { [weak self] in
+            self?.debugLog?.record(
+                .pair,
+                "The cube never came back on the vendor PIN within \(Int(Self.resetConfirmSeconds))s,"
+                    + " so the reset is not confirmed"
+            )
+            self?.endReset(.notConfirmed)
         }
-        if let resetDeadline { RunLoop.main.add(resetDeadline, forMode: .common) }
 
         login.factoryReset { [weak self] sent in
             guard let self else { return }
@@ -885,32 +879,29 @@ final class BluetoothRadio: NSObject, CubeRadio {
     /// command log in and be counted as proof, which is the one mistake this whole sequence exists to avoid.
     private func retryResetConfirmation() {
         guard resetConfirmation != nil else { return }
-        settle?.invalidate()
+        settle?.cancel()
         // **Which cube is read when the timer fires, not captured now.** A `ResetConfirmation` holds a closure and so
         // is not `Sendable`, which the compiler refuses to let across into a timer -- and re-reading is the better
         // answer anyway: if the window closed in the meantime there is nothing left to reach for.
-        settle = Timer(timeInterval: Self.resetRetrySeconds, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, let id = self.resetConfirmation?.id else { return }
-                self.debugLog?.record(.pair, "Trying the vendor PIN, to see whether the cube was really wiped")
-                self.attempt = Attempt(
-                    id: id, remaining: [], presenting: DeviceLoginRules.defaultPIN, rotatingTo: nil
-                )
-                self.beginConnect()
-            }
+        settle = scheduler.wake(in: Self.resetRetrySeconds) { [weak self] in
+            guard let self, let id = self.resetConfirmation?.id else { return }
+            self.debugLog?.record(.pair, "Trying the vendor PIN, to see whether the cube was really wiped")
+            self.attempt = Attempt(
+                id: id, remaining: [], presenting: DeviceLoginRules.defaultPIN, rotatingTo: nil
+            )
+            self.beginConnect()
         }
-        if let settle { RunLoop.main.add(settle, forMode: .common) }
     }
 
     /// Ends the reset one way or the other, and says so exactly once.
     private func endReset(_ outcome: FactoryResetOutcome) {
         guard let confirmation = resetConfirmation else { return }
         resetConfirmation = nil
-        resetDeadline?.invalidate()
+        resetDeadline?.cancel()
         resetDeadline = nil
-        settle?.invalidate()
+        settle?.cancel()
         settle = nil
-        connectTimeout?.invalidate()
+        connectTimeout?.cancel()
         connectTimeout = nil
         attempt = nil
         debugLog?.record(.pair, "Reset: \(outcome)")
@@ -935,16 +926,16 @@ final class BluetoothRadio: NSObject, CubeRadio {
     /// Abandons an attempt in flight without reporting an outcome, for the two moments that are not the cube's doing:
     /// the window closing, and another device being chosen.
     private func cancelAttempt() {
-        connectTimeout?.invalidate()
+        connectTimeout?.cancel()
         connectTimeout = nil
-        settle?.invalidate()
+        settle?.cancel()
         settle = nil
         // A cube being looked for is abandoned along with one being connected to: both are this app going after a
         // device, and the two moments that call this -- the window closing, another device being chosen -- end either.
         // The wait before the next candidate goes with it: it guards on `reaching` when it fires, but a timer left
         // running for a reach nobody is having is a second thing to reason about for no gain.
         reaching = nil
-        settleThenConnect?.invalidate()
+        settleThenConnect?.cancel()
         settleThenConnect = nil
         guard let attempt else { return }
         self.attempt = nil
@@ -975,15 +966,12 @@ final class BluetoothRadio: NSObject, CubeRadio {
         )
         isDisconnectingDeliberately = false
         central.connect(peripheral, options: nil)
-        connectTimeout?.invalidate()
-        connectTimeout = Timer(timeInterval: Self.connectTimeoutSeconds, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, let attempt = self.attempt else { return }
-                self.debugLog?.record(.login, "No answer after \(Int(Self.connectTimeoutSeconds))s")
-                self.end(attempt.id, .unreachable)
-            }
+        connectTimeout?.cancel()
+        connectTimeout = scheduler.wake(in: Self.connectTimeoutSeconds) { [weak self] in
+            guard let self, let attempt = self.attempt else { return }
+            self.debugLog?.record(.login, "No answer after \(Int(Self.connectTimeoutSeconds))s")
+            self.end(attempt.id, .unreachable)
         }
-        if let connectTimeout { RunLoop.main.add(connectTimeout, forMode: .common) }
     }
 
     /// Presents the next PIN, once the one before it has been refused.
@@ -1001,11 +989,10 @@ final class BluetoothRadio: NSObject, CubeRadio {
             isDisconnectingDeliberately = true
             central?.cancelPeripheralConnection(peripheral)
         }
-        settle?.invalidate()
-        settle = Timer(timeInterval: Self.settleSeconds, repeats: false) { [weak self] _ in
+        settle?.cancel()
+        settle = scheduler.wake(in: Self.settleSeconds) { [weak self] in
             MainActor.assumeIsolated { self?.beginConnect() }
         }
-        if let settle { RunLoop.main.add(settle, forMode: .common) }
     }
 
     /// Ends the attempt, one way or the other, and says so once.
@@ -1020,9 +1007,9 @@ final class BluetoothRadio: NSObject, CubeRadio {
     /// retry the dialog had just started. The app scanned for ten seconds, found the cube, and said nothing at all
     /// for the rest of the launch.
     private func end(_ id: UUID, _ outcome: DeviceLoginOutcome) {
-        connectTimeout?.invalidate()
+        connectTimeout?.cancel()
         connectTimeout = nil
-        settle?.invalidate()
+        settle?.cancel()
         settle = nil
         attempt = nil
         // **A reset confirmation is not a login anybody asked for**, so it reports through its own channel and none of
@@ -1056,7 +1043,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
         if outcome == .loggedIn, reaching != nil {
             debugLog?.record(.login, "That one took the PIN, so it is the cube this app is paired to")
             reaching = nil
-            settleThenConnect?.invalidate()
+            settleThenConnect?.cancel()
             settleThenConnect = nil
         }
         if outcome != .loggedIn, let peripheral = peripherals[id], connectedDevice != id {
@@ -1279,7 +1266,7 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         guard let attempt, attempt.id == peripheral.identifier else { return }
-        connectTimeout?.invalidate()
+        connectTimeout?.cancel()
         connectTimeout = nil
         debugLog?.record(.login, "Connected to \(peripheral.identifier.uuidString), presenting a PIN")
         // **The peripheral stops here.** `CoreBluetoothGatt` owns it and is its delegate, and what the login
