@@ -182,16 +182,37 @@ final class DeviceLogin: NSObject {
     private var resetDeadline: Timer?
     private var resetReported: ((Bool) -> Void)?
 
-    /// The command that has been written and not yet settled, and what to tell about it. See `send`.
-    private var pendingCommand: ((Bool) -> Void)?
-    /// How that command is read back, or `nil` for one the spec gives no way to read back.
-    private var pendingReadBack: DeviceCommandRules.ReadBack?
-    /// Who is waiting on a plain question about the cube's state. See `askStatus`.
-    private var pendingStatus: ((DeviceCommandRules.Status?) -> Void)?
-    /// Whether the question has been sent, so an acknowledgement is the question's rather than the command's. The two
-    /// arrive on the same characteristic and are otherwise indistinguishable.
-    private var isReadingBack = false
-    private var commandDeadline: Timer?
+    /// The command characteristic's queue and its read-back discipline, which used to be this file's.
+    ///
+    /// **Moved to `FacetCore` on 2026-09-09** (candidate 1 of `docs/architecture-review-2026-09.md`, item 15 of
+    /// `handover-mac.md`). What is left here is the part that genuinely needs CoreBluetooth: the characteristics,
+    /// the delegate that hears from them, and the two exchanges whose bytes are this file's own. The sequencing
+    /// that decides *when* a value may be believed is no longer behind a `CBPeripheral`, which is what stopped it
+    /// having any unit test: see `CubeCommandChannelTests`.
+    ///
+    /// **Lazy so the closures can reach `self`**, and `[weak self]` inside them so holding it here is not a cycle.
+    private let scheduler: Scheduler
+
+    private lazy var commandChannel = CubeCommandChannel(
+        scheduler: scheduler,
+        transmit: { [weak self] payload in
+            guard let self, let command = self.command else { return }
+            self.write(payload, to: command, type: .withResponse)
+        },
+        readResult: { [weak self] in
+            guard let self, let commandResult = self.commandResult else { return }
+            self.read(commandResult)
+        },
+        status: { [weak self] status in self?.status(status) },
+        // The reset and the double-tap read are exchanges on the same characteristic, and their state stays here
+        // because their bytes do. This is how the channel finds out one of them is holding the line.
+        isOtherExchangeInFlight: { [weak self] in
+            guard let self else { return false }
+            return self.isReadingDoubleTap || self.isFactoryResetRunning
+        },
+        describe: { BLETrace.describe($0) },
+        debugLog: debugLog
+    )
 
     /// The Device Information phase, which runs after the login and has nothing to do with `Step`.
     ///
@@ -238,6 +259,10 @@ final class DeviceLogin: NSObject {
         pin: String,
         rotatingTo: String?,
         debugLog: DebugLog?,
+        // **Defaulted for the same reason the window's is**, and it reaches `CubeCommandChannel`, which is core
+        // and takes no default: a login is built per connection, deep inside the radio, and threading one
+        // through every construction to say "the run loop" at each would be ceremony for one answer.
+        scheduler: Scheduler = RunLoopScheduler(),
         staysWithTheCube: Bool = true,
         rotated: @escaping (String) -> Void,
         accepted: @escaping (String) -> Void = { _ in },
@@ -252,6 +277,7 @@ final class DeviceLogin: NSObject {
         settled: @escaping () -> Void = {},
         finished: @escaping (DeviceLoginOutcome) -> Void
     ) {
+        self.scheduler = scheduler
         self.peripheral = peripheral
         self.pin = pin
         self.rotatingTo = rotatingTo
@@ -334,7 +360,7 @@ final class DeviceLogin: NSObject {
             reported(false)
             return
         }
-        enqueue("the factory reset") { [weak self] in
+        commandChannel.enqueueOther("the factory reset") { [weak self] in
             guard let self, let command = self.command else {
                 reported(false)
                 return
@@ -380,19 +406,7 @@ final class DeviceLogin: NSObject {
             reported(false)
             return
         }
-        enqueue("the command \(BLETrace.describe(payload))") { [weak self] in
-            guard let self, let command = self.command else {
-                reported(false)
-                return
-            }
-            self.pendingCommand = reported
-            self.pendingReadBack = DeviceCommandRules.readBack(for: payload)
-            self.isReadingBack = false
-            self.armCommandDeadline()
-            // The bytes themselves go into the trace as `ble-tx` by `write`, so what this row adds is why they went.
-            self.debugLog?.record(.command, "Sending \(BLETrace.describe(payload))")
-            self.write(payload, to: command, type: .withResponse)
-        }
+        commandChannel.send(payload, then: reported)
     }
 
     /// Asks the cube what state it is in (`0x10`), and reports what it says.
@@ -409,18 +423,7 @@ final class DeviceLogin: NSObject {
             answered(nil)
             return
         }
-        enqueue("the question about the state of the cube") { [weak self] in
-            guard let self, let command = self.command else {
-                answered(nil)
-                return
-            }
-            self.pendingStatus = answered
-            // The acknowledgement about to arrive is this question's, not a command's.
-            self.isReadingBack = true
-            self.armCommandDeadline()
-            self.debugLog?.record(.command, "Asking the cube what state it is in")
-            self.write(DeviceCommandRules.status, to: command, type: .withResponse)
-        }
+        commandChannel.askStatus(then: answered)
     }
 
     /// Asks the cube which event it is on: one frame, the newest it holds.
@@ -535,168 +538,6 @@ final class DeviceLogin: NSObject {
         armHistoryDeadline()
     }
 
-    /// Whether an exchange is already out on the command characteristic.
-    ///
-    /// **All three kinds count, and the third was missing until 2026-08-28.** A command, a plain question about the
-    /// state, and the double-tap read all write to the same characteristic and are answered on the same one, so two
-    /// at once could not be told apart -- but only the first two set a `pending` slot, so a command sent during a
-    /// `0x17` read sailed past this and was written over the top of it. Nothing refused it and nothing said so.
-    private var isCommandInFlight: Bool {
-        pendingCommand != nil || pendingStatus != nil || isReadingDoubleTap || isFactoryResetRunning
-    }
-
-    /// Exchanges waiting their turn on the command characteristic, in the order they were asked for.
-    ///
-    /// **Waiting, not refused.** This used to answer `false` to anything arriving while the channel was busy, which
-    /// made the caller believe the cube had declined -- and with twelve face colours going out on every connect, that
-    /// window is now most of a second at the moment a user is most likely to press something. Measured on 2026-08-28:
-    /// the scripted suite pressed Unlock 350ms after a link came up, both its commands were refused, and the run
-    /// reported the cube would not unlock.
-    ///
-    /// **A queue of exchanges rather than of writes**, which is the only version that helps: the hazard is a second
-    /// write going out before the first one's *reply* has been read, so what has to be held is the whole
-    /// write-and-await, not the write.
-    ///
-    /// **Nothing here survives the link going.** A queued exchange whose `DeviceLogin` is discarded is released with
-    /// its completion uncalled, which is what already happens to one in flight -- the deadline below fires into a
-    /// `nil` self. Callers that hold state across a send must reset it when the link ends rather than wait for a
-    /// completion that is not coming (`FaceColourSync.linkEnded`).
-    private var waiting: [(describe: String, begin: () -> Void)] = []
-
-    /// Puts an exchange in the queue and starts it if the channel is free.
-    ///
-    /// **One way in, so there is no path that skips the queue.** Every caller of the command characteristic goes
-    /// through here, including this object's own questions -- a login that wrote directly would be exactly the fault
-    /// this exists to remove.
-    private func enqueue(_ what: String, _ begin: @escaping () -> Void) {
-        waiting.append((describe: what, begin: begin))
-        if isCommandInFlight {
-            debugLog?.record(
-                .command,
-                "The command channel is busy, so \(what) waits its turn, \(waiting.count) in the queue"
-            )
-        }
-        startNextIfIdle()
-    }
-
-    /// Begins the next exchange, if there is one and nothing is out.
-    ///
-    /// **Called after the completions rather than before them.** `finishExchange` clears both slots and then tells
-    /// whoever was waiting, and a caller is free to send from inside that call -- the lock sequence does exactly that.
-    /// So by the time this runs the channel may already be busy again with the caller's own next command, which is
-    /// why it asks rather than assumes.
-    private func startNextIfIdle() {
-        guard !isCommandInFlight, !waiting.isEmpty else { return }
-        waiting.removeFirst().begin()
-    }
-
-    private func armCommandDeadline() {
-        commandDeadline?.invalidate()
-        commandDeadline = Timer(timeInterval: Self.infoTimeoutSeconds, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.debugLog?.record(
-                    .command,
-                    self.isReadingBack
-                        ? "The cube never said whether the command took"
-                        : "The cube never acknowledged the command"
-                )
-                self.finishExchange(took: false, status: nil)
-            }
-        }
-        if let commandDeadline { RunLoop.main.add(commandDeadline, forMode: .common) }
-    }
-
-    /// The command was acknowledged. Either ask the cube whether it took, or stop here if nothing can ask.
-    private func acknowledgedCommand(_ landed: Bool) {
-        guard landed else {
-            debugLog?.record(.command, "The cube would not take the command")
-            finishExchange(took: false, status: nil)
-            return
-        }
-        guard let readBack = pendingReadBack, let command else {
-            // Said in these words on purpose. The commands with no read command in the spec (`0x09`, `0x0A`, `0x11`
-            // and the rename, `0x15`) end here for good, and a row reading "confirmed" would be a claim nobody is in
-            // a position to make -- see the read-back matrix in `docs/timeflip.md`. For `0x15` it is measured as well
-            // as absent from the spec: the command result is never updated for it at all (finding 2,
-            // `docs/timeflip2-firmware-observations.md`).
-            debugLog?.record(.command, "The cube took the write; nothing can read this command back")
-            finishExchange(took: true, status: nil)
-            return
-        }
-        isReadingBack = true
-        armCommandDeadline()
-        debugLog?.record(.command, "Asking whether it took: \(BLETrace.describe(readBack.request))")
-        write(readBack.request, to: command, type: .withResponse)
-    }
-
-    /// The read-back question was acknowledged, so its answer is the next thing on the command result.
-    ///
-    /// **Read only now, and never earlier.** A `0x10` answer carries no echoed command byte to identify it, and that
-    /// characteristic frequently holds the previous command's reply, so the only thing that makes the value
-    /// trustworthy is that it is read after this question's own acknowledgement.
-    private func askedForConfirmation(_ landed: Bool) {
-        guard landed, let commandResult else {
-            debugLog?.record(.command, "The cube would not take the question")
-            finishExchange(took: false, status: nil)
-            return
-        }
-        read(commandResult)
-    }
-
-    /// What the cube said, whether it was asked to confirm a command or simply asked what state it is in.
-    ///
-    /// **Parsed in one place, whichever question brought it here**, so the state the app holds and the verdict on a
-    /// command are read from the same bytes by the same rule rather than by two that could come to differ.
-    private func answered(_ value: Data?) {
-        let status = DeviceCommandRules.status(from: value)
-        guard let readBack = pendingReadBack else {
-            // **What the cube is does not get written down here**, though this is where the bytes are read. Saying it
-            // is `BluetoothRadio.received(status:)`'s job and only its job: it holds the answer, and it records it
-            // only when it is news. Both of us said it for a while, so one ask produced two identical rows and a log
-            // read as though the cube had been asked twice.
-            //
-            // What is left is the case the radio never hears about. An answer that was not one reports no status at
-            // all, so nothing downstream would mention it, and a question that went unanswered is worth a row.
-            if status == nil {
-                debugLog?.record(.command, "That was not an answer about the state of the cube")
-            }
-            finishExchange(took: status != nil, status: status)
-            return
-        }
-        let took = readBack.took(value)
-        // **The answer in words where the command can put it in words**, which today is `0x16` and `0x05`. A verdict on
-        // its own is enough for the caller and not enough for whoever reads the row afterwards: a refusal that names
-        // the registers the cube is actually on is the disagreement itself, where a bare NOT leaves them to go
-        // hunting for it. Nothing is appended for a command with no interpretation, and nothing for bytes that were
-        // not an answer.
-        let said = readBack.described(value).map { ": \($0)" } ?? ""
-        debugLog?.record(.command, (took ? "The cube confirms it took" : "The cube says it did NOT take") + said)
-        finishExchange(took: took, status: status)
-    }
-
-    /// Ends whichever exchange was out, and tells whoever was waiting.
-    ///
-    /// **Both completions are cleared before either is called.** A caller told about one command is free to send the
-    /// next from inside that call -- the lock sequence does exactly that -- and a slot still holding the finished
-    /// exchange would refuse it as "already busy".
-    private func finishExchange(took: Bool, status: DeviceCommandRules.Status?) {
-        commandDeadline?.invalidate()
-        commandDeadline = nil
-        isReadingBack = false
-        pendingReadBack = nil
-        let reportCommand = pendingCommand
-        let reportStatus = pendingStatus
-        pendingCommand = nil
-        pendingStatus = nil
-        // Whatever the cube just said about its state is worth having whichever question drew it out, so this fires
-        // for a read-back as well as for a plain ask.
-        if let status { self.status(status) }
-        reportCommand?(took)
-        reportStatus?(status)
-        startNextIfIdle()
-    }
-
     private func finishReset(_ sent: Bool) {
         guard isFactoryResetRunning else { return }
         isFactoryResetRunning = false
@@ -705,7 +546,7 @@ final class DeviceLogin: NSObject {
         let reported = resetReported
         resetReported = nil
         reported?(sent)
-        startNextIfIdle()
+        commandChannel.startNextIfIdle()
     }
 
     // MARK: - what the cube says it is
@@ -951,7 +792,7 @@ final class DeviceLogin: NSObject {
     /// desk being bumped stops somebody's timer.
     private func askWhatMakesADoubleTap() {
         guard command != nil else { return }
-        enqueue("the question about double taps") { [weak self] in self?.beginAskingWhatMakesADoubleTap() }
+        commandChannel.enqueueOther("the question about double taps") { [weak self] in self?.beginAskingWhatMakesADoubleTap() }
     }
 
     private func beginAskingWhatMakesADoubleTap() {
@@ -963,7 +804,7 @@ final class DeviceLogin: NSObject {
                 guard let self, self.isReadingDoubleTap else { return }
                 self.isReadingDoubleTap = false
                 self.debugLog?.record(.tap, "The cube never said what its double-tap registers are")
-                defer { self.startNextIfIdle() }
+                defer { self.commandChannel.startNextIfIdle() }
                 // Still asked. A cube that will not talk about its accelerometer may perfectly well answer about its
                 // lock, and this is the one question the dropdown cannot draw itself without.
                 self.askWhatStateItIsIn()
@@ -1012,7 +853,7 @@ final class DeviceLogin: NSObject {
         tapsReported(parameters)
         // The state question goes in the queue behind whatever arrived while this was out, rather than in front of it.
         askWhatStateItIsIn()
-        startNextIfIdle()
+        commandChannel.startNextIfIdle()
     }
 
     // MARK: - the PIN this app puts on it
@@ -1290,7 +1131,7 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
             guard error == nil else {
                 isReadingDoubleTap = false
                 debugLog?.record(.tap, "The cube would not take the question about double taps")
-                startNextIfIdle()
+                commandChannel.startNextIfIdle()
                 return
             }
             read(commandResult)
@@ -1302,12 +1143,11 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
         }
         // Also long after the login, and above the guard for the same reason. Last of the three, so a reset or a
         // question about taps cannot have its acknowledgement taken by a command that happened to be out.
-        if isCommandInFlight, characteristic.uuid == TimeFlipUUIDs.command {
-            if isReadingBack {
-                askedForConfirmation(error == nil)
-            } else {
-                acknowledgedCommand(error == nil)
-            }
+        // **Which of the two writes this acknowledges is the channel's to decide**, and nothing here can: the
+        // command and the question asking whether the command took are both writes to this same characteristic.
+        // The two branches that used to be here are `CubeCommandChannel.acknowledged`.
+        if commandChannel.isCommandInFlight, characteristic.uuid == TimeFlipUUIDs.command {
+            commandChannel.acknowledged(landed: error == nil)
             return
         }
         // **A single-frame request is answered by a read, and waiting for a notification never works.** The archive
@@ -1405,8 +1245,8 @@ extension DeviceLogin: @preconcurrency CBPeripheralDelegate {
         }
         // The answer to "did it take". Asked for above the login's own guard for the same reason the taps question is:
         // it runs long after the login, when `step` is nil.
-        if isReadingBack, characteristic.uuid == TimeFlipUUIDs.commandResult {
-            answered(error == nil ? characteristic.value : nil)
+        if commandChannel.isAwaitingResult, characteristic.uuid == TimeFlipUUIDs.commandResult {
+            commandChannel.resultArrived(error == nil ? characteristic.value : nil)
             return
         }
         // Asked for before the login's own answer, because these have a characteristic each and so are attributable
