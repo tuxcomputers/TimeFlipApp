@@ -49,12 +49,21 @@ package final class BlueZGatt {
     /// reached the device at the ATT layer, which is one of the two acknowledgements `CLAUDE.md` warns are
     /// less than they look: a cube refuses every command until a PIN has been accepted, and refuses it
     /// *after* the write has already succeeded. What says a command took effect is the read-back.
-    package func write(path: String, bytes: [UInt8]) throws {
+    ///
+    /// - Parameter acknowledged: `request` where the write is to be acknowledged at the ATT layer, `command`
+    ///   where it is not. **Said rather than left to BlueZ**, which otherwise picks from the characteristic's
+    ///   flags: `CubeGatt` carries the distinction because CoreBluetooth's two write types are not
+    ///   interchangeable, and a platform quietly choosing the other one is the two-platforms-disagreeing case
+    ///   this port exists to rule out. Every call this app makes today asks for the acknowledged kind.
+    package func write(path: String, bytes: [UInt8], acknowledged: Bool = true) throws {
         do {
             try bus.call(
                 destination: "org.bluez", path: path,
                 interface: characteristicInterface, method: "WriteValue",
-                arguments: [.bytes(bytes), .dictionary([:])]
+                arguments: [
+                    .bytes(bytes),
+                    .dictionary(["type": .string(acknowledged ? "request" : "command")]),
+                ]
             )
         } catch let failure as SystemBus.Failure {
             throw Failure.refused(Self.describe(failure))

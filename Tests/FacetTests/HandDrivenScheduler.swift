@@ -51,8 +51,10 @@ final class HandDrivenScheduler: Scheduler {
     /// what stops a test quietly passing because it drove a different timer than the one it meant to.
     ///
     /// **Throwing rather than recording an issue**, because this helper is used from both suites: `Issue.record`
-    /// belongs to swift-testing and `DeviceReconnectorTests` and `QuitSequenceTests` are XCTest. An error is what
-    /// both understand, and a silent no-op is what `CLAUDE.md` rules out.
+    /// belongs to swift-testing and `DeviceReconnectorTests` is XCTest. An error is what both understand, and a
+    /// silent no-op is what `CLAUDE.md` rules out. (`QuitSequenceTests` was the second XCTest one until
+    /// 2026-09-11, when it became a swift-testing suite -- an `@MainActor` `XCTestCase` aborts the whole test
+    /// executable on Linux.)
     func tick() throws {
         guard wakes.count == 1 else { throw Fault.notExactlyOneWake(found: wakes.count) }
         fire(wakes[0])
