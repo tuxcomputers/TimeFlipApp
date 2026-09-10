@@ -32,7 +32,7 @@ The cheap and the blocking come first, the large and the discretionary last.
 | 1 | The clock | **done** | Six core modules on `RunLoop.main`, which `FacetLinux` never runs. A live latent fault. |
 | 3 | Starting and stopping | **done** | Landed with `QuitSequence`. Turned out to need no protocol at all: see its section. |
 | 2 | Files and folders | **not a port** | Reordered down on 2026-09-10. Corelibs already answers it per platform, measured on Linux hardware. See its section. |
-| 4 | Menu bar | next | The **second adapter already exists** and is the right shape. A real seam with one outlier, not a hypothetical one. |
+| 4 | Menu bar | in progress | The **second adapter already exists** and is the right shape. A real seam with one outlier, not a hypothetical one. |
 | 5 | Radio | after | The biggest port with a protocol already standing. Wants `feature/commandChannel` landed first. |
 | 6 | Windows and dialogs | after | 3,536 lines and the least mechanical work in the app. Everything above teaches something it needs. |
 | 7 | Storage | deferred | One adapter, and the decision behind it is unsettled. |
@@ -173,9 +173,17 @@ sitting in the repo.
 
 `CLAUDE.md` already says to point at the Linux one when in doubt.
 
-- [ ] Read `MenuBarController` against `FacetLinux/MenuBar.swift` and mark every line that decides something.
-- [ ] Move the decisions into the core, leaving `NSStatusItem` and the drawing.
-- [ ] The port is whatever the Linux one already takes, which is the point.
+- [x] Read `MenuBarController` against `FacetLinux/MenuBar.swift` and mark every line that decides something.
+- [x] **The dropdown.** `StatusItemMenu` in the core decides which lines there are, what each says, whether it
+      can be chosen and what choosing it does. `MenuBarController` renders them into `NSMenu` and decides
+      nothing; the Linux indicator can render the same answers, its `Item` already being this shape. 683 lines
+      down to 596. `CubeReading` moved into the core with it, being three core states and no platform anything.
+- [x] The identifiers move too, so a check addressing the dropdown reads the same string on either platform,
+      through `AXIdentifier` on a Mac and `com.canonical.dbusmenu`'s `GetLayout` on Linux.
+- [ ] **The title.** `redraw` still holds the tick decision, the has-it-changed comparison and the two rules
+      about which `debug_log` rows to write. `StatusItemTitle` is already core; these are what sit around it.
+- [ ] **The click.** `handleClick` already asks `StatusItemClickRouter`; what is left is reading the event and
+      the `DispatchWorkItem` that holds a cube pause back for `NSEvent.doubleClickInterval`.
 
 ## 5. Radio
 

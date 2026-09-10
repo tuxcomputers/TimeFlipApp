@@ -16,6 +16,17 @@ private struct UncheckedSend<Value>: @unchecked Sendable {
     }
 }
 
+/// Carries a menu line's action on the `NSMenuItem` itself. `representedObject` is `Any?`, which a Swift
+/// closure cannot be put in directly, so it travels boxed.
+@MainActor
+private final class MenuAction {
+    let run: @MainActor () -> Void
+
+    init(_ run: @escaping @MainActor () -> Void) {
+        self.run = run
+    }
+}
+
 @MainActor
 final class MenuBarController: NSObject {
     /// Holds the status item so it can be taken out of the menu bar when this controller goes away.
@@ -73,34 +84,14 @@ final class MenuBarController: NSObject {
     /// tree happens to come back in, and fail by finding the wrong element rather than by finding
     /// nothing. `AXIdentifier` is the attribute a UI script can match on directly, so these follow
     /// its kebab-case convention.
-    enum Identifier {
-        static let statusItem = "status-item"
-        static let settings = "open-settings"
-        static let togglePause = "toggle-pause"
-        static let toggleCubeLock = "toggle-cube-lock"
-        static let quit = "quit-app"
-    }
+    /// What each part of this is called from outside the app. `StatusItemMenu.Identifier` under its own name,
+    /// so the call sites and the scripted checks go on reading the same, and so a Linux check addressing the
+    /// dropdown over D-Bus uses the identical strings.
+    typealias Identifier = StatusItemMenu.Identifier
 
-    /// The cube as it stands, asked when the menu is about to be drawn. Two answers rather than one because they
-    /// fail differently: there may be no cube at all, and there may be a cube nobody has asked yet.
-    struct CubeReading: Equatable {
-        let isCubeConnected: Bool
-        /// `nil` when the cube has not been asked, or would not answer. See `CubeLockRules.title`.
-        let cubeLockState: CubeLockState
-        /// `nil` for the same two reasons. **Only meaningful while the cube is unlocked**, since a locked cube
-        /// reports itself paused whatever its pause byte says -- which is why `PauseMenuRules` reads it in the one
-        /// case where the cube is known not to be locked, and nowhere else.
-        let cubePauseState: CubePauseState
-
-        /// Written out so `isPaused` can default to "nobody asked", which is what a reading built without it means.
-        /// The alternative was making every existing caller name a fact it has no opinion about, which reads as an
-        /// assertion that the cube is running rather than as silence.
-        init(isCubeConnected: Bool, cubeLockState: CubeLockState, cubePauseState: CubePauseState = .unknown) {
-            self.isCubeConnected = isCubeConnected
-            self.cubeLockState = cubeLockState
-            self.cubePauseState = cubePauseState
-        }
-    }
+    /// The cube as it stands. `FacetCore.CubeReading` under its own name, so the many call sites that spell it
+    /// `MenuBarController.CubeReading` go on reading the same.
+    typealias CubeReading = FacetCore.CubeReading
 
     private let cube: () -> CubeReading
 
@@ -169,6 +160,10 @@ final class MenuBarController: NSObject {
     /// `nil` in a build without the dev flag, which is the whole of how logging is switched off here.
     private let debugLog: DebugLog?
 
+    /// What the dropdown should hold, which this controller asks and does not decide. Built in `init` from the
+    /// same closures the title is drawn from, so the menu and the line in the bar cannot answer differently.
+    private var dropdown: StatusItemMenu!
+
     /// What was last painted, so an unchanged title is not re-applied. **What was drawn, not what is true**: it is
     /// compared against a fresh reading every time and never read as an answer, which is what keeps it clear of the
     /// database rule. Without it the fixed one-second tick would re-lay-out the item every second even with
@@ -204,6 +199,20 @@ final class MenuBarController: NSObject {
         self.isLimitReached = isLimitReached
         self.lowBattery = lowBattery
         super.init()
+        // After `super.init()`, because the closures it is given capture `self`.
+        dropdown = StatusItemMenu(
+            timing: timing,
+            cube: cube,
+            isLimitReached: isLimitReached,
+            openSettings: openSettings,
+            togglePause: togglePause,
+            toggleCubePause: toggleCubePause,
+            toggleCubeLock: toggleCubeLock,
+            // The one line of this menu that is AppKit, and the reason `StatusItemMenu` takes it rather than
+            // calling it: `gtk_main_quit` is the same intention on the other platform.
+            quit: { NSApp.terminate(nil) },
+            debugLog: debugLog
+        )
     }
 
     /// Creates the item and puts it in the menu bar.
@@ -452,79 +461,69 @@ final class MenuBarController: NSObject {
 
     /// The dropdown. Internal so its shape can be asserted without putting a real status item in the menu
     /// bar, which is what `start()` does.
+    /// The dropdown, built from what `StatusItemMenu` says it should be.
+    ///
+    /// **This method decides nothing.** Which lines there are, what they say, whether they can be chosen and
+    /// what choosing them does are all `StatusItemMenu`'s, in `FacetCore`, so the Linux indicator draws the same
+    /// menu from the same answers. What is left here is `NSMenu`.
     func makeMenu() -> NSMenu {
         let menu = NSMenu()
-        // Trailing ellipsis, the platform's way of saying a choice opens something rather than doing
-        // something. No ⌘, for the same reason Quit carries no ⌘Q, below.
-        menu.addItem(item(title: "Settings…", identifier: Identifier.settings, action: #selector(menuSettings)))
-        // Under Settings, because it acts on what Settings is showing. Its title and whether it can be
-        // chosen at all are set when the menu opens, not here.
-        menu.addItem(item(title: "Pause", identifier: Identifier.togglePause, action: #selector(menuTogglePause)))
-        // Under Pause, because it is the same kind of choice one step further: Pause stops the clock, this stops the
-        // cube. Its title and whether it can be chosen are set when the menu opens, like the item above it.
-        menu.addItem(item(title: "Lock", identifier: Identifier.toggleCubeLock, action: #selector(menuToggleCubeLock)))
-        // Quit sits under a separator, away from anything ordinary: it is the only way out of the app,
-        // so it should not be adjacent to a choice somebody makes routinely.
-        menu.addItem(.separator())
-        menu.addItem(item(title: "Quit", identifier: Identifier.quit, action: #selector(menuQuit)))
         // Off, because AppKit would otherwise decide each item's enabled state from whether its action can be
         // found -- which is always -- and overwrite what `refresh` sets.
         menu.autoenablesItems = false
+        refresh(menu)
         return menu
     }
 
-    /// Names the Pause item and decides whether it can be chosen, from the state at that moment. Nothing has
-    /// to tell the menu when the clock changes, because the menu never remembers.
+    /// Rebuilds the menu's lines from the state at this moment. Nothing has to tell the menu when the clock
+    /// changes, because the menu never remembers.
     ///
     /// Called from `showMenu`, which is the only place a menu of ours is ever presented, rather than through
-    /// `NSMenuDelegate`. A delegate is a **weak** reference, so wiring it makes the menu depend on somebody
-    /// else keeping this object alive -- and when that fails the menu simply stops updating, with nothing to
-    /// see. We are already the code that opens it, so there is no reason to be told.
+    /// `NSMenuDelegate`. A delegate is a **weak** reference, so wiring it makes the menu depend on somebody else
+    /// keeping this object alive -- and when that fails the menu simply stops updating, with nothing to see. We
+    /// are already the code that opens it, so there is no reason to be told.
+    ///
+    /// **Rebuilt rather than edited in place.** The old version reached into the existing `NSMenu` by identifier
+    /// and set two titles, which only worked because the set of lines never varies. Asking for the whole menu
+    /// and laying it out again cannot fall out of step with a menu that grows a line.
     func refresh(_ menu: NSMenu) {
-        if let pause = menu.items.first(where: { $0.identifier?.rawValue == Identifier.togglePause }) {
-            let state = timing().timingState
-            // The cube asked here as well as below, because this item acts on it too: with no manual session running,
-            // Pause is the cube's, exactly as a single click on the right half is. It used to ask only about the app's
-            // own clock and so sat greyed above a status item that would happily pause the cube.
-            let cube = self.cube()
-            let target = PauseMenuRules.target(
-                timingState: state,
-                isCubeConnected: cube.isCubeConnected,
-                cubeLockState: cube.cubeLockState,
-                cubePauseState: cube.cubePauseState,
-                isLimitReached: isLimitReached()
-            )
-            pause.title = PauseMenuRules.title(for: target, timingState: state, cubePauseState: cube.cubePauseState)
-            // **Greyed while the category on show has spent its limit**, which is what makes the limit hard rather
-            // than advisory, and greyed on a locked cube, which cannot be paused at all until it is unlocked.
-            pause.isEnabled = PauseMenuRules.isEnabled(target)
-        }
-        if let lock = menu.items.first(where: { $0.identifier?.rawValue == Identifier.toggleCubeLock }) {
-            // Both asked at the moment the menu opens, like everything else here. What the cube is doing is the
-            // radio's answer and it is only ever as fresh as the last question -- but the alternative, a title pushed
-            // in when something changed, would be a copy of it that could be wrong with nothing to say so.
-            let cube = self.cube()
-            lock.title = CubeLockRules.title(cubeLockState: cube.cubeLockState)
-            lock.isEnabled = CubeLockRules.isEnabled(isCubeConnected: cube.isCubeConnected)
+        menu.removeAllItems()
+        for item in dropdown.items() {
+            menu.addItem(render(item))
         }
     }
 
-    /// One menu item, targeted at this controller and named for a script.
+    /// One line of AppKit from one line of the core's answer.
     ///
-    /// No key equivalent on any of these: a shortcut belongs to the app-wide menu an accessory app
-    /// does not have, and one declared here would only work while the dropdown was already open --
-    /// which is not a shortcut.
+    /// `choose` being `nil` is the whole of "cannot be chosen": the action is dropped and the item is disabled
+    /// together, so there is no way to draw a line that looks live and does nothing.
     ///
-    /// Both identifiers are set, deliberately. `identifier` is AppKit's own and is what a menu item
-    /// exposes as AXIdentifier; `setAccessibilityIdentifier` is the accessibility one. Which of the
-    /// two actually surfaces is a question for the accessibility tree rather than the documentation,
-    /// so both are set and the tree is what settles it.
-    private func item(title: String, identifier: String, action: Selector) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-        item.target = self
-        item.identifier = NSUserInterfaceItemIdentifier(identifier)
-        item.setAccessibilityIdentifier(identifier)
-        return item
+    /// Both identifiers are set, deliberately. `identifier` is AppKit's own and is what a menu item exposes as
+    /// AXIdentifier; `setAccessibilityIdentifier` is the accessibility one. Which of the two actually surfaces is
+    /// a question for the accessibility tree rather than the documentation, so both are set and the tree is what
+    /// settles it.
+    private func render(_ item: StatusItemMenu.Item) -> NSMenuItem {
+        guard !item.isSeparator else { return .separator() }
+        let rendered = NSMenuItem(title: item.title, action: #selector(chooseMenuItem(_:)), keyEquivalent: "")
+        rendered.target = self
+        rendered.identifier = NSUserInterfaceItemIdentifier(item.identifier)
+        rendered.setAccessibilityIdentifier(item.identifier)
+        rendered.isEnabled = item.choose != nil
+        rendered.representedObject = item.choose.map(MenuAction.init)
+        return rendered
+    }
+
+    /// Runs whatever the core attached to the line that was chosen.
+    ///
+    /// **One selector for every line**, rather than one per line. What each does is already decided in
+    /// `StatusItemMenu` and travels on the item itself, so a new line needs no new method here and cannot be
+    /// added with its handler forgotten.
+    @objc
+    private func chooseMenuItem(_ sender: Any?) {
+        guard let item = sender as? NSMenuItem, let action = item.representedObject as? MenuAction else {
+            return
+        }
+        action.run()
     }
 
     @objc
@@ -628,56 +627,4 @@ final class MenuBarController: NSObject {
         statusItem?.menu = nil
     }
 
-    @objc
-    private func menuSettings() {
-        debugLog?.record(.menu, "Menu item clicked: Settings")
-        openSettings()
-    }
-
-    @objc
-    private func menuTogglePause() {
-        let state = timing().timingState
-        let cube = self.cube()
-        // **Decided again here rather than remembered from `refresh`.** The menu may have been sitting open while the
-        // cube went away, and acting on what was true when it was drawn is the stale-copy fault this codebase keeps
-        // being bitten by. It is the same call with the same inputs, so it is the same answer unless the world moved.
-        let target = PauseMenuRules.target(
-            timingState: state,
-            isCubeConnected: cube.isCubeConnected,
-            cubeLockState: cube.cubeLockState,
-            cubePauseState: cube.cubePauseState,
-            isLimitReached: isLimitReached()
-        )
-        // What it was called when it was chosen, which is what the person clicking it meant.
-        debugLog?.record(
-            .menu,
-            "Menu item clicked: \(PauseMenuRules.title(for: target, timingState: state, cubePauseState: cube.cubePauseState))"
-        )
-        switch target {
-        case .appClock:
-            togglePause()
-        case .cube:
-            // **At once, not deferred.** `deferCubePause` exists because a click on the right half might turn out to
-            // be the first half of a double click that means lock; a menu item is chosen once and there is no second
-            // gesture it could be part of.
-            toggleCubePause()
-        case .nothing:
-            break
-        }
-    }
-
-    @objc
-    private func menuToggleCubeLock() {
-        // What it was called when it was chosen, which is what the person clicking it meant.
-        let cube = self.cube()
-        debugLog?.record(.menu, "Menu item clicked: \(CubeLockRules.title(cubeLockState: cube.cubeLockState))")
-        toggleCubeLock()
-    }
-
-    @objc
-    private func menuQuit() {
-        // Before terminating, not after: there is no after.
-        debugLog?.record(.menu, "Menu item clicked: Quit")
-        NSApp.terminate(nil)
-    }
 }

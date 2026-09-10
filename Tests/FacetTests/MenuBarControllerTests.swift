@@ -149,6 +149,11 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     }
 
     // MARK: - what is in it
+    //
+    // **What each line says and whether it can be chosen is `StatusItemMenuTests`**, in the core, where it runs
+    // on both platforms. What is left here is the rendering: that the answers come out of `NSMenu` in the right
+    // order, carrying the identifiers a script addresses them by, disabled where there is nothing to choose,
+    // and reaching the right closure when one is.
 
     func testTheItemsAndTheirOrder() {
         let items = menu().items
@@ -169,71 +174,15 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
 
     // MARK: - what Lock says, and when it can be chosen
 
-    func testTheLockItemIsDeadWithNoCubeConnected() {
-        // It ends in a command, and a command needs a live link. A paired cube in another room can be neither locked
-        // nor resumed, so an item offering it would be a control that does nothing and says nothing about why.
+    func testALineWithNothingToChooseIsRenderedDead() throws {
+        // `StatusItemMenu` says a line cannot be chosen by giving it no action. This is the half of that which
+        // is AppKit: the item comes out disabled, rather than looking live and doing nothing when pressed.
         cube = MenuBarController.CubeReading(isCubeConnected: false, cubeLockState: .unknown)
 
-        let item = try? XCTUnwrap(lockItem())
-
-        XCTAssertEqual(item?.isEnabled, false)
-        XCTAssertEqual(item?.title, "Lock")
-    }
-
-    func testAConnectedUnlockedCubeIsOfferedALock() throws {
-        cube = MenuBarController.CubeReading(isCubeConnected: true, cubeLockState: .unlocked)
-
         let item = try XCTUnwrap(lockItem())
 
-        XCTAssertTrue(item.isEnabled)
-        XCTAssertEqual(item.title, "Lock")
-    }
-
-    func testALockedCubeIsOfferedAnUnlock() throws {
-        cube = MenuBarController.CubeReading(isCubeConnected: true, cubeLockState: .locked)
-
-        let item = try XCTUnwrap(lockItem())
-
-        XCTAssertTrue(item.isEnabled)
-        XCTAssertEqual(item.title, "Unlock")
-    }
-
-    func testNoTwoItemsEverReadTheSame() throws {
-        // Seen on screen: with the app's clock stopped and the cube locked, the dropdown offered "Resume" twice --
-        // one starting the app's clock and one starting the cube. Two items reading the same thing while doing
-        // entirely different things is a menu nobody can use.
-        timingState = .paused
-        cube = MenuBarController.CubeReading(isCubeConnected: true, cubeLockState: .locked)
-
-        let titles = menu().items.filter { !$0.isSeparatorItem }.map(\.title)
-
-        XCTAssertEqual(Set(titles).count, titles.count, "two items read the same: \(titles)")
-    }
-
-    func testACubeNobodyHasAskedYetReadsLock() throws {
-        // The safer of the two to be wrong about: offering to lock an already-locked cube sends a command that
-        // changes nothing, while offering to resume a running one would unlock what was never locked.
-        cube = MenuBarController.CubeReading(isCubeConnected: true, cubeLockState: .unknown)
-
-        XCTAssertEqual(try XCTUnwrap(lockItem()).title, "Lock")
-    }
-
-    func testTheLockItemIsRenamedEveryTimeTheMenuOpens() throws {
-        // The same rule as Pause beside it: the menu never remembers, so nothing has to tell it when the cube
-        // changes.
-        let controller = controller()
-        let menu = controller.makeMenu()
-        cube = MenuBarController.CubeReading(isCubeConnected: true, cubeLockState: .unlocked)
-        controller.refresh(menu)
-        XCTAssertEqual(try XCTUnwrap(item(named: MenuBarController.Identifier.toggleCubeLock, in: menu)).title, "Lock")
-
-        cube = MenuBarController.CubeReading(isCubeConnected: true, cubeLockState: .locked)
-        controller.refresh(menu)
-
-        XCTAssertEqual(
-            try XCTUnwrap(item(named: MenuBarController.Identifier.toggleCubeLock, in: menu)).title,
-            "Unlock"
-        )
+        XCTAssertFalse(item.isEnabled)
+        XCTAssertEqual(item.title, "Lock", "and it still says what it would do")
     }
 
     func testChoosingItGoesToTheOneLockPath() throws {
@@ -255,53 +204,6 @@ final class MenuBarControllerTests: XCTestCase, @unchecked Sendable {
     }
 
     // MARK: - what Pause says
-
-    func testWithNothingBeingTimedItReadsPauseAndCannotBeChosen() {
-        timingState = .idle
-
-        let pause = pauseItem(in: menu())
-
-        // "Pause" rather than "Resume": the item is dead either way, and a dead item claiming there is
-        // something to resume is worse than one claiming there is something to pause.
-        XCTAssertEqual(pause?.title, "Pause")
-        XCTAssertEqual(pause?.isEnabled, false)
-    }
-
-    func testWhileRunningItOffersToPause() {
-        timingState = .running
-
-        let pause = pauseItem(in: menu())
-
-        // A menu item says what clicking does, which is the opposite of the glyph beside it: play showing
-        // means recording, and this reads "Pause" at the same moment.
-        XCTAssertEqual(pause?.title, "Pause")
-        XCTAssertEqual(pause?.isEnabled, true)
-    }
-
-    func testWhileStoppedItOffersToResume() {
-        timingState = .paused
-
-        let pause = pauseItem(in: menu())
-
-        XCTAssertEqual(pause?.title, "Resume")
-        XCTAssertEqual(pause?.isEnabled, true)
-    }
-
-    func testItIsRenamedEveryTimeTheMenuOpens() {
-        let controller = controller()
-        let menu = controller.makeMenu()
-
-        timingState = .running
-        controller.refresh(menu)
-        XCTAssertEqual(pauseItem(in: menu)?.title, "Pause")
-
-        timingState = .paused
-        controller.refresh(menu)
-
-        // Asked as the menu opens rather than pushed when the clock changes: a menu that never remembers
-        // cannot be stale, and nothing else has to know the menu exists.
-        XCTAssertEqual(pauseItem(in: menu)?.title, "Resume")
-    }
 
     func testTheMenuDoesNotLetAppKitDecideWhatIsEnabled() {
         // Left on, AppKit enables an item whose action can be found -- which is always -- and overwrites
