@@ -116,11 +116,6 @@ final class MenuBarController: NSObject {
 
     /// The pause a single click asked for, waiting to see whether a second click turns it into a lock.
     ///
-    /// **The whole reason the cube's pause is deferred and the app's own is not.** AppKit sends the action for the
-    /// first click of a pair with `clickCount == 1`, so without this a double click would pause the cube *and* lock
-    /// it. Held for `NSEvent.doubleClickInterval`, which is the user's own setting rather than a number chosen here.
-    private var pendingCubePause: DispatchWorkItem?
-
     /// What to do when Settings is chosen. A closure rather than a window this class owns: it draws
     /// the menu, it does not decide what the app's windows are.
     private let openSettings: () -> Void
@@ -162,9 +157,17 @@ final class MenuBarController: NSObject {
     /// What the line in the bar should say, which this controller also asks and does not decide.
     private var readout: StatusItemReadout!
 
+    /// What a click means, which this controller reads two facts for and does not decide.
+    private var click: StatusItemGesture!
+
     /// Repaints while the clock is running, and only then: with it stopped, nothing on the item can change until
     /// something the app itself did, and each of those redraws by hand.
-    private var tick: Timer?
+    ///
+    /// **Whether it should be running is `StatusItemReadout`'s answer**, not this class's. What is here is the
+    /// wake itself, arranged through the injected `Scheduler` rather than a `Timer` built by hand, which is the
+    /// last of the six `.common` decisions this app used to repeat at every timer site.
+    private var tick: ScheduledWake?
+    private let scheduler: Scheduler
 
     init(
         debugLog: DebugLog?,
@@ -177,8 +180,13 @@ final class MenuBarController: NSObject {
         cube: @escaping () -> CubeReading = { CubeReading(isCubeConnected: false, cubeLockState: .unknown, cubePauseState: .unknown) },
         toggleCubeLock: @escaping () -> Void = {},
         toggleCubePause: @escaping () -> Void = {},
-        isManualMode: @escaping () -> Bool = { true }
+        isManualMode: @escaping () -> Bool = { true },
+        // **Defaulted for the same reason `radio` is**, and never reached for: a top-level `let` in `main.swift`
+        // is a module global, so naming one here would compile and would then be touched by a test that never
+        // runs `main` at all.
+        scheduler: Scheduler = RunLoopScheduler()
     ) {
+        self.scheduler = scheduler
         self.isManualMode = isManualMode
         self.cube = cube
         self.toggleCubeLock = toggleCubeLock
@@ -213,6 +221,19 @@ final class MenuBarController: NSObject {
             isLimitReached: isLimitReached,
             lowBattery: lowBattery,
             isManualMode: isManualMode,
+            debugLog: debugLog
+        )
+        click = StatusItemGesture(
+            timing: timing,
+            cube: cube,
+            isLimitReached: isLimitReached,
+            togglePause: togglePause,
+            toggleCubePause: toggleCubePause,
+            toggleCubeLock: toggleCubeLock,
+            showMenu: { [weak self] in self?.showMenu() },
+            scheduler: scheduler,
+            // The user's own setting, read at the moment a click needs it rather than held.
+            doubleClickInterval: { NSEvent.doubleClickInterval },
             debugLog: debugLog
         )
     }
@@ -379,21 +400,19 @@ final class MenuBarController: NSObject {
 
     private func startTicking() {
         guard tick == nil else { return }
-        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.redraw()
-            }
+        // **Not `mayGroup`.** This is a clock somebody is reading: a second that the platform was free to
+        // stretch would show as a figure that stutters. `RunLoopScheduler` is what knows that a menu bar item's
+        // own dropdown puts the run loop in a tracking mode, so the wake has to be in `.common` or the clock
+        // freezes in exactly the second somebody is looking at it.
+        tick = scheduler.wake(in: 1, repeating: true) { [weak self] in
+            self?.redraw()
         }
-        // `.common` rather than the default mode, which stops dead while a menu is tracking -- and the menu that
-        // does it is this item's own, so the clock would freeze in exactly the second somebody is looking at it.
-        RunLoop.main.add(timer, forMode: .common)
-        tick = timer
     }
 
     /// Internal for the same reason `isRepaintTicking` is: a test that starts the clock has to be able to put it down
     /// again, rather than leaving a timer on the run loop for the rest of the suite.
     func stopTicking() {
-        tick?.invalidate()
+        tick?.cancel()
         tick = nil
     }
 
@@ -463,92 +482,24 @@ final class MenuBarController: NSObject {
         action.run()
     }
 
+    /// Reads the two facts the event carries and hands them to `StatusItemGesture`, which decides the rest.
+    ///
+    /// **The side and the count are the whole of what AppKit knows here.** Which action they mean, what row to
+    /// write, and whether a cube pause waits to see if a second click is coming are all in `FacetCore`, so an
+    /// indicator on another desktop routes a click identically from its own two facts.
     @objc
     private func handleClick(_ sender: Any?) {
         guard let button = statusItem?.button else { return }
-        // No event to read a side from -- a synthetic `performClick`, say. The menu is the safe
-        // answer, being the one thing reachable in every state, and the only way out of the app.
+        // No event to read a side from, which a synthetic `performClick` is.
         guard let event = NSApp.currentEvent else {
-            debugLog?.record(.click, "Status item clicked: no event, side unknown -> showMenu")
-            showMenu()
+            click.clickedWithNoSide()
             return
         }
         let location = button.convert(event.locationInWindow, from: nil)
-        // `<=` so the exact midpoint counts as the left half, i.e. as the menu: of the two, it is the
-        // one that cannot leave someone stuck.
+        // `<=` so the exact midpoint counts as the left half, i.e. as the menu: of the two, it is the one that
+        // cannot leave somebody stuck.
         let isLeftSide = location.x <= button.bounds.width / 2
-        let state = timing().timingState
-        // Read once and handed to both, so the routing and the row below cannot describe different cubes.
-        let cube = self.cube()
-        let action = StatusItemClickRouter.action(
-            isLeftSide: isLeftSide,
-            timingState: state,
-            isCubeConnected: cube.isCubeConnected,
-            cubePauseState: cube.cubePauseState,
-            isLimitReached: isLimitReached(),
-            clickCount: event.clickCount
-        )
-
-        // Recorded whatever the outcome, including `ignore`. A click that deliberately did nothing and
-        // a click that never arrived look identical afterwards unless one of them left a row -- and
-        // telling those two apart is the difference between a routing bug and a missed hit. The state
-        // rides along because it is what the right half's answer turns on.
-        debugLog?.record(
-            .click,
-            "Status item clicked: side=\(isLeftSide ? "left" : "right") clicks=\(event.clickCount) "
-                + "state=\(state) -> \(action)"
-        )
-
-        switch action {
-        case .showMenu:
-            showMenu()
-        case .togglePause:
-            // The same closure the dropdown's Pause item and the Timing column's control end in, so the three
-            // ways to pause cannot come to mean different things. What it draws afterwards comes back here as a
-            // `redraw()` (see `main.swift`), rather than this knowing what it changed.
-            //
-            // **At once, unlike the cube's.** This is manual mode, which has no lock, so there is no second
-            // gesture the click might turn out to have been half of.
-            togglePause()
-        case .toggleCubePause:
-            deferCubePause()
-        case .toggleCubeLock:
-            // **Upgrade, not addition.** The first click of this pair already scheduled a pause; cancelling it is
-            // what stops a double click from pausing the cube *and* locking it.
-            cancelPendingCubePause(because: "a second click made it a lock")
-            // The same closure the dropdown's Lock item ends in. One way of locking, whichever gesture asked.
-            toggleCubeLock()
-        case .ignore:
-            break
-        }
-    }
-
-    /// Holds a cube pause back long enough for a second click to cancel it.
-    ///
-    /// **`NSEvent.doubleClickInterval` rather than a number chosen here**: it is the user's own setting, so somebody
-    /// who has slowed their double click down gets the same gesture rather than a pause that fires under it.
-    ///
-    /// The archive did exactly this and for exactly this reason, and it is the one piece of its click handling that
-    /// had to come back the moment the right half grew a second meaning.
-    private func deferCubePause() {
-        cancelPendingCubePause(because: "a newer click replaced it")
-        let pending = DispatchWorkItem { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.pendingCubePause = nil
-                self.toggleCubePause()
-            }
-        }
-        pendingCubePause = pending
-        DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval, execute: pending)
-    }
-
-    /// Drops a scheduled cube pause, saying why. Silent when there was nothing waiting, which is the ordinary case.
-    private func cancelPendingCubePause(because reason: String) {
-        guard let pending = pendingCubePause else { return }
-        pending.cancel()
-        pendingCubePause = nil
-        debugLog?.record(.click, "The waiting cube pause was dropped: \(reason)")
+        click.clicked(isLeftSide: isLeftSide, clickCount: event.clickCount)
     }
 
     /// Presents the dropdown by lending the item its menu for exactly one click.

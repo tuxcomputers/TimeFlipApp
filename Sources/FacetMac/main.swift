@@ -587,7 +587,8 @@ let menuBar = MenuBarController(
     // The same closure every other surface asks, so the item cannot come to a different answer about who the clock is
     // than the Faces tab has. It is what ends `Connecting…` when somebody answers the cube-not-found offer with
     // Time by Hand, the offer setting `hasGivenUpOnCube` behind it.
-    isManualMode: isManualMode
+    isManualMode: isManualMode,
+    scheduler: scheduler
 )
 menuBar.start()
 

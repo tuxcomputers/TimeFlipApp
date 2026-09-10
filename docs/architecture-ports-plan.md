@@ -32,7 +32,7 @@ The cheap and the blocking come first, the large and the discretionary last.
 | 1 | The clock | **done** | Six core modules on `RunLoop.main`, which `FacetLinux` never runs. A live latent fault. |
 | 3 | Starting and stopping | **done** | Landed with `QuitSequence`. Turned out to need no protocol at all: see its section. |
 | 2 | Files and folders | **not a port** | Reordered down on 2026-09-10. Corelibs already answers it per platform, measured on Linux hardware. See its section. |
-| 4 | Menu bar | in progress | The **second adapter already exists** and is the right shape. A real seam with one outlier, not a hypothetical one. |
+| 4 | Menu bar | **done** | The **second adapter already exists** and is the right shape. A real seam with one outlier, not a hypothetical one. |
 | 5 | Radio | after | The biggest port with a protocol already standing. Wants `feature/commandChannel` landed first. |
 | 6 | Windows and dialogs | after | 3,536 lines and the least mechanical work in the app. Everything above teaches something it needs. |
 | 7 | Storage | deferred | One adapter, and the decision behind it is unsettled. |
@@ -182,7 +182,7 @@ sitting in the repo.
 - [x] **The dropdown.** `StatusItemMenu` in the core decides which lines there are, what each says, whether it
       can be chosen and what choosing it does. `MenuBarController` renders them into `NSMenu` and decides
       nothing; the Linux indicator can render the same answers, its `Item` already being this shape. 683 lines
-      down to 630 (the commit message for this says 596, which was written before it was counted). `CubeReading` moved into the core with it, being three core states and no platform anything.
+      down to 630 at that point, and 518 once the whole arm was done. `CubeReading` moved into the core with it, being three core states and no platform anything.
 - [x] The identifiers move too, so a check addressing the dropdown reads the same string on either platform,
       through `AXIdentifier` on a Mac and `com.canonical.dbusmenu`'s `GetLayout` on Linux.
 - [x] **The title.** `StatusItemReadout` in the core holds the first-reading latch, the title, the tick
@@ -191,8 +191,17 @@ sitting in the repo.
       coverage at all** before this, being reachable only through a Mac-only method, so the only thing
       checking them was the scripted suite, which is set aside; they are the only way the colours are
       visible, the accessibility tree carrying none.
-- [ ] **The click.** `handleClick` already asks `StatusItemClickRouter`; what is left is reading the event and
-      the `DispatchWorkItem` that holds a cube pause back for `NSEvent.doubleClickInterval`.
+- [x] **The click.** `StatusItemGesture` in the core: the row every press writes, the dispatch to what each
+      action ends in, and the pause that waits to see whether a press was half of a double click. What AppKit
+      knows is two facts and no decisions, which side was pressed and how many clicks arrived. **The hold-back
+      had no unit coverage either**, only `57-cube-pause.sh`: fifteen router tests said which action a press
+      meant and none could say what happened next, that being a `DispatchWorkItem` inside a Mac-only class.
+- [x] The repaint tick moved onto `Scheduler` too, so **the last hand-rolled `.common` timer in the app is
+      gone** and `MenuBarController` names no `Timer` and no `RunLoop`.
+
+**683 lines to 518**, and what is left in it is `NSStatusItem`, `NSMenu`, the attributed string and the
+measuring. Four core pieces came out: `StatusItemTitle` (already there), `StatusItemMenu`, `StatusItemReadout`
+and `StatusItemGesture`.
 
 ## 5. Radio
 
