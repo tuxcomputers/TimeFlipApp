@@ -184,6 +184,14 @@ let dayTotal = DayTotal(
 // `BluetoothRadio.start`, so a launch with nothing paired still never provokes the system's Bluetooth prompt.
 let radio = BluetoothRadio(debugLog: debugLog)
 
+// **The macOS slot in the clock's square, made once and handed to everything that waits.**
+//
+// `FacetCore` states the waiting as `Scheduler` and does not know what performs it; this is the one place on this
+// platform that says `Timer` and `RunLoop.main`. One instance rather than one per module, because there is one run
+// loop: a second would be the same clock wearing a different name, which is the two-answers fault the first rule in
+// `CLAUDE.md` is about, applied to time.
+let scheduler = RunLoopScheduler()
+
 // What is being timed, for both things that draw it. The Faces tab and the status item read one answer rather
 // than each resolving the face, the category and the total for itself -- and it is all read, including whether the
 // clock is running, so a launch inherits the session the last one left instead of starting blank.
@@ -247,7 +255,8 @@ let settingsWindow = SettingsWindowController(
     radio: radio,
     lowBattery: lowBattery,
     tokenStore: googleTokens,
-    devicePINs: devicePINs
+    devicePINs: devicePINs,
+    scheduler: scheduler
 )
 // **Set here rather than passed in**, because the window controller is made after the quit sequence: a connection
 // outlives the Settings window, so the app is what gives it back. See `SettingsWindowController.letGoOfTheDevice`.

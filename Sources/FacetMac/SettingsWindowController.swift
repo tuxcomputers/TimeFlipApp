@@ -104,7 +104,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
 
     /// Holds the double-tap register writes back until the arrows stop moving, and gets out of the Disable box's way
     /// when it needs to go first. See `WriteDebounce`, which carries the why for both halves.
-    private let doubleTapWrite = WriteDebounce()
+    private let doubleTapWrite: WriteDebounce
 
     /// The same for each LED field, and **one each rather than one between them**.
     ///
@@ -113,8 +113,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// within half a second of Brightness silently threw the brightness write away. That is the archive's measured
     /// finding rather than a worry: it kept one debouncer per setting for exactly this
     /// (`W07-debounced-device-writes.swift`).
-    private let ledBrightnessWrite = WriteDebounce()
-    private let ledBlinkWrite = WriteDebounce()
+    private let ledBrightnessWrite: WriteDebounce
+    private let ledBlinkWrite: WriteDebounce
 
     /// And one for Auto-pause, held back for both of the reasons the three above are.
     ///
@@ -124,8 +124,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     ///
     /// **Its own rather than a share of theirs**: `WriteDebounce.schedule` displaces whatever was already queued, so
     /// a shared one would mean nudging Auto-pause silently throwing away a Brightness write half a second old.
-    private let autoPauseWrite = WriteDebounce()
-    private let batteryWarningWrite = WriteDebounce()
+    private let autoPauseWrite: WriteDebounce
+    private let batteryWarningWrite: WriteDebounce
 
     /// What keeps the paired cube reachable. Told what each login came to and when a link goes, since the radio's
     /// callbacks are set here.
@@ -215,8 +215,18 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         radio: BluetoothRadio? = nil,
         lowBattery: LowBatteryWatch? = nil,
         tokenStore: GoogleTokenStore? = nil,
-        devicePINs: DevicePINStore? = nil
+        devicePINs: DevicePINStore? = nil,
+        // **Defaulted for the same reason `radio` is**, and it is the same bargain: `main.swift` hands over the
+        // one the app runs on, and a layout test that never arms a timer gets a working one without saying so.
+        // A default here is platform code choosing platform code, which the rule allows; a default inside
+        // `FacetCore` would have been the core choosing, which it does not.
+        scheduler: Scheduler = RunLoopScheduler()
     ) {
+        self.doubleTapWrite = WriteDebounce(scheduler: scheduler)
+        self.ledBrightnessWrite = WriteDebounce(scheduler: scheduler)
+        self.ledBlinkWrite = WriteDebounce(scheduler: scheduler)
+        self.autoPauseWrite = WriteDebounce(scheduler: scheduler)
+        self.batteryWarningWrite = WriteDebounce(scheduler: scheduler)
         self.tokenStore = tokenStore
         self.devicePINs = devicePINs
         self.debugLog = debugLog

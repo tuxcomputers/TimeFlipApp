@@ -4,28 +4,19 @@ import Testing
 
 /// Covers holding a write back until the value stops moving.
 ///
-/// **Driven on a tiny interval rather than the real half-second**, so the suite does not sit through the wait to find
-/// out whether one call or three arrived. What is being checked is the coalescing and the cancelling, neither of which
-/// is a fact about the duration.
+/// **Driven through `HandDrivenScheduler`**, which is the third slot in the clock's square and the reason none of
+/// this waits for anything. That helper carries the two measurements behind the choice: a `@MainActor`
+/// swift-testing test does not run on the main thread on Linux, so a `RunLoop.main` timer never fires there, and a
+/// polled wait failed CI on 2026-08-25 for a debounce that was working perfectly.
 ///
-/// **And driven by calling `fire()` rather than by waiting for a run loop at all**, which is what lets this suite run
-/// on Linux. A `@MainActor` swift-testing test does not run on the main thread there, so the `RunLoop.main` timer
-/// `schedule` arms never fires and every wait timed out (measured 2026-09-09, `docs/linux-port.md`). Calling the
-/// timeout body is the bargain `HistoryTimer` has always made: what it skips is `Timer` itself, which is the part
-/// with no decisions in it.
+/// **The real half-second is now what is under test**, where a stand-in interval used to be. Nothing here sits
+/// through it, so there is no longer a reason to pass a smaller one, and `testOneWriteGoesOutAfterTheValueStopsMoving`
+/// asserts the wake was armed for `WriteDebounce.interval` itself.
 ///
-/// **So nothing here says a real timer ever fires**, and that is worth saying rather than implying. On the Mac the
-/// scripted suite covers the debounced setting writes against a real cube.
-///
-/// The waiting this replaced is worth remembering rather than merely deleting, because it was not naive: it spun the
-/// run loop and polled for the condition instead of sleeping a fixed span, precisely because a fixed wait is a claim
-/// about how busy the machine is. On 2026-08-25 the timer behind `testAWriteAfterOneHasGoneOutIsItsOwn` had not fired
-/// inside an 80ms window on a loaded CI runner, the second `schedule` cancelled it as it is meant to, one write
-/// arrived where two were expected, and CI failed on a debounce that was working perfectly. Driving the body removes
-/// that whole class of flake rather than widening the window again.
+/// **Nothing here says a real timer ever fires.** On the Mac the scripted suite covers the debounced setting writes
+/// against a real cube.
 @Suite @MainActor
 final class WriteDebounceTests {
-    private let quick: TimeInterval = 0.02
 
     @Test func testTheRealIntervalClearsTheStepper() {
         // Not a preference: the fastest a held arrow moves is one tick per `singleStepInterval` and the slowest is
@@ -35,51 +26,59 @@ final class WriteDebounceTests {
         #expect(WriteDebounce.interval > StepperHoldRules.singleStepInterval)
     }
 
-    @Test func testOneWriteGoesOutAfterTheValueStopsMoving() {
-        let debounce = WriteDebounce(interval: quick)
+    @Test func testOneWriteGoesOutAfterTheValueStopsMoving() throws {
+        let clock = HandDrivenScheduler()
+        let debounce = WriteDebounce(scheduler: clock)
         var writes = 0
 
         debounce.schedule { writes += 1 }
         #expect(writes == 0, "nothing goes out while the value could still move")
+        #expect(clock.wakes.first?.seconds == WriteDebounce.interval, "armed for the real wait, not a stand-in")
+        #expect(clock.wakes.first?.repeating == false, "a debounce is one wake, not a heartbeat")
 
-        debounce.fire()
+        try clock.tick()
 
         #expect(writes == 1, "and exactly one once it has stopped")
     }
 
-    @Test func testAHoldOfManyTicksIsOneWrite() {
+    @Test func testAHoldOfManyTicksIsOneWrite() throws {
         // What the whole type is for. Each tick displaces the last, so the command carries the number the arrow was
         // let go on rather than one command per tick -- and `DeviceLogin.send` refuses a second command while the
         // first is out, so most of them would have been dropped anyway, unpredictably.
-        let debounce = WriteDebounce(interval: quick)
+        let clock = HandDrivenScheduler()
+        let debounce = WriteDebounce(scheduler: clock)
         var written: [Int] = []
 
         for tick in 1...10 { debounce.schedule { written.append(tick) } }
-        debounce.fire()
+        try clock.tick()
 
         #expect(written == [10], "only the last one, and only once")
     }
 
-    @Test func testACancelStopsTheWriteThatWasComing() {
+    @Test func testACancelStopsTheWriteThatWasComing() throws {
         // **The archive's measured trap.** A control that writes immediately -- the Disable box -- has to take the
         // pending one out of the way first, because it carries values worked out before the flag flipped and would
         // undo the toggle by landing after it.
-        let debounce = WriteDebounce(interval: quick)
+        let clock = HandDrivenScheduler()
+        let debounce = WriteDebounce(scheduler: clock)
         var writes = 0
         debounce.schedule { writes += 1 }
+        // Kept before the cancel takes it off the clock, so the body can still be run below.
+        let armed = try #require(clock.wakes.first)
 
         debounce.cancel()
 
-        // **Fired deliberately after the cancel**, which asks something stronger than the fixed wait this replaces.
-        // That waited to see whether an invalidated timer went off; this says that even if the body did run, the
+        // **Run deliberately after the cancel**, which asks something stronger than a wait ever could. A wait only
+        // sees whether an invalidated timer went off; this runs the body outright and says that even then, the
         // cancelled write is no longer there to make.
-        debounce.fire()
+        armed.tick()
 
         #expect(writes == 0)
     }
 
-    @Test func testCancellingWhenNothingIsPendingIsHarmless() {
-        let debounce = WriteDebounce(interval: quick)
+    @Test func testCancellingWhenNothingIsPendingIsHarmless() throws {
+        let clock = HandDrivenScheduler()
+        let debounce = WriteDebounce(scheduler: clock)
 
         debounce.cancel()
         debounce.cancel()
@@ -87,33 +86,35 @@ final class WriteDebounceTests {
         #expect(!debounce.isPending)
     }
 
-    @Test func testItSaysWhetherOneIsWaiting() {
-        let debounce = WriteDebounce(interval: quick)
+    @Test func testItSaysWhetherOneIsWaiting() throws {
+        let clock = HandDrivenScheduler()
+        let debounce = WriteDebounce(scheduler: clock)
         #expect(!debounce.isPending)
 
         debounce.schedule {}
         #expect(debounce.isPending)
 
-        debounce.fire()
+        try clock.tick()
 
         #expect(!debounce.isPending, "and it stops saying so once the write has gone out")
     }
 
-    @Test func testAWriteAfterOneHasGoneOutIsItsOwn() {
+    @Test func testAWriteAfterOneHasGoneOutIsItsOwn() throws {
         // Somebody moving a field, waiting, and moving it again is two writes rather than one: the second is not a
         // continuation of the first, and the value stood still in between.
-        let debounce = WriteDebounce(interval: quick)
+        let clock = HandDrivenScheduler()
+        let debounce = WriteDebounce(scheduler: clock)
         var writes = 0
 
         debounce.schedule { writes += 1 }
         // **The first one going out is what makes the two separate.** `schedule` cancels whatever is pending, so a
         // second arriving before the first has fired is one write rather than two -- which is the right behaviour,
         // and not what is being checked here.
-        debounce.fire()
+        try clock.tick()
         #expect(writes == 1)
 
         debounce.schedule { writes += 1 }
-        debounce.fire()
+        try clock.tick()
 
         #expect(writes == 2, "and the second is its own rather than a continuation")
     }

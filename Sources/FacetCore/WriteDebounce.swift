@@ -25,20 +25,24 @@ package final class WriteDebounce {
     /// spare: a hold of any length is one write, at the number the arrow was let go on.
     static let interval: TimeInterval = 0.5
 
+    private let scheduler: Scheduler
     private let interval: TimeInterval
-    private var timer: Timer?
-    /// The write that is waiting to go out, held rather than captured so that `fire` can be the timeout body on
-    /// its own. Cleared by `cancel` along with the timer, and by `fire` before it runs.
+    private var wake: ScheduledWake?
+    /// The write that is waiting to go out, held rather than captured so that the wake's body can take it on its
+    /// own. Cleared by `cancel` along with the wake, and by the body before it runs.
     private var pending: (@MainActor () -> Void)?
 
-    /// - Parameter interval: how long to wait. Defaults to the real one; a test passes something small so it does not
-    ///   have to sit through half a second to find out whether one call or three arrive.
-    package init(interval: TimeInterval = WriteDebounce.interval) {
+    /// - Parameter scheduler: what does the waiting. The core does not know whether that is a run loop, a GTK
+    ///   timeout or a test calling it by hand, which is the whole of `Scheduler`.
+    /// - Parameter interval: how long to wait. Defaults to the real one; a test passes something small when the
+    ///   interval itself is what is being asserted on.
+    package init(scheduler: Scheduler, interval: TimeInterval = WriteDebounce.interval) {
+        self.scheduler = scheduler
         self.interval = interval
     }
 
     /// Whether a write is waiting to go out. What `cancel` is about, and what a test asserts on.
-    var isPending: Bool { timer != nil }
+    var isPending: Bool { wake != nil }
 
     /// Puts this write in the queue, displacing whatever was already there.
     ///
@@ -47,40 +51,24 @@ package final class WriteDebounce {
     package func schedule(_ write: @escaping @MainActor () -> Void) {
         cancel()
         pending = write
-        let timer = Timer(timeInterval: interval, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.fire()
-            }
+        // The wake is dropped and the write taken *before* it runs, so a `schedule` made from inside the write
+        // is a new pending one rather than something this call then clears.
+        wake = scheduler.wake(in: interval) { [weak self] in
+            guard let self else { return }
+            self.wake = nil
+            let write = self.pending
+            self.pending = nil
+            write?()
         }
-        // `.common`, for the reason every timer in this app uses it: the default mode stops dead while a menu is
-        // tracking, and a settings window can have one open over it.
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
-    }
-
-    /// The write going out: the timeout body on its own.
-    ///
-    /// **Internal so a test can take the place of the run loop**, exactly as `HistoryTimer.fire` is and for the
-    /// same bargain: the coalescing and the cancelling are then asserted directly rather than through a wait.
-    /// What it skips is `Timer` itself, which is the part with no decisions in it -- so nothing here says a real
-    /// timer ever fires, and on the Mac the scripted suite is what covers the debounced setting writes.
-    ///
-    /// The timer is dropped and the write taken *before* it runs, so a `schedule` made from inside the write is
-    /// a new pending one rather than something this call then clears.
-    func fire() {
-        timer = nil
-        let write = pending
-        pending = nil
-        write?()
     }
 
     /// Drops a pending write without sending it. Safe to call when there is none.
     package func cancel() {
-        timer?.invalidate()
-        timer = nil
-        // Cleared with the timer, not merely released with it. The write held here carries values worked out
-        // before whatever is cancelling it, which is the measured bug this method exists for, so a later `fire`
-        // must find nothing rather than the write that was called off.
+        wake?.cancel()
+        wake = nil
+        // Cleared with the wake, not merely released with it. The write held here carries values worked out
+        // before whatever is cancelling it, which is the measured bug this method exists for, so a wake that
+        // somehow still runs must find nothing rather than the write that was called off.
         pending = nil
     }
 }
