@@ -26,19 +26,26 @@ import is a shim and may stay in the core.
 
 The cheap and the blocking come first, the large and the discretionary last.
 
-| # | Arm | Why here |
-|---|-----|----------|
-| 0 | Housekeeping (done) | Three corrections that cost nothing and are noise in every scan until they go. |
-| 1 | The clock (done) | Six core modules on `RunLoop.main`, which `FacetLinux` never runs. A live latent fault, and half the seam already exists. |
-| 2 | Files and folders | Nothing on Linux can start up correctly until this moves. Small, concrete, four files each way. |
-| 3 | Starting and stopping | Most of it landed with `QuitSequence` on 2026-09-10. Finishing it while it is fresh is the cheapest arm left. |
-| 4 | Menu bar | The **second adapter already exists** and is the right shape. A real seam with one outlier, not a hypothetical one. |
-| 5 | Radio | The biggest port with a protocol already standing. Wants `feature/commandChannel` landed first. |
-| 6 | Windows and dialogs | 3,536 lines and the least mechanical work in the app. Everything above teaches something it needs. |
-| 7 | Storage | Deferred on purpose. See its section: it is one adapter, and the decision behind it is unsettled. |
+| # | Arm | State | Why here |
+|---|-----|-------|----------|
+| 0 | Housekeeping | **done** | Corrections that cost nothing and were noise in every scan. |
+| 1 | The clock | **done** | Six core modules on `RunLoop.main`, which `FacetLinux` never runs. A live latent fault. |
+| 3 | Starting and stopping | **done** | Landed with `QuitSequence`. Turned out to need no protocol at all: see its section. |
+| 2 | Files and folders | **not a port** | Reordered down on 2026-09-10. Corelibs already answers it per platform, measured on Linux hardware. See its section. |
+| 4 | Menu bar | next | The **second adapter already exists** and is the right shape. A real seam with one outlier, not a hypothetical one. |
+| 5 | Radio | after | The biggest port with a protocol already standing. Wants `feature/commandChannel` landed first. |
+| 6 | Windows and dialogs | after | 3,536 lines and the least mechanical work in the app. Everything above teaches something it needs. |
+| 7 | Storage | deferred | One adapter, and the decision behind it is unsettled. |
 
 Reorder this table as the work teaches something. An item that turns out to block another moves above it,
 and the move gets a line saying what was discovered.
+
+**Two moved on 2026-09-10, both downwards, and both because the grep that put them there was a worse
+source than the repo's own record.** Items 2 and 3 were sized from scanning `Sources/FacetCore` for platform
+symbols. `docs/linux-port.md` had already answered one of them from a real Linux machine, and the other
+turned out to want no port at all. The lesson is cheap to state and was not free to learn: **read
+`docs/linux-port.md` before sizing an arm**, because the port that has already been measured is the one
+least likely to show up in a grep.
 
 ---
 
@@ -102,39 +109,57 @@ already separated from the thing that schedules it. Three modules do not have it
 
 ## 2. Files and folders
 
-**The port.** Where my data lives, and the lock that says only one of me is running.
+**Not a port, and this section is the argument rather than a deferral.** It was second on this list when the
+list was written, sized by grepping the core for `applicationSupportDirectory`, `Bundle.main` and `flock`. The
+repo had already answered it.
 
-**Why second.** `FileManager.default.urls(for: .applicationSupportDirectory, ...)` is in
-`DatabaseBootstrap`, `DeveloperConfigFile`, `DebugTraceRules` and `InstanceLock`. On Linux the answer is
-XDG, and it is a different answer rather than a different spelling, so every one of those is a port by the
-test above. None of them carries a `#if`, so the platform-blindness check has never seen any of it.
+**The data directory answers itself on both platforms.** `docs/linux-port.md` records it measured on a real
+Linux machine on 2026-09-08: `.applicationSupportDirectory` resolves to `/home/harry/.local/share`, so the
+app's own path comes out as `~/.local/share/Facet/appdata.sqlite`, and the note says **"No code change:
+corelibs does the XDG layout"**. `DebugTraceRules.defaultDirectory` computes from it rather than writing a path
+down, which is why it is right on either platform. One implementation, correct answers on both, needing neither
+a different implementation nor a different import: that is not a port by the test in `CLAUDE.md`, and wrapping
+it in one would buy nothing and cost four call sites.
 
-`InstanceLock` is the sharpest example in the whole codebase: `flock`, `errno` and `strerror` with **zero**
-platform conditionals in the file.
+**The instance lock works on Linux too, and that was measured on the same day.** Two real processes: the first
+claimed it, the second was refused `heldByAnotherInstance`, and `~/.local/share/Facet/singleinstance.lock` was
+created on the way. `flock` is POSIX. It is Windows that has no `flock`, and Windows is not in scope, so
+`InstanceLock` is a port **for a platform nobody is writing yet**. It stays where it is until somebody is.
 
-**Item 1 leaves 11 core files reaching a platform capability with no conditional**, and this item is 8 of them.
+**`Bundle.main` is a fallback chain, not a platform choice.** Every use pairs it with `Bundle.module`, which
+SwiftPM generates on both platforms, or with a literal default. On Linux the first probe finds nothing and the
+second answers, so a third platform needs no new implementation. The one thing worth carrying forward is a
+*degradation* rather than a fault: `Bundle.main.bundleIdentifier` is nil off a `.app`, so `DevicePINStore` and
+`GoogleTokenStore` both fall back to the same literal service name, and the keying that stops a developer build
+and a release build fighting over one keyring item does not separate them there.
 
-`Bundle.main` is the same question wearing a different hat, in `DatabaseBootstrap`, `DevicePINStore`,
-`GoogleCredentials` and `GoogleTokenStore`.
-
-- [ ] The port: the directories the app uses, asked for by role rather than by path.
-- [ ] Move the four `applicationSupportDirectory` readers onto it.
-- [ ] Move the four `Bundle.main` readers onto it.
-- [ ] `InstanceLock`: the decision stays in the core, the `flock` goes to `FacetMac`.
-- [ ] Widen the check to fail on `applicationSupportDirectory` and `Bundle.main` in the core.
+- [x] Establish whether this is a port at all. **It is not**, on the evidence above.
+- [ ] The bundle-identifier degradation on Linux: a real gap, but it belongs to whoever writes the Linux
+      keyring adapter, and it is a value the composition root should supply rather than a port.
+- [ ] `Facet_FacetCore.resources` must ship beside the executable or a Linux binary dies with a `fatalError`
+      before `DatabaseBootstrap.Failure.ddlDirectoryNotFound` can report anything (`docs/linux-port.md`). That
+      is a packaging rule for `docs/distribution.md`, not an arm on this diagram.
 
 ## 3. Starting and stopping
 
-**The port.** May I stop yet, and now you may.
+**Done, and it needed no protocol.** `QuitSequence` moved into the core on 2026-09-10 and `QuitDelegate` is the
+macOS adapter, holding the `NSApplicationDelegate` conformance, the terminate reply derived from what
+`pauseAndLockTheCube` reported, and nothing else.
 
-Mostly done. `QuitSequence` moved into the core on 2026-09-10 and `QuitDelegate` is the macOS adapter,
-holding the protocol conformance and nothing else. What is left is the other end: `app.run()`, and the
-launch sequence in `main.swift` that is still written as an AppKit program rather than as a composition
-root that happens to be on a Mac.
+**What made this cheaper than the diagram suggests is the direction of the call.** Every other arm is the core
+reaching out, which needs a protocol so that what it reaches for can be swapped. This one is the platform
+reaching *in*: AppKit asks `applicationShouldTerminate`, GTK's Quit item calls `MenuBar.quit`, and both then run
+the same core sequence. Nothing in the core has to name the thing calling it, so there is nothing to abstract.
+The one place the core does want to *cause* a stop, `DeviceReconnector`, already takes it as an injected closure
+and says why: "Injected rather than calling `NSApp` here".
 
-- [ ] Name the port for the half that is not the quit.
-- [ ] Read `main.swift` against it and move what is core out of the launch sequence.
-- [ ] Confirm `QuitSequence`'s deadline moves with item 1 rather than being left behind.
+- [x] Establish what the port is. It is a callback direction, not an interface.
+- [x] `QuitSequence` in the core, `QuitDelegate` in `FacetMac`, `app.run()` in the composition root where a
+      platform-specific launch belongs.
+- [x] `QuitSequence`'s deadline moved with item 1.
+- [ ] Prose only: `QuitSequence`'s doc comments still explain themselves in terms of `NSApp` and
+      `applicationShouldTerminate`. The reasoning is measured and worth keeping; some of it now describes
+      `QuitDelegate` and should sit there. Tidy when item 6 is in that area anyway.
 
 ## 4. Menu bar
 
