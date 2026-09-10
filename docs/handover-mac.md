@@ -154,40 +154,6 @@ All four are covered hermetically. Face turns and double taps are not this clust
 **So what is left of item 15 is the other four clusters and a run.** The reach and candidate order, the reset
 proof, the history fetch and the PIN rotation machine are untouched. This item stays put.
 
-## 23. Five files of yours changed from here and not one of them has been compiled
-
-**The Linux port needed things that were written down inside `FacetMac`**, and moving them is what item 20 of
-`handover-linux.md` asked for in one case and what the two-copies rule forced in the others. `FacetMac` is not in
-this platform's package -- `swift build --target FacetMac` answers `error: no target named 'FacetMac'` -- so
-every one of these is unverified here and `swift build && swift test` on your side is what says they are right.
-
-**What changed, and why each one had to:**
-
-- **`Sources/FacetMac/BLETrace.swift` is now the `CBUUID` spellings and no wording of its own.** All ten
-  `ble-tx`/`ble-rx` rows moved to `FacetCore/BLETrace.swift`, keyed on UUID strings. They are read back by
-  `Tests/Scripted` with `LIKE` and `GLOB`, which makes them interface, and BlueZ writing a second copy would have
-  been two traces diverging one row at a time. **Every wording is byte-identical**; the errors are turned into
-  strings on each side, which is the only real seam.
-- **`TimeFlipUUIDs.name(for: CBUUID)` is deleted**, nothing calling it once the rows named their own UUIDs from
-  the core's one table. That is the answer `feature/commandChannel` got for `linkEnded()`.
-- **`DevicePane.Values.seeded` reads its five device settings from `DeviceSettingsSync.Stored.seeded`.** Those
-  numbers are `database/011_setting.sql`'s own seeds and a second composition root needs them; two copies of a
-  seed diverge the next time the DDL moves one. The fields of `Stored` are `package` now so they can be read.
-- **`StatusItemMenu.openSettings` is optional**, and `nil` means the Settings line is not drawn. Your call site
-  passes a closure, so nothing changes for you. It is there because this platform has no window to open and a
-  line that opens nothing is the fault `choose: nil` already rules out one level down.
-- **`BLETraceTests` came off `platformBoundTests`** (33 files to 32) and no longer imports `FacetMac` or
-  CoreBluetooth: what it checks is the hex rendering and the name fallback, both core now.
-
-**What I would check first**, in the order the risk runs: that `FacetMac` compiles at all, that
-`BLETraceTests` and `MenuBarControllerTests` still pass, and that the Device tab still shows the seeded numbers
-on a fresh database.
-
-**And the one that only a scripted run can answer**, whenever the suite comes back: the `ble-tx`/`ble-rx` rows
-are what `51-device-connect` and its neighbours read, and I have moved every one of them between files. The
-wordings are unchanged and `BLETraceTests` checks the rendering, but neither of those is the same as a check
-that actually matched one.
-
 ## 24. There is a gate now that fails on your side when an isolated XCTestCase is written
 
 **`AnIsolatedXCTestCaseAbortsTheLinuxRunTests` runs on both platforms and will fail on yours**, which is the
