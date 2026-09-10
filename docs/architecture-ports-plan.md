@@ -364,6 +364,13 @@ something it needs.
       `DeviceSettingWrite` grows a way to carry the verb, which weakens the one property that makes it worth
       having, or those rows change and the checks are updated with them. **Worth taking to the owner rather
       than deciding on the way past**, since the second option spends a device run.
+
+      **And the verb turns out to be carrying information.** `59-double-tap` check 13 asserts *zero* rows
+      matching `Double tap: sending%`, which works only because the register path and the box path open with
+      different words. Collapsing both to `sending` would leave that check unable to tell a dead arrow that
+      sent nothing from a box that sent something. So the wording is not decoration here, and the honest
+      answer may be that `applyDoubleTapEnabled` should not fold at all: it is a different act from setting
+      a register, and the log has been saying so.
 - [ ] `renameDevice` / `sendRename` is the eighth, and the odd one: its read-back is functional rather than
       a command, so it does not fit `send` as it stands.
 - [ ] ~~The rest of the window is view construction and tab wiring.~~ **Struck: it is not work.** That is
