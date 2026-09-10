@@ -43,12 +43,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     private lazy var window: NSWindow = makeWindow()
 
     /// `nil` in a build without the dev flag.
-    /// Where the Google refresh token is kept.
+    /// Where the Google refresh token and the cube's PIN are kept.
     ///
-    /// A value rather than three calls to an enum of statics, since candidate 3 gave `GoogleTokenStore` a
-    /// `SecretStore` underneath it. One of the 51 hard-wired collaborators candidate 8 counts in this file, and now
-    /// the one that can be substituted.
-    private let tokenStore = GoogleTokenStore()
+    /// **Handed over rather than constructed**, since 2026-09-10. They were built here, which meant this file
+    /// reached the Keychain through whatever the core had chosen; now the composition root picks the adapter and
+    /// these are two of the values it hands down. Optional only because every store on this type is, so a layout
+    /// test can build a window with nothing behind it.
+    private let tokenStore: GoogleTokenStore?
+    private let devicePINs: DevicePINStore?
 
     private let debugLog: DebugLog?
 
@@ -211,8 +213,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         settings: SettingStore? = nil,
         isManualMode: (() -> Bool)? = nil,
         radio: BluetoothRadio? = nil,
-        lowBattery: LowBatteryWatch? = nil
+        lowBattery: LowBatteryWatch? = nil,
+        tokenStore: GoogleTokenStore? = nil,
+        devicePINs: DevicePINStore? = nil
     ) {
+        self.tokenStore = tokenStore
+        self.devicePINs = devicePINs
         self.debugLog = debugLog
         self.categories = categories
         self.faces = faces
@@ -325,10 +331,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                 // Read here, with the row, because the two are one answer: opening the window reads every value the
                 // window shows, in one go, and an identity read without its token is the half-answer that let the
                 // tab say Connected with nothing behind it.
-                switch tokenStore.lookUp() {
+                // No store at all is the `unavailable` case rather than `missing`: a window built without
+                // one, which is a layout test, has not learned there is no token. It has not looked.
+                switch tokenStore?.lookUp() {
                 case .found: return .present
                 case .missing: return .missing
-                case .unavailable: return .unavailable
+                case .unavailable, nil: return .unavailable
                 }
             }(),
             hasGoogleCredentials: GoogleCredentials.resolve() != nil,
@@ -1118,7 +1126,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             if scanner.connectedDevice != nil {
                 self.markConnectionDown(on: pane, because: "another device was chosen")
             }
-            let pins = DevicePINSource(debugLog: self.debugLog)
+            guard let devicePINs = self.devicePINs else { return }
+            let pins = DevicePINSource(keychain: devicePINs, debugLog: self.debugLog)
             scanner.connect(
                 to: id,
                 presenting: DeviceLoginRules.candidates(stored: pins.stored()),
@@ -1211,7 +1220,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             // The write happens on its own line rather than inside a logging call: `debugLog?.record(...)` is
             // optional chaining, so with no logger its argument is never evaluated and the PIN would go unrecorded in
             // exactly the build that has no log to notice.
-            let recorded = DevicePINSource(debugLog: self.debugLog).record(pin)
+            guard let devicePINs = self.devicePINs else { return }
+            let recorded = DevicePINSource(keychain: devicePINs, debugLog: self.debugLog).record(pin)
             guard !recorded.isRecorded else { return }
             self.showPINNotRecorded()
         }
@@ -1776,7 +1786,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         debugLog?.record(.field, "Google sign-in started")
         // Captured rather than reached through `self`, which is weak in here: the store is a value, so it does not
         // need the window to still exist for a token that has already been fetched to be written down.
-        let tokenStore = tokenStore
+        // A window with no store cannot keep what a sign-in returns, so it is refused before the browser
+        // opens rather than after somebody has authorised in it.
+        guard let tokenStore else {
+            showGoogleFailed(GoogleOAuthRules.Failure.exchangeFailed("there is nowhere to keep the token"))
+            return
+        }
         Task { @MainActor [weak self, weak pane] in
             defer { pane?.setSigningIn(false) }
             do {
@@ -1841,7 +1856,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         guard pane.values.googleAccount.hasGoogleIdentity else { return }
         Task { @MainActor [weak self, weak pane] in
             do {
-                _ = try await GoogleCalendarClient.currentAccessToken()
+                    guard let tokenStore = self?.tokenStore else { return }
+                    _ = try await GoogleCalendarClient.currentAccessToken(tokens: tokenStore)
                 pane?.adopt(.googleVerified(.working))
                 self?.debugLog?.record(.field, "Google sign-in checked and works")
             } catch GoogleCalendarRules.Failure.notSignedIn {
@@ -2134,7 +2150,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// A usable access token, from the refresh token in the Keychain. The same one the background sweep asks for, so
     /// there is one answer to "who is signed in" rather than a window's and a sweep's.
     private func googleAccessToken() async throws -> String {
-        try await GoogleCalendarClient.currentAccessToken()
+        guard let tokenStore else { throw GoogleCalendarRules.Failure.notSignedIn }
+        return try await GoogleCalendarClient.currentAccessToken(tokens: tokenStore)
     }
 
     /// What a failed sign-in says. The message comes from `GoogleOAuthRules.Failure`, which is where the wording lives
@@ -2176,7 +2193,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         }
         // The token goes with the identity. Leaving it behind would mean a Keychain still holding the ability to act
         // on an account the app says it is not connected to.
-        tokenStore.clear()
+        tokenStore?.clear()
         pane.adopt(.googleDisconnected)
     }
 

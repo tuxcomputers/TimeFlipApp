@@ -25,7 +25,9 @@ import Foundation
 package struct DevicePINStore {
     private let secrets: SecretStore
 
-    package init(secrets: SecretStore = SecretStores.platform) {
+    /// **No default, deliberately.** A default would be this type choosing an implementation, which is the thing
+    /// the platform-blindness rule forbids; requiring it is what pushes the choice out to the composition root.
+    package init(secrets: SecretStore) {
         self.secrets = secrets
     }
 

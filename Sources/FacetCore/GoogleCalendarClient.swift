@@ -57,7 +57,7 @@ package enum GoogleCalendarClient {
     /// is why this file was one of the nine in `FacetCore` no test named.
     package static func currentAccessToken(
         session: URLSession = .shared,
-        tokens: GoogleTokenStore = GoogleTokenStore()
+        tokens: GoogleTokenStore
     ) async throws -> String {
         guard let credentials = GoogleCredentials.resolve() else {
             throw GoogleOAuthRules.Failure.noCredentials

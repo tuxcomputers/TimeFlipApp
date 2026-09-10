@@ -43,6 +43,19 @@ do {
 // again every time an answer is wanted, and caching nothing: see the first design rule in `CLAUDE.md`.
 let database = DatabaseConnection(databaseURL: databaseURL)
 let settings = SettingStore(connection: database)
+
+// **This is where the platform gets chosen, and the only place it is.**
+//
+// The core states what it needs as a protocol and cannot find out which adapter it got: `CLAUDE.md`, *The core
+// is platform-blind, and every platform capability is a port*. `SecretStore` used to end with a
+// `SecretStores.platform` that picked between the Keychain and `secret-tool` behind one `#if`, which was the
+// core choosing, and on a third platform would have chosen `secret-tool` and been wrong without saying so.
+//
+// The two typed stores below carry the naming and the meaning; `KeychainSecretStore` carries the `SecItem`
+// calls and lives in this target because that is what a square is for.
+let secrets: SecretStore = KeychainSecretStore()
+let devicePINs = DevicePINStore(secrets: secrets)
+let googleTokens = GoogleTokenStore(secrets: secrets)
 let categories = CategoryStore(connection: database)
 let faces = FaceStore(connection: database)
 let timezones = TimezoneStore(connection: database)
@@ -136,7 +149,12 @@ let deviceEvents = DeviceEventRecorder(
 // Recorded time on its way to Google. Wired as a closure rather than handed to the recorder, so writing a
 // `time_entry` row does not depend on there being a Google account at all: with nothing connected this sweeps,
 // finds it has nowhere to put anything, says so once and stops.
-let calendarSync = CalendarSync(connection: database, settings: settings, debugLog: debugLog)
+let calendarSync = CalendarSync(
+    connection: database,
+    settings: settings,
+    debugLog: debugLog,
+    accessToken: { try await GoogleCalendarClient.currentAccessToken(tokens: googleTokens) }
+)
 timeEntries.onEntryRecorded = { calendarSync.sweep(because: "an entry was recorded") }
 
 
@@ -223,7 +241,9 @@ let settingsWindow = SettingsWindowController(
     settings: settings,
     isManualMode: isManualMode,
     radio: radio,
-    lowBattery: lowBattery
+    lowBattery: lowBattery,
+    tokenStore: googleTokens,
+    devicePINs: devicePINs
 )
 // **Set here rather than passed in**, because the window controller is made after the quit sequence: a connection
 // outlives the Settings window, so the app is what gives it back. See `SettingsWindowController.letGoOfTheDevice`.
@@ -306,7 +326,7 @@ let reconnector = DeviceReconnector(
     radio: radio,
     settings: settings,
     debugLog: debugLog,
-    storedPINs: { DevicePINSource(debugLog: debugLog).stored() },
+    storedPINs: { DevicePINSource(keychain: devicePINs, debugLog: debugLog).stored() },
     rotatingTo: { DevicePINRules.target() }
 )
 // **The mode derivation gets its second input**, now that the thing holding it exists. Assigned rather than passed
@@ -323,14 +343,14 @@ hasGivenUpOnCube = { reconnector.hasGivenUpOnCube }
 // **Armed at launch and disarmed by the first accepted PIN**, which is what makes this a startup check rather than
 // something running on every connect: once a launch has settled the two stores there is nothing left to ask until
 // something writes again, and that write is itself a rotation that puts both in step.
-var isReconcilingPINStores = DevicePINSource(debugLog: debugLog).settleAtLaunch() == .awaitingTheCube
+var isReconcilingPINStores = DevicePINSource(keychain: devicePINs, debugLog: debugLog).settleAtLaunch() == .awaitingTheCube
 radio.onPINAccepted = { _, pin in
     guard isReconcilingPINStores else { return }
     // **Disarmed by an answer that settled it, not by any login at all.** A cube can accept a PIN from neither store
     // -- the vendor default on a factory-reset confirmation is exactly that, and it happens on an ordinary run --
     // and letting that spend the launch's one question would leave the two stores disagreeing until the next launch
     // for no reason.
-    guard DevicePINSource(debugLog: debugLog).reconcile(accepted: pin) != .nothingHappened else { return }
+    guard DevicePINSource(keychain: devicePINs, debugLog: debugLog).reconcile(accepted: pin) != .nothingHappened else { return }
     isReconcilingPINStores = false
 }
 

@@ -1,4 +1,4 @@
-#if !canImport(Security)
+import FacetCore
 import Foundation
 
 /// The login keyring, reached through `secret-tool`. **The Linux stand-in for the Keychain**, and the one
@@ -124,4 +124,3 @@ package struct SecretToolStore: SecretStore {
         )
     }
 }
-#endif

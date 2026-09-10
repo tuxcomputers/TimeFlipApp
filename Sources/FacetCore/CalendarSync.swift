@@ -30,7 +30,10 @@ package final class CalendarSync {
         connection: DatabaseConnection,
         settings: SettingStore,
         debugLog: DebugLog?,
-        accessToken: @escaping () async throws -> String = { try await GoogleCalendarClient.currentAccessToken() }
+        /// **No default, since 2026-09-10.** It used to default to
+        /// `GoogleCalendarClient.currentAccessToken()`, which reaches a secret store, so the default was this
+        /// module deciding where the token comes from. The composition root decides now.
+        accessToken: @escaping () async throws -> String
     ) {
         self.connection = connection
         self.settings = settings

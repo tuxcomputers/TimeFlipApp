@@ -1,8 +1,14 @@
-#if canImport(Security)
+import FacetCore
 import Foundation
 import Security
 
 /// The login Keychain, as a `SecretStore`.
+///
+/// **In `FacetMac` since 2026-09-10, and no longer guarded.** It used to sit in `FacetCore` behind
+/// `#if canImport(Security)`, which is the core knowing what platform it is on. The target is in `CLAUDE.md`
+/// under *The core is platform-blind*: the core states what it needs as a protocol and something outside hands
+/// over the thing that does it. Which square gets built is the manifest's business, so the conditional went
+/// with the move rather than being carried along.
 ///
 /// **This is the `SecItem` code that used to be in both `DevicePINStore` and `GoogleTokenStore`**, written twice
 /// with the same four queries and the same three status rules. Candidate 3 of
@@ -73,4 +79,3 @@ package struct KeychainSecretStore: SecretStore {
         return status == errSecSuccess || status == errSecItemNotFound
     }
 }
-#endif

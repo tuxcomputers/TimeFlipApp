@@ -65,22 +65,21 @@ struct PlatformBlindCoreTests {
     ///
     /// - `BlueZRadio`, `BlueZGatt`, `SystemBus`: the Linux radio transport, belonging in `FacetLinux`. Waiting
     ///   on the radio port, which does not exist yet: candidate 1 of `docs/architecture-review-2026-09.md`.
-    /// - `KeychainSecretStore` and `SecretToolStore`: the Darwin and Linux secret adapters, belonging in
-    ///   `FacetMac` and `FacetLinux`. Candidate 3 built the port and left both adapters here, which was half
-    ///   the move. **`SecretToolStore` was missed by the hand survey that preceded this test**, because that
-    ///   grep matched `#if canImport` and this file opens `#if !canImport`. It is the first thing this check
-    ///   found that a person had not.
-    /// - `SecretStore`: holds `SecretStores.platform`, which is the core choosing. It goes when `main.swift`
-    ///   injects the adapter instead.
     /// - `GoogleLoopbackListener`: two implementations in one file, `Network.framework` and raw sockets. A port
     ///   wearing an `#if`.
+    ///
+    /// **Three came off on 2026-09-10 and the reason is worth keeping.** `KeychainSecretStore` and
+    /// `SecretToolStore` moved to `FacetMac` and `FacetLinux`, and `SecretStore` lost the `SecretStores.platform`
+    /// that chose between them, which was the core choosing however small the conditional. Both composition roots
+    /// hand the adapter over now. Their conditionals went with them rather than travelling: which square is built
+    /// is the manifest's business, so an adapter that has reached its own target needs no `#if` at all.
+    ///
+    /// `SecretToolStore` is also the one this check found that the hand survey before it had missed, because that
+    /// grep matched `#if canImport` and the file opened `#if !canImport`.
     private static let adaptersStillInTheCore: Set<String> = [
         "BlueZRadio",
         "BlueZGatt",
         "SystemBus",
-        "KeychainSecretStore",
-        "SecretToolStore",
-        "SecretStore",
         "GoogleLoopbackListener",
     ]
 

@@ -24,7 +24,7 @@ package struct DevicePINSource {
     /// `DevicePINStore` was an enum of statics bound to the Keychain, so the only way to test any of the ordering
     /// below was to inject a `lookUp` and a `save` one at a time. Candidate 3 gave the store a `SecretStore`
     /// underneath it, so the thing itself can be handed over and the pair of closures is one value again.
-    var keychain = DevicePINStore()
+    var keychain: DevicePINStore
     /// The file, used only as the fallback above.
     var configFile: DeveloperConfigFile = .atStandardPath
     var debugLog: DebugLog?
@@ -197,7 +197,7 @@ package struct DevicePINSource {
     /// Memberwise, spelled out because Swift does not widen a synthesised one with its type.
     ///
     package init(
-        keychain: DevicePINStore = DevicePINStore(),
+        keychain: DevicePINStore,
         configFile: DeveloperConfigFile = .atStandardPath,
         debugLog: DebugLog? = nil
     ) {

@@ -54,16 +54,16 @@ package protocol SecretStore: Sendable {
     func clear(service: String, account: String) -> Bool
 }
 
-/// The store this platform has.
-///
-/// **The one `#if` left of the six.** It is here rather than inside each method because which store exists is a fact
-/// about the platform, asked once, and not a decision any individual write should be re-taking.
-package enum SecretStores {
-    package static var platform: SecretStore {
-        #if canImport(Security)
-        KeychainSecretStore()
-        #else
-        SecretToolStore()
-        #endif
-    }
-}
+// **There is deliberately nothing here that picks an implementation.**
+//
+// This file used to end with a `SecretStores.platform` that chose the Keychain or `secret-tool` behind one `#if`,
+// and that was described as a win over the six branches it replaced. It was not: a core type picking its own
+// implementation, however small the conditional, is the core caring what platform it is on. `CLAUDE.md` names
+// the case directly under *The core is platform-blind, and every platform capability is a port*.
+//
+// **On Windows it would have compiled and handed back a store that runs `/usr/bin/env secret-tool`**, because
+// the choice was `canImport(Security)` and everything else fell through to the Linux branch. The core would
+// have chosen, and chosen wrong, silently, at runtime.
+//
+// Both composition roots now build the adapter and hand it over: `KeychainSecretStore` in `FacetMac`,
+// `SecretToolStore` in `FacetLinux`.
