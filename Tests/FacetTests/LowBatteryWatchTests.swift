@@ -12,6 +12,7 @@ import Testing
 /// `BluetoothRadio` for the live figure and holds none of it.
 @Suite @MainActor
 final class LowBatteryWatchTests {
+    private let clock = HandDrivenScheduler()
     private let database: TemporaryDatabase
     private var settings: SettingStore!
     private var built: LowBatteryWatch?
@@ -45,7 +46,7 @@ final class LowBatteryWatchTests {
     /// compiler is concerned. `HistoryTimerTests` does the same thing for the same reason.
     private var watch: LowBatteryWatch {
         if let built { return built }
-        let created = LowBatteryWatch(level: { self.level }, settings: settings, debugLog: nil)
+        let created = LowBatteryWatch(level: { self.level }, settings: settings, debugLog: nil, scheduler: clock)
         created.onChanged = { self.changes += 1 }
         built = created
         return created
@@ -59,13 +60,13 @@ final class LowBatteryWatchTests {
 
     // MARK: - arming and letting go
 
-    @Test func testAHealthyChargeIsNoWarning() {
+    @Test func testAHealthyChargeIsNoWarning() throws {
         report(80)
 
         #expect(watch.alert == .none)
     }
 
-    @Test func testTheSeededThresholdIsWhatDecides() {
+    @Test func testTheSeededThresholdIsWhatDecides() throws {
         // `database/011_setting.sql` seeds `{"percent":10}`, so 10 is low and 11 is not. Read from the table rather
         // than from a constant here, which is the point of the test.
         report(11)
@@ -75,7 +76,7 @@ final class LowBatteryWatchTests {
         #expect(watch.alert.isBatteryLow)
     }
 
-    @Test func testTheWarningFlashesFromTheMomentItArms() {
+    @Test func testTheWarningFlashesFromTheMomentItArms() throws {
         // On its coloured phase to begin with, so it arrives as a colour rather than as half a second of nothing.
         report(5)
 
@@ -84,7 +85,7 @@ final class LowBatteryWatchTests {
         #expect(changes == 1, "the surfaces that draw the warning were not told about it")
     }
 
-    @Test func testTheWarningHoldsThroughAFlapAcrossTheThreshold() {
+    @Test func testTheWarningHoldsThroughAFlapAcrossTheThreshold() throws {
         report(10)
         let armed = changes
 
@@ -94,7 +95,7 @@ final class LowBatteryWatchTests {
         #expect(changes == armed, "the warning was redrawn while nothing about it had changed")
     }
 
-    @Test func testTheWarningLetsGoOnceTheChargeIsWellClearOfTheThreshold() {
+    @Test func testTheWarningLetsGoOnceTheChargeIsWellClearOfTheThreshold() throws {
         report(10)
 
         report(15)
@@ -106,7 +107,7 @@ final class LowBatteryWatchTests {
 
     // MARK: - the link going
 
-    @Test func testTheFlashStopsWithTheLinkAndTheWarningDoesNot() {
+    @Test func testTheFlashStopsWithTheLinkAndTheWarningDoesNot() throws {
         report(4)
 
         report(nil)
@@ -115,7 +116,7 @@ final class LowBatteryWatchTests {
         #expect(!watch.alert.isBlinkOn, "there is nothing on screen to flash about with no reading behind it")
     }
 
-    @Test func testACubeThatComesBackStillFlatIsStillFlashing() {
+    @Test func testACubeThatComesBackStillFlatIsStillFlashing() throws {
         report(4)
         report(nil)
 
@@ -127,7 +128,7 @@ final class LowBatteryWatchTests {
 
     // MARK: - the threshold moving underneath it
 
-    @Test func testRaisingTheWarningLevelArmsItWithoutWaitingForAReading() {
+    @Test func testRaisingTheWarningLevelArmsItWithoutWaitingForAReading() throws {
         // The case a reading-driven watch misses: a cube sitting steady at 15 reports nothing for as long as it stays
         // there, so without this the control would appear to do nothing at all.
         report(15)
@@ -139,7 +140,7 @@ final class LowBatteryWatchTests {
         #expect(watch.alert.isBatteryLow)
     }
 
-    @Test func testLoweringTheWarningLevelLetsGoOfIt() {
+    @Test func testLoweringTheWarningLevelLetsGoOfIt() throws {
         report(10)
         #expect(watch.alert.isBatteryLow)
 
@@ -153,7 +154,7 @@ final class LowBatteryWatchTests {
 
     // MARK: - the flash itself
 
-    @Test func testTheFlashAlternatesAndKeepsSayingSo() {
+    @Test func testTheFlashAlternatesAndKeepsSayingSo() throws {
         // The timer is the claim -- half a second on, half a second off, and whoever draws told each time -- and the
         // phase is now turned over by calling `fire()` rather than by waiting for a run loop to do it. That is what
         // lets this suite run here at all: a `@MainActor` swift-testing test is not on the main thread on Linux, so
@@ -165,13 +166,13 @@ final class LowBatteryWatchTests {
         let armed = changes
         #expect(watch.alert.isBlinkOn, "it arrives on its coloured phase rather than on half a second of nothing")
 
-        watch.fire()
+        try clock.tick()
 
         #expect(!watch.alert.isBlinkOn, "the first change of phase should be the colour going off")
         #expect(watch.alert.isBatteryLow, "the warning itself does not blink, only its colour does")
         #expect(changes == armed + 1, "and whoever draws is told about it")
 
-        watch.fire()
+        try clock.tick()
 
         #expect(watch.alert.isBlinkOn, "and back on, which is what alternating means")
         #expect(changes == armed + 2)

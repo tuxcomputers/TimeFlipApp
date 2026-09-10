@@ -141,7 +141,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         defer { database.remove() }
 
         // A cube sitting at 15%: above the seeded warning level of 10, so nothing is wrong yet.
-        let watch = LowBatteryWatch(level: { 15 }, settings: settings, debugLog: nil)
+        let watch = LowBatteryWatch(level: { 15 }, settings: settings, debugLog: nil, scheduler: HandDrivenScheduler())
         defer { watch.stop() }
         let controller = SettingsWindowController(
             debugLog: nil, categories: nil, faces: nil, settings: settings, lowBattery: watch

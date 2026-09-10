@@ -36,10 +36,11 @@ final class HandDrivenScheduler: Scheduler {
     func wake(
         in seconds: TimeInterval,
         repeating: Bool,
+        mayGroup: Bool,
         _ tick: @escaping @MainActor () -> Void
     ) -> ScheduledWake {
         arranged += 1
-        let wake = Wake(seconds: seconds, repeating: repeating, tick: tick, scheduler: self)
+        let wake = Wake(seconds: seconds, repeating: repeating, mayGroup: mayGroup, tick: tick, scheduler: self)
         wakes.append(wake)
         return wake
     }
@@ -96,17 +97,20 @@ final class HandDrivenScheduler: Scheduler {
         /// backoff, where getting the sequence right is the whole of what the module does.
         let seconds: TimeInterval
         let repeating: Bool
+        let mayGroup: Bool
         let tick: @MainActor () -> Void
         private weak var scheduler: HandDrivenScheduler?
 
         init(
             seconds: TimeInterval,
             repeating: Bool,
+            mayGroup: Bool,
             tick: @escaping @MainActor () -> Void,
             scheduler: HandDrivenScheduler
         ) {
             self.seconds = seconds
             self.repeating = repeating
+            self.mayGroup = mayGroup
             self.tick = tick
             self.scheduler = scheduler
         }

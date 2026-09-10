@@ -62,18 +62,18 @@ package final class HistoryTimer {
     /// deliberately knows nothing about.
     private let hasSomethingToFollow: @MainActor () -> Bool
 
-    /// Held in its own object so it can be invalidated when this goes away: a `@MainActor` class's `deinit`
-    /// cannot touch the class's own non-Sendable properties. Same shape as `DebugLog.Connection` and
-    /// `MenuBarController.StatusItemHolder`, for the same reason.
-    private final class TimerHolder {
-        var timer: Timer?
+    private let scheduler: Scheduler
 
-        deinit {
-            timer?.invalidate()
-        }
-    }
-
-    private let holder = TimerHolder()
+    /// The wake that is waiting, and `nil` while stopped.
+    ///
+    /// **The `TimerHolder` that used to sit here is gone with the port**, and what it bought is worth naming
+    /// rather than quietly dropping. It existed so a `deinit` could invalidate the timer, a `@MainActor` class
+    /// being unable to touch its own non-Sendable properties from one. What that actually saved is **a single
+    /// wake-up**: the wake armed here never repeats and captures `self` weakly, so a `HistoryTimer` dropped with
+    /// one outstanding gets one callback that finds nothing and is then finished. It was not preventing a leak.
+    /// The two holders it was modelled on, `DebugLog.Connection` and `MenuBarController.StatusItemHolder`, hold a
+    /// database handle and a status item, and both still need theirs.
+    private var wake: ScheduledWake?
 
     /// What the timer currently in flight was armed with, and `nil` while stopped. Reported so the re-arming
     /// can be asserted without waiting for a real interval to elapse.
@@ -82,9 +82,11 @@ package final class HistoryTimer {
     package init(
         settings: SettingStore,
         debugLog: DebugLog?,
+        scheduler: Scheduler,
         hasSomethingToFollow: @escaping @MainActor () -> Bool = { true },
         onTimeout: @escaping @MainActor () -> Void
     ) {
+        self.scheduler = scheduler
         self.settings = settings
         self.debugLog = debugLog
         self.hasSomethingToFollow = hasSomethingToFollow
@@ -108,25 +110,26 @@ package final class HistoryTimer {
     /// path that changes what is being timed already goes through -- a second, parallel notification would be one more
     /// thing for a new path to forget.
     package func resumeIfStopped() {
-        guard holder.timer == nil else { return }
+        guard wake == nil else { return }
         start()
     }
 
     /// Stops asking. Nothing is remembered, so `start()` begins again from whatever the setting says then.
     func stop(because reason: String = "") {
-        guard holder.timer != nil else { return }
-        holder.timer?.invalidate()
-        holder.timer = nil
+        guard wake != nil else { return }
+        wake?.cancel()
+        wake = nil
         scheduledSeconds = nil
         debugLog?.record(.history, "History timer stopped\(reason.isEmpty ? "" : ", \(reason)")")
     }
 
     /// The timeout itself: ask, then read the setting again and arm the next one.
     ///
-    /// Internal so a test can take the place of the run loop. Asking comes first so the interval is measured
-    /// from the end of the work rather than the start of it, which is what stops a slow fetch and a short
-    /// interval overlapping.
-    func fire() {
+    /// **Private now that the clock is a port**: this was internal purely so a test could take the place of the
+    /// run loop, and a test drives `Scheduler` instead. Asking comes first so the interval is measured from the
+    /// end of the work rather than the start of it, which is what stops a slow fetch and a short interval
+    /// overlapping.
+    private func fire() {
         // Asked here rather than trusted from when the timer was armed: a pause during the interval is exactly the
         // case this exists for, and the answer at arming time would be the stale one.
         guard hasSomethingToFollow() else {
@@ -159,20 +162,13 @@ package final class HistoryTimer {
     /// One timeout, not a repeating one: the interval has to be re-read before the next, and a repeating timer
     /// would keep the interval it was created with.
     private func arm(after seconds: TimeInterval) {
-        holder.timer?.invalidate()
-        let timer = Timer(timeInterval: seconds, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.fire()
-            }
+        wake?.cancel()
+        // `mayGroup`, because nothing on this arm needs to land on the second: a fetch that happens alongside
+        // some other wake-up is a fetch that did not wake the machine on its own. What that means is the
+        // platform's business, and on a Mac it is the timer tolerance this line used to set itself.
+        wake = scheduler.wake(in: seconds, repeating: false, mayGroup: true) { [weak self] in
+            self?.fire()
         }
-        // A tenth of the interval, which lets the system group this with other wake-ups rather than waking the
-        // machine for it alone. Nothing here needs to land on the second.
-        timer.tolerance = seconds * 0.1
-        // `.common` rather than `Timer.scheduledTimer`, which adds to `.default`: a status item's menu runs the
-        // run loop in a tracking mode, so a default-mode timer stops firing for as long as the menu is open.
-        // Copied from the previous app, where it was already the answer to this.
-        RunLoop.main.add(timer, forMode: .common)
-        holder.timer = timer
         scheduledSeconds = seconds
     }
 

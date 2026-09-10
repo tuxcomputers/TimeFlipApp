@@ -14,6 +14,7 @@ import Testing
 /// seconds from its limit sitting there for 68 seconds with the tick never started.
 @Suite @MainActor
 final class DailyLimitWatchTests {
+    private let clock = HandDrivenScheduler()
     private let window = Date(timeIntervalSince1970: 1_700_000_000)
 
     private func category(_ id: Int, limit: Int) -> CategoryRecord {
@@ -38,8 +39,102 @@ final class DailyLimitWatchTests {
             timing: reading,
             windowStart: { _ in self.window },
             debugLog: nil,
+            scheduler: clock,
             stopTiming: stopped
         )
+    }
+
+    private func reading(counting: Bool, limit: Int = 5, seconds: TimeInterval = 300) -> TimingReadout.Reading {
+        TimingReadout.Reading(
+            category: category(7, limit: limit),
+            timingState: counting ? .running : .idle,
+            seconds: seconds,
+            isCounting: counting
+        )
+    }
+
+    // MARK: - the tick itself
+    //
+    // **None of this could be asserted before the clock became a port.** `start`, `stop` and `resumeIfStopped`
+    // built a `Timer` on `RunLoop.main` and there was nothing to look at, so the whole of what this section covers
+    // was carried by the scripted suite and by run 116 finding it the hard way.
+
+    @Test func testStartingArmsTheTick() {
+        let watch = watch(reading: { self.reading(counting: true) })
+
+        watch.start()
+
+        #expect(clock.wakes.count == 1)
+        #expect(clock.wakes.first?.seconds == DailyLimitWatch.intervalSeconds)
+        #expect(clock.wakes.first?.repeating == true, "a heartbeat, not one wake that re-arms itself")
+        #expect(clock.wakes.first?.mayGroup == false, "a limit is a deadline and must not be shuffled")
+    }
+
+    @Test func testNothingIsArmedWhileTheFigureIsNotMoving() {
+        // **Run 116, 2026-08-27.** A cube sat five seconds from its limit for 68 seconds and nothing happened,
+        // because the guard here asked `timingState == .running` and a cube leaves that `.idle` however busy it
+        // is. `isCounting` is the question that is true for both sources.
+        let watch = watch(reading: { self.reading(counting: false) })
+
+        watch.start()
+
+        #expect(clock.isEmpty)
+    }
+
+    @Test func testACubeArmsTheTickEvenThoughTheAppsOwnClockIsIdle() {
+        // **The exact shape of run 116.** A cube is `.idle` as far as `TimingReadout` is concerned, because the app
+        // is running no session of its own while it follows one, and yet the figure is moving. A guard asking
+        // `timingState == .running` refuses this and the limit never lands; `isCounting` accepts it.
+        let cube = TimingReadout.Reading(
+            category: category(7, limit: 5), timingState: .idle, seconds: 300, isCounting: true
+        )
+        let watch = watch(reading: { cube })
+
+        watch.start()
+
+        #expect(clock.wakes.count == 1)
+    }
+
+    @Test func testStartingTwiceIsOneTick() {
+        let watch = watch(reading: { self.reading(counting: true) })
+
+        watch.start()
+        watch.start()
+
+        #expect(clock.arranged == 1, "the second start finds one already running and leaves it alone")
+    }
+
+    @Test func testStoppingTakesTheTickAway() {
+        let watch = watch(reading: { self.reading(counting: true) })
+        watch.start()
+
+        watch.stop()
+
+        #expect(clock.isEmpty)
+    }
+
+    @Test func testResumingAfterAStopArmsItAgain() {
+        // What `onTimingChanged` calls, being the funnel every path that starts timing already goes through.
+        let watch = watch(reading: { self.reading(counting: true) })
+        watch.start()
+        watch.stop()
+
+        watch.resumeIfStopped()
+
+        #expect(clock.wakes.count == 1)
+    }
+
+    @Test func testTheArmedTickIsTheOneThatSpendsTheBudget() throws {
+        // The wire between the two halves: that the wake actually reaches `check`, rather than the tick being
+        // armed and evaluating nothing.
+        var stops = 0
+        let watch = watch(reading: { self.reading(counting: true) }, stopped: { stops += 1 })
+        watch.start()
+        #expect(stops == 0)
+
+        try clock.tick()
+
+        #expect(stops == 1, "five minutes recorded against a five minute limit, so the clock is stopped")
     }
 
     @Test func testTheClockIsStoppedWhenTheBudgetIsSpent() {
@@ -197,6 +292,7 @@ final class DailyLimitWatchTests {
             timing: { TimingReadout.Reading(category: self.category(7, limit: limit), timingState: timingState, seconds: 300, isCounting: timingState == .running) },
             windowStart: { _ in self.window },
             debugLog: nil,
+            scheduler: clock,
             stopTiming: {
                 stops += 1
                 timingState = .paused

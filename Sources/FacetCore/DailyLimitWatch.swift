@@ -35,7 +35,8 @@ package final class DailyLimitWatch {
 
     /// Held in a class so the timer's closure can clear it without capturing `self` strongly, the same shape
     /// `HistoryTimer` uses.
-    private var timer: Timer?
+    private let scheduler: Scheduler
+    private var tick: ScheduledWake?
 
     /// Whether the category on show has spent its budget, **worked out now rather than as of the last tick**.
     ///
@@ -69,8 +70,10 @@ package final class DailyLimitWatch {
         timing: @escaping () -> TimingReadout.Reading,
         windowStart: @escaping (Date) -> Date,
         debugLog: DebugLog?,
+        scheduler: Scheduler,
         stopTiming: @escaping () -> Void
     ) {
+        self.scheduler = scheduler
         self.timing = timing
         self.windowStart = windowStart
         self.debugLog = debugLog
@@ -79,7 +82,7 @@ package final class DailyLimitWatch {
 
     /// Starts watching, if there is a running clock to watch.
     package func start() {
-        guard timer == nil else { return }
+        guard tick == nil else { return }
         // **`isCounting`, not `state == .running`, and the difference is the whole of whether this works with a cube.**
         // `state` is about *this app's* clock: `TimingReadout` answers `.idle` for a cube however busy it is, because
         // the app is running no session of its own while it follows one. `isCounting` is the other question -- whether
@@ -88,29 +91,29 @@ package final class DailyLimitWatch {
         // Run 116 (2026-08-27) is what this cost: a cube sat on a category five seconds from its limit for 68 seconds
         // and nothing happened, because the tick had refused to start at all.
         guard timing().isCounting else { return }
-        let timer = Timer(timeInterval: Self.intervalSeconds, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.check()
-            }
+        // **Not `mayGroup`.** A limit is a deadline, and a wake the platform was free to move is a limit that
+        // lands late by however much the platform felt like. Run 116 is what late costs here.
+        tick = scheduler.wake(in: Self.intervalSeconds, repeating: true) { [weak self] in
+            self?.check()
         }
-        // `.common`, as the menu bar's own tick is: the default mode stops dead while a menu is tracking, and a
-        // limit that could not land while somebody had the dropdown open would be a limit with a hole in it.
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
     }
 
     /// Starts it again if it is not running, and does nothing if it is. What `onTimingChanged` calls.
     package func resumeIfStopped() {
-        guard timer == nil else { return }
+        guard tick == nil else { return }
         start()
     }
 
     func stop() {
-        timer?.invalidate()
-        timer = nil
+        tick?.cancel()
+        tick = nil
     }
 
-    /// One evaluation. Internal so a test can take the place of the run loop.
+    /// One evaluation.
+    ///
+    /// **Still internal after the clock became a port**, unlike the `fire()` methods the port replaced. Those
+    /// existed only to stand in for a run loop; this takes the moment to evaluate as an argument, which is a
+    /// thing a test needs to control on its own account and `Scheduler` says nothing about.
     ///
     /// **The limit is read from the category the readout just returned**, not from a copy taken when the clock
     /// started: a limit edited on the Categories tab mid-session is answered on the next tick, which is what

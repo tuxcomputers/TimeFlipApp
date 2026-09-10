@@ -237,7 +237,8 @@ app.delegate = quitDelegate
 let lowBattery = LowBatteryWatch(
     level: { radio.batteryPercent },
     settings: settings,
-    debugLog: debugLog
+    debugLog: debugLog,
+    scheduler: scheduler
 )
 
 // The window is built on its first open, so this costs nothing until Settings is chosen.
@@ -418,6 +419,7 @@ let historyIngestor = HistoryIngestor(
 let historyTimer = HistoryTimer(
     settings: settings,
     debugLog: debugLog,
+    scheduler: scheduler,
     hasSomethingToFollow: {
         deviceEvents.openSegment() != nil || settings.flag("connection", field: "connected") == true
     }
@@ -447,6 +449,7 @@ let dailyLimit = DailyLimitWatch(
     timing: { timingReadout.read() },
     windowStart: { dayTotal.windowStart(at: $0) },
     debugLog: debugLog,
+    scheduler: scheduler,
     // **Which clock is running decides where the stop goes**, and the open segment's face is what says so -- the same
     // test `DeviceEventRecorder.closeOpenSegment` makes before it will write a row. A cube's pause is a command; the
     // app's is a row, and sending one where the other was wanted does nothing at all.

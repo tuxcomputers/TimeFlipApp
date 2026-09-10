@@ -54,14 +54,21 @@ package final class LowBatteryWatch {
     /// it is up. Whoever draws asks for `alert` when it fires.
     package var onChanged: (@MainActor () -> Void)?
 
+    private let scheduler: Scheduler
     private var isBatteryLow = false
     private var isBlinkOn = false
-    private var blink: Timer?
+    private var blink: ScheduledWake?
 
     /// What to draw, now.
     package var alert: LowBatteryAlert { LowBatteryAlert(isBatteryLow: isBatteryLow, isBlinkOn: isBlinkOn) }
 
-    package init(level: @escaping @MainActor () -> Int?, settings: SettingStore?, debugLog: DebugLog?) {
+    package init(
+        level: @escaping @MainActor () -> Int?,
+        settings: SettingStore?,
+        debugLog: DebugLog?,
+        scheduler: Scheduler
+    ) {
+        self.scheduler = scheduler
         self.level = level
         self.settings = settings
         self.debugLog = debugLog
@@ -117,13 +124,10 @@ package final class LowBatteryWatch {
 
     /// One phase of the flash: the colour turns over and whoever draws is told.
     ///
-    /// **Internal so a test can take the place of the run loop**, exactly as `HistoryTimer.fire` is and for the
-    /// same bargain: the alternation is then asserted immediately rather than half a second at a time. What it
-    /// skips is `Timer` itself, which is the part with no decisions in it -- so nothing here says the flash
-    /// actually repeats on a real run loop, and on the Mac the scripted suite is what covers that.
-    ///
-    /// A repeating timer, so unlike `HistoryTimer.fire` this arms nothing: it is the body and only the body.
-    func fire() {
+    /// **Private now that the clock is a port**: this was internal purely so a test could take the place of the
+    /// run loop, and a test drives `Scheduler` instead. A repeating wake, so unlike `HistoryTimer` this arms
+    /// nothing: it is the body and only the body.
+    private func fire() {
         isBlinkOn.toggle()
         onChanged?()
     }
@@ -133,20 +137,16 @@ package final class LowBatteryWatch {
         // On its coloured phase to begin with, so the warning arrives as a colour rather than as half a second of
         // nothing.
         isBlinkOn = true
-        let timer = Timer(timeInterval: Self.blinkSeconds, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.fire()
-            }
+        // **Not `mayGroup`.** This is the one wake in the app that a person is looking at: a flash the platform
+        // was free to shuffle would be an irregular flash, and evenness is the whole of what makes it read as a
+        // warning rather than as a glitch.
+        blink = scheduler.wake(in: Self.blinkSeconds, repeating: true) { [weak self] in
+            self?.fire()
         }
-        // `.common`, for the reason every timer in this app uses it: the default mode stops dead while a menu is
-        // tracking, and this item's own dropdown is one of them -- so the warning would freeze in exactly the second
-        // somebody has the menu open in front of it.
-        RunLoop.main.add(timer, forMode: .common)
-        blink = timer
     }
 
     private func stopBlinking() {
-        blink?.invalidate()
+        blink?.cancel()
         blink = nil
         isBlinkOn = false
     }

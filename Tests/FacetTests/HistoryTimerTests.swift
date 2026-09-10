@@ -4,11 +4,12 @@ import Testing
 
 /// Covers `HistoryTimer`: the interval it waits, and its re-reading the setting on every timeout.
 ///
-/// The timeout is driven by calling `fire()` rather than by waiting for a run loop, so the re-arming is
-/// asserted in milliseconds instead of minutes. What that skips is `Timer` itself, which is the part with no
+/// The timeout is driven through `HandDrivenScheduler` rather than by waiting for a run loop, so the re-arming
+/// is asserted in milliseconds instead of minutes. What that skips is `Timer` itself, which is the part with no
 /// decisions in it.
 @Suite @MainActor
 final class HistoryTimerTests {
+    private let clock = HandDrivenScheduler()
     private let database: TemporaryDatabase
     private var settings: SettingStore!
     private var built: HistoryTimer?
@@ -21,12 +22,11 @@ final class HistoryTimerTests {
     }
 
     deinit {
-        // **The timer stops itself, which is why this does not stop it.** The `tearDown` this replaces
-        // called `built?.stop()`, and a `deinit` cannot: it is never isolated. It does not need to
-        // either -- `HistoryTimer` keeps its `Timer` in a `TimerHolder` whose own `deinit` invalidates
-        // it, a shape that type adopted for exactly this reason and says so. Releasing this instance
-        // releases the timer, which invalidates the `Timer`, so the `stop()` was belt and braces rather
-        // than the thing that did the stopping.
+        // **There is nothing to stop, which is why this does not stop anything.** The `tearDown` this replaces
+        // called `built?.stop()`, and a `deinit` cannot: it is never isolated. Once the clock became a port the
+        // question went away rather than being answered: these tests run on `HandDrivenScheduler`, so no `Timer`
+        // is ever armed and no run loop is ever involved. This used to lean on `HistoryTimer.TimerHolder`, which
+        // is gone with the port and whose reasoning now sits on `HistoryTimer.wake`.
         database.remove()
     }
 
@@ -35,7 +35,7 @@ final class HistoryTimerTests {
     /// as the compiler is concerned.
     private var timer: HistoryTimer {
         if let built { return built }
-        let created = HistoryTimer(settings: settings, debugLog: nil) { self.timeouts += 1 }
+        let created = HistoryTimer(settings: settings, debugLog: nil, scheduler: clock) { self.timeouts += 1 }
         built = created
         return created
     }
@@ -50,7 +50,7 @@ final class HistoryTimerTests {
 
     // MARK: - what it waits
 
-    @Test func testItStartsOnWhateverTheSettingSays() {
+    @Test func testItStartsOnWhateverTheSettingSays() throws {
         #expect(setInterval(45))
 
         timer.start()
@@ -58,7 +58,7 @@ final class HistoryTimerTests {
         #expect(timer.scheduledSeconds == 45)
     }
 
-    @Test func testTheSeededValueIsWhatADevBuildWaits() {
+    @Test func testTheSeededValueIsWhatADevBuildWaits() throws {
         // `011_setting.sql` seeds 10, deliberately below the production floor: fast polling while working on
         // it. Read from the real DDL rather than written by the test, so this fails if the seed changes.
         timer.start()
@@ -66,7 +66,7 @@ final class HistoryTimerTests {
         #expect(timer.scheduledSeconds == TimeInterval(HistoryTimer.defaultSeconds))
     }
 
-    @Test func testStoppingForgetsEverything() {
+    @Test func testStoppingForgetsEverything() throws {
         timer.start()
 
         timer.stop()
@@ -91,13 +91,13 @@ final class HistoryTimerTests {
 
     private func timer(following: @escaping @MainActor () -> Bool) -> HistoryTimer {
         let created = HistoryTimer(
-            settings: settings, debugLog: nil, hasSomethingToFollow: following
+            settings: settings, debugLog: nil, scheduler: clock, hasSomethingToFollow: following
         ) { self.timeouts += 1 }
         built = created
         return created
     }
 
-    @Test func testATimeoutWithNothingToFollowStopsRatherThanRearming() {
+    @Test func testATimeoutWithNothingToFollowStopsRatherThanRearming() throws {
         // Pausing closes the open segment, so a paused app with no cube has nothing to ask and nothing to grow. It
         // used to go on waking every interval to discover that.
         let anything = Flag(true)
@@ -106,13 +106,24 @@ final class HistoryTimerTests {
         #expect(timer.scheduledSeconds != nil)
 
         anything.value = false
-        timer.fire()
+        try clock.tick()
 
         #expect(timeouts == 0, "the work is not done either -- there is nothing to do")
         #expect(timer.scheduledSeconds == nil, "and no next timeout was armed")
     }
 
-    @Test func testItDoesNotStartWhileThereIsNothingToFollow() {
+    @Test func testTheFetchIsAllowedToWaitForCompany() throws {
+        // The one caller that gives `mayGroup`, and the reason is the interval: a fetch every 300s does not need
+        // to land on the second, so letting the platform move it next to another wake-up stops it waking the
+        // machine on its own. What a Mac does with the permission is `RunLoopScheduler`'s business, not this
+        // module's -- the decision that belongs here is only that the permission is given.
+        timer.start()
+
+        #expect(clock.wakes.first?.mayGroup == true)
+        #expect(clock.wakes.first?.repeating == false, "re-armed each time, so the interval is re-read")
+    }
+
+    @Test func testItDoesNotStartWhileThereIsNothingToFollow() throws {
         let timer = timer(following: { false })
 
         timer.start()
@@ -120,7 +131,7 @@ final class HistoryTimerTests {
         #expect(timer.scheduledSeconds == nil)
     }
 
-    @Test func testItComesBackWhenSomethingIsBeingTimedAgain() {
+    @Test func testItComesBackWhenSomethingIsBeingTimedAgain() throws {
         // `resumeIfStopped` is called from `onTimingChanged`, the funnel every path that starts timing already uses.
         let anything = Flag(false)
         let timer = timer(following: { anything.value })
@@ -133,7 +144,7 @@ final class HistoryTimerTests {
         #expect(timer.scheduledSeconds == TimeInterval(HistoryTimer.defaultSeconds))
     }
 
-    @Test func testResumingAnAlreadyRunningTimerLeavesItAlone() {
+    @Test func testResumingAnAlreadyRunningTimerLeavesItAlone() throws {
         // It is called on every timing change, most of which happen while it is already running. Re-arming there
         // would push the next timeout back each time, so a busy session would fetch history less often than a quiet
         // one.
@@ -149,17 +160,17 @@ final class HistoryTimerTests {
 
     // MARK: - reading it again on every timeout
 
-    @Test func testATimeoutAsksAndThenRearms() {
+    @Test func testATimeoutAsksAndThenRearms() throws {
         #expect(setInterval(30))
         timer.start()
 
-        timer.fire()
+        try clock.tick()
 
         #expect(timeouts == 1)
         #expect(timer.scheduledSeconds == 30, "still waiting the same interval")
     }
 
-    @Test func testAnIntervalChangedWhileWaitingAppliesAtTheNextTimeout() {
+    @Test func testAnIntervalChangedWhileWaitingAppliesAtTheNextTimeout() throws {
         #expect(setInterval(30))
         timer.start()
         #expect(timer.scheduledSeconds == 30, "precondition")
@@ -167,23 +178,23 @@ final class HistoryTimerTests {
         // Changed by something else entirely -- another connection, or a hand-edited row. Nothing tells the
         // timer, which is the point: it asks again every time it fires.
         #expect(setInterval(120))
-        timer.fire()
+        try clock.tick()
 
         #expect(timer.scheduledSeconds == 120)
     }
 
-    @Test func testTheWorkHappensBeforeTheNextIntervalIsRead() {
+    @Test func testTheWorkHappensBeforeTheNextIntervalIsRead() throws {
         // Asking first is what stops a slow fetch and a short interval overlapping: the wait is measured from
         // the end of the work rather than the start of it.
         #expect(setInterval(30))
         var observed: TimeInterval?
         var timer: HistoryTimer?
-        timer = HistoryTimer(settings: settings, debugLog: nil) { observed = timer?.scheduledSeconds }
+        timer = HistoryTimer(settings: settings, debugLog: nil, scheduler: clock) { observed = timer?.scheduledSeconds }
         defer { timer?.stop() }
         timer?.start()
         #expect(setInterval(120))
 
-        timer?.fire()
+        try clock.tick()
 
         #expect(observed == 30, "the work ran while the interval it was waiting was still the old one")
         #expect(timer?.scheduledSeconds == 120, "and the new one was read afterwards")
@@ -191,13 +202,13 @@ final class HistoryTimerTests {
 
     // MARK: - the bounds
 
-    @Test func testAMissingRowFallsBackRatherThanSwitchingTheTimerOff() {
+    @Test func testAMissingRowFallsBackRatherThanSwitchingTheTimerOff() throws {
         // With a cube paired, not asking for history means not recording time. A malformed row is a worse
         // reason to stop than to use the value the schema seeds.
         #expect(HistoryTimer.interval(fromSeconds: nil) == TimeInterval(HistoryTimer.defaultSeconds))
     }
 
-    @Test func testTheRowIsWhatTheTimerRunsAt() {
+    @Test func testTheRowIsWhatTheTimerRunsAt() throws {
         // **One floor, where there were two.** A minute was applied to a build without the developer flag and a
         // second to a build with it, so the seeded 10 meant one cadence on a developer's machine and another
         // everywhere else. There is one build now, and the row is the answer.
@@ -205,12 +216,12 @@ final class HistoryTimerTests {
         #expect(HistoryTimer.interval(fromSeconds: 120) == 120)
     }
 
-    @Test func testZeroCannotSpinTheTimer() {
+    @Test func testZeroCannotSpinTheTimer() throws {
         #expect(HistoryTimer.interval(fromSeconds: 0) == 1)
         #expect(HistoryTimer.interval(fromSeconds: -30) == 1)
     }
 
-    @Test func testAnHourIsTheFarEnd() {
+    @Test func testAnHourIsTheFarEnd() throws {
         #expect(HistoryTimer.interval(fromSeconds: 86_400) == 3_600)
         #expect(HistoryTimer.interval(fromSeconds: 3_600) == 3_600)
     }

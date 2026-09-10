@@ -9,14 +9,21 @@ import Foundation
 /// That decision was repeated at all six call sites and is now made once, here, which is what a port is for.
 @MainActor
 final class RunLoopScheduler: Scheduler {
+    /// A tenth of the interval is what `mayGroup` buys on this platform, which is the number `HistoryTimer`
+    /// carried before the port existed and the reason it gave: nothing on that arm needs to land on the second,
+    /// and letting the system group the wake stops it waking the machine for one fetch alone.
+    static let grouping = 0.1
+
     func wake(
         in seconds: TimeInterval,
         repeating: Bool,
+        mayGroup: Bool,
         _ tick: @escaping @MainActor () -> Void
     ) -> ScheduledWake {
         let timer = Timer(timeInterval: seconds, repeats: repeating) { _ in
             MainActor.assumeIsolated { tick() }
         }
+        if mayGroup { timer.tolerance = seconds * Self.grouping }
         RunLoop.main.add(timer, forMode: .common)
         return RunLoopWake(timer: timer)
     }
