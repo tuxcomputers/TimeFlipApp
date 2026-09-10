@@ -628,43 +628,38 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// suppression lives only in what goes on the wire. The archive drew the same line, carrying the real parameters
     /// on `onDoubleTapSettingsPersist` while `onDoubleTapParametersChange` carried the zeroed ones.
     ///
-    /// **Recorded only after the cube confirmed**, which is where this departs from the archive: it persisted beside
-    /// the send rather than after it, so a refused command still moved the row. Under this app's first rule that is
-    /// the app's wish written down as the cube's state.
+    /// **The sequence is `DeviceSettingWrite`'s**, which is where the ordering the first design rule turns on is
+    /// written once: the cube goes first, the table is written only once the cube has taken the command, and any
+    /// failure puts the row back and says so. Recording beside the send rather than after it is where the archive
+    /// went wrong, so a refused command still moved its row.
+    ///
+    /// **Its sibling `applyDoubleTapEnabled` deliberately does not go through it.** Turning the gesture off is a
+    /// different act from setting a register and its rows say so, which `59-double-tap` depends on to tell a dead
+    /// arrow that sent nothing from a box that sent something.
     private func applyDoubleTapValues(on pane: DevicePane) {
         let held = pane.doubleTapParameters
-        // **No radio at all refuses and says so**, the same answer the Disable box gives and for the same reason: a
-        // field left showing a number that reached neither the cube nor the table is the surface claiming something
-        // about hardware nobody ever asked. Returning quietly here was the one path on this tab that failed in
-        // silence.
-        guard let radio else {
-            debugLog?.record(.field, "Double tap: there is no radio to send to, so the window goes back")
-            putDoubleTapBack(on: pane)
-            return
-        }
         let wanted = DoubleTapRules.asSent(held, isEnabled: pane.values.isDoubleTapEnabled)
-        debugLog?.record(.field, "Double tap: sending \(wanted.described)")
-        if wanted != held {
+        DeviceSettingWrite.send(
+            DoubleTapRules.command(for: wanted),
+            "Double tap",
+            value: wanted.described,
+            through: radio.map { radio in { payload, reported in radio.send(payload, reported) } },
             // Only when the gesture is off, and worth its own row: the two lists differ and nothing else says why.
-            debugLog?.record(
-                .field,
-                "Double tap: the gesture is off, so Window goes as 0 and \(held.window) is what gets stored"
-            )
-        }
-        radio.send(DoubleTapRules.command(for: wanted)) { [weak self, weak pane] confirmed in
+            noting: wanted == held
+                ? nil
+                : "Double tap: the gesture is off, so Window goes as 0 and \(held.window) is what gets stored",
+            // **`held`, never `wanted`.** They differ by exactly the zeroed `window`, and storing that would lose
+            // the number turning the gesture back on has to put back.
+            recording: { [weak self] in
+                guard let self else { return false }
+                return self.recordDoubleTap(Self.doubleTapFields(held), describing: held.described)
+            },
+            debugLog: debugLog
+        ) { [weak self, weak pane] outcome in
             guard let self, let pane else { return }
-            guard confirmed else {
-                self.debugLog?.record(
-                    .field,
-                    "Double tap: the cube did not take \(wanted.described), so the window goes back"
-                )
-                self.putDoubleTapBack(on: pane)
-                self.showRefusedByTheCube("double-tap")
-                return
-            }
-            guard self.recordDoubleTap(Self.doubleTapFields(held), describing: held.described) else {
-                self.putDoubleTapBack(on: pane)
-                self.showNotRecorded("the double-tap values")
+            if outcome.putsTheRowBack { self.putDoubleTapBack(on: pane) }
+            if let notice = DeviceSettingWrite.notice(for: outcome, setting: "the double-tap values") {
+                self.dialogues.tell(notice)
                 return
             }
             // Nothing moves on screen: the fields already hold these numbers, and `showDoubleTapValues` leaves a

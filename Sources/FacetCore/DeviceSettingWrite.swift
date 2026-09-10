@@ -103,6 +103,10 @@ package enum DeviceSettingWrite {
     /// - Parameter send: the radio, or `nil` where there is none. Answers whether the cube took the command,
     ///   which for a command with a read-back means confirmed and for one without means acknowledged. Which of
     ///   those it is belongs to whoever built the command, and `docs/timeflip.md` carries the matrix.
+    /// - Parameter noting: an extra row written immediately after the `sending` row, for a caller with
+    ///   something to explain about what is going out. **Written only when there is a radio**, since it
+    ///   describes a send: the double-tap registers use it to say that the gesture being off is why the
+    ///   `Window` on the wire is not the one being stored.
     /// - Parameter tookIt: the row to write when the cube takes it, or `nil` for the callers that write none.
     ///   The LED pair pass one, because "acknowledged" is the honest word there and somebody reading the log
     ///   for a light that did not change has to be able to see that nothing ever checked.
@@ -114,6 +118,7 @@ package enum DeviceSettingWrite {
         _ label: String,
         value: String,
         through send: ((Data, @escaping (Bool) -> Void) -> Void)?,
+        noting: String? = nil,
         tookIt: String? = nil,
         recording record: @escaping () -> Bool,
         debugLog: DebugLog?,
@@ -125,6 +130,7 @@ package enum DeviceSettingWrite {
             return
         }
         debugLog?.record(.field, "\(label): sending \(value)")
+        if let noting { debugLog?.record(.field, noting) }
         send(command) { took in
             guard took else {
                 debugLog?.record(.field, "\(label): the cube did not take \(value), so the window goes back")

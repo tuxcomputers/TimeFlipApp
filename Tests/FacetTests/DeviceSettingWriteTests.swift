@@ -178,4 +178,48 @@ struct DeviceSettingWriteTests {
         #expect(rows.contains("Auto-pause: the cube did not take 15m"), "\(rows)")
         #expect(!rows.contains("the table now holds"), "nothing may claim the table took it")
     }
+
+    /// `noting` lands straight after the sending row, which is the order the caller had before it folded in.
+    ///
+    /// The double-tap registers are the caller: when the gesture is off, what goes on the wire has `Window`
+    /// zeroed and what gets stored does not, and that row is the only thing that says why the two lists in
+    /// the log differ.
+    @Test func testAnExtraRowAboutTheSendFollowsTheSendingRow() throws {
+        let wire = Wire()
+        let database = TemporaryDatabase()
+        defer { database.remove() }
+        try database.bootstrap()
+        let log = DebugLog(databaseURL: database.debugURL, isRecording: true)
+
+        DeviceSettingWrite.send(
+            Self.command, "Double tap", value: "Window: 0",
+            through: wire.send, noting: "Double tap: the gesture is off, so Window goes as 0",
+            recording: { wire.record() }, debugLog: log
+        ) { _ in }
+
+        let rows = database.debugString("SELECT group_concat(message, ' | ') FROM debug_log;") ?? ""
+        #expect(
+            rows.contains("Double tap: sending Window: 0 | Double tap: the gesture is off, so Window goes as 0"),
+            "\(rows)"
+        )
+    }
+
+    @Test func testTheExtraRowIsNotWrittenWhenThereIsNothingToSendTo() throws {
+        // It describes a send. With no radio there is none, so saying it would explain a thing that did not
+        // happen.
+        let wire = Wire()
+        let database = TemporaryDatabase()
+        defer { database.remove() }
+        try database.bootstrap()
+        let log = DebugLog(databaseURL: database.debugURL, isRecording: true)
+
+        DeviceSettingWrite.send(
+            Self.command, "Double tap", value: "Window: 0",
+            through: nil, noting: "Double tap: the gesture is off, so Window goes as 0",
+            recording: { wire.record() }, debugLog: log
+        ) { _ in }
+
+        let rows = database.debugString("SELECT group_concat(message, ' | ') FROM debug_log;") ?? ""
+        #expect(!rows.contains("the gesture is off"), "\(rows)")
+    }
 }

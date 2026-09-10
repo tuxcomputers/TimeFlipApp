@@ -359,12 +359,12 @@ something it needs.
       with different words. Collapsing them would leave that check unable to tell a dead arrow that sent
       nothing from a box that sent something. Turning the gesture off is a different act from setting a
       register, and the log has been saying so.
-- [ ] `applyDoubleTapValues` still folds, and cleanly: its send and refusal rows are already word for word
-      what `DeviceSettingWrite` writes. Three small things to carry across. Its `Double tap: the gesture is
-      off, so Window goes as 0 and <n> is what gets stored` row fires between the send row and the send, so
-      `send` needs somewhere to put it or the caller does. Its no-radio row changes wording, which is free,
-      nothing reading it. And its two failure paths name the setting two different ways where `notice` takes
-      one.
+- [x] `applyDoubleTapValues` is folded. Its send and refusal rows were already word for word what
+      `DeviceSettingWrite` writes, so nothing `59-double-tap` reads has moved. Two of the three carry-across
+      details cost a change each: `send` gained `noting`, an extra row written straight after the `sending`
+      row and only when there is a radio, which is where the `gesture is off, so Window goes as 0` row had
+      to keep sitting; and the two failure paths, which named the setting two different ways, now name it
+      once. The third was free, nothing reading the no-radio row.
 - [ ] `renameDevice` / `sendRename` is the eighth, and the odd one: its read-back is functional rather than
       a command, so it does not fit `send` as it stands.
 - [ ] ~~The rest of the window is view construction and tab wiring.~~ **Struck: it is not work.** That is
