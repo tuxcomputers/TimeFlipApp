@@ -70,7 +70,8 @@ package final class DeviceReconnector {
     /// Whether the question is on screen right now. Nothing may attempt a connection until it is answered.
     private var isAwaitingAnswer = false
 
-    private var next: Timer?
+    private let scheduler: Scheduler
+    private var next: ScheduledWake?
 
     /// Asked when a launch that has never reached its cube gives up on an attempt: the reason, and a closure to report
     /// the answer through.
@@ -99,9 +100,11 @@ package final class DeviceReconnector {
         radio: CubeRadio,
         settings: SettingStore,
         debugLog: DebugLog?,
+        scheduler: Scheduler,
         storedPINs: @escaping () -> [String],
         rotatingTo: @escaping () -> String? = { nil }
     ) {
+        self.scheduler = scheduler
         self.radio = radio
         self.settings = settings
         self.debugLog = debugLog
@@ -124,14 +127,11 @@ package final class DeviceReconnector {
 
     /// Reaches for the cube, or stands down until something changes.
     ///
-    /// **Internal so a test can take the place of the run loop**, which is the bargain `HistoryTimer.fire`,
-    /// `WriteDebounce.fire` and `LowBatteryWatch.fire` all make. `scheduleAttempt` arms a `Timer` on `RunLoop.main`,
-    /// and a `@MainActor` swift-testing test is not on the main thread on Linux, so that timer never fires there
-    /// (`docs/linux-port.md`, *`@MainActor` is not the main thread*). Calling this is the whole of what the timer
-    /// does, so driving it directly skips `Timer` and nothing else. Unlike those three it needed no extracting --
-    /// it was already the body, and only the `private` was in the way.
+    /// **Internal because the app calls it**, and no longer because a test has to stand in for the run loop:
+    /// `Scheduler` is what a test drives now. `follow` reaches for the cube through here on the way in, so this
+    /// is a way in as well as the body of the retry.
     func attempt() {
-        next?.invalidate()
+        next?.cancel()
         next = nil
 
         let isCubePaired = settings.flag("paired", field: "paired") == true
@@ -293,11 +293,10 @@ package final class DeviceReconnector {
         let delay = DeviceReconnectRules.delay(afterFailures: failures)
         failures += 1
         debugLog?.record(.pair, "Looking for the cube again in \(Int(delay))s (attempt \(failures + 1))")
-        next?.invalidate()
-        next = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated { self?.attempt() }
-        }
-        // `.common`, so the app does not stop reaching for its cube because a menu is being held open.
-        if let next { RunLoop.main.add(next, forMode: .common) }
+        next?.cancel()
+        // **Not `mayGroup`.** The backoff sequence is the decision this module makes, and a platform free to
+        // move each wake would be quietly rewriting it: 8 seconds becoming 9 is a different backoff from the
+        // one `DeviceReconnectRules.delay(afterFailures:)` says it is.
+        next = scheduler.wake(in: delay) { [weak self] in self?.attempt() }
     }
 }

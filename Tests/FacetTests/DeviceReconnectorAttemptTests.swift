@@ -19,6 +19,7 @@ import Testing
 /// The timeout is driven by calling `attempt()`, which is what `scheduleAttempt`'s `Timer` does and all it does.
 @Suite @MainActor
 final class DeviceReconnectorAttemptTests {
+    private let clock = HandDrivenScheduler()
     private let database: TemporaryDatabase
     private var settings: SettingStore!
     private var debugLog: DebugLog!
@@ -65,6 +66,7 @@ final class DeviceReconnectorAttemptTests {
             radio: radio,
             settings: settings,
             debugLog: debugLog,
+            scheduler: clock,
             storedPINs: storedPINs,
             rotatingTo: rotatingTo
         )

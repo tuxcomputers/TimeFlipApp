@@ -13,12 +13,16 @@ final class QuitSequenceTests: XCTestCase, @unchecked Sendable {
     private var events: DeviceEventRecorder!
     private var settings: SettingStore!
     private var quit: QuitSequence!
+    /// Declared rather than initialised here: `HandDrivenScheduler` is `@MainActor` and this case is not, so it
+    /// is made inside the `assumeIsolated` below with everything else.
+    private var clock: HandDrivenScheduler!
 
     private let moment = Date(timeIntervalSince1970: 1_786_600_000)
 
     override func setUpWithError() throws {
         try super.setUpWithError()
         try MainActor.assumeIsolated {
+            clock = HandDrivenScheduler()
             database = TemporaryDatabase()
             try database.bootstrap()
             let connection = database.connection()
@@ -38,13 +42,14 @@ final class QuitSequenceTests: XCTestCase, @unchecked Sendable {
                 debugLog: nil
             )
             settings = SettingStore(connection: connection)
-            quit = QuitSequence(deviceEvents: events, debugLog: nil)
+            quit = QuitSequence(deviceEvents: events, debugLog: nil, scheduler: clock)
         }
     }
 
     override func tearDown() {
         MainActor.assumeIsolated {
             quit = nil
+            clock = nil
             settings = nil
             events = nil
             database.remove()
@@ -213,20 +218,27 @@ final class QuitSequenceTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(sent[1] as? Data, DeviceCommandRules.lock(true))
     }
 
-    func testACubeThatNeverAnswersDoesNotHoldTheQuitOpen() {
-        // The deadline, which is the quit's own contribution: the app must not sit in the menu bar waiting for a cube
-        // that has gone. Nothing else here spends real time.
+    func testACubeThatNeverAnswersDoesNotHoldTheQuitOpen() throws {
+        // The deadline, which is the quit's own contribution: the app must not sit in the menu bar waiting for a
+        // cube that has gone.
+        //
+        // **This used to spend six real seconds**, waiting on `DispatchQueue.main.asyncAfter` for a `Timer` that
+        // was really armed, with a five second timeout on top in case the machine was busy. Since the clock became
+        // a port there is nothing to wait for: the deadline is a wake like any other, and driving it says the same
+        // thing in a millisecond. It also says it on Linux, where a `@MainActor` test is not on the main thread
+        // and that `Timer` would never have fired at all.
         setPauseOnLock(true)
         quit.cubeLock = silentCubeLock()
         var finished = false
-        XCTAssertTrue(quit.pauseAndLockTheCube { finished = true })
-        XCTAssertFalse(finished, "precondition: nothing has answered yet")
+        try MainActor.assumeIsolated {
+            XCTAssertTrue(quit.pauseAndLockTheCube { finished = true })
+            XCTAssertFalse(finished, "precondition: nothing has answered yet")
+            XCTAssertEqual(clock.wakes.first?.seconds, QuitSequence.deviceSeconds, "armed for the deadline")
 
-        let ran = expectation(description: "the deadline fires")
-        DispatchQueue.main.asyncAfter(deadline: .now() + QuitSequence.deviceSeconds + 1) { ran.fulfill() }
-        wait(for: [ran], timeout: QuitSequence.deviceSeconds + 5)
+            try clock.tick()
 
-        XCTAssertTrue(finished)
+            XCTAssertTrue(finished)
+        }
     }
 
     func testTheQuitIsNotFinishedTwice() {

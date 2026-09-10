@@ -28,8 +28,8 @@ The cheap and the blocking come first, the large and the discretionary last.
 
 | # | Arm | Why here |
 |---|-----|----------|
-| 0 | Housekeeping | Three corrections that cost nothing and are noise in every scan until they go. |
-| 1 | The clock | Six core modules on `RunLoop.main`, which `FacetLinux` never runs. A live latent fault, and half the seam already exists. |
+| 0 | Housekeeping (done) | Three corrections that cost nothing and are noise in every scan until they go. |
+| 1 | The clock (done) | Six core modules on `RunLoop.main`, which `FacetLinux` never runs. A live latent fault, and half the seam already exists. |
 | 2 | Files and folders | Nothing on Linux can start up correctly until this moves. Small, concrete, four files each way. |
 | 3 | Starting and stopping | Most of it landed with `QuitSequence` on 2026-09-10. Finishing it while it is fresh is the cheapest arm left. |
 | 4 | Menu bar | The **second adapter already exists** and is the right shape. A real seam with one outlier, not a hypothetical one. |
@@ -63,8 +63,12 @@ and the move gets a line saying what was discovered.
 
 ## 1. The clock
 
-**The port.** Something in the core that says *wake me in N seconds*, and one that says *what time is it*.
-Nothing more: the diagram's arm is two sentences wide on purpose.
+**The port.** `Scheduler`: wake me in N seconds, once or repeating, and here is the handle to stop it.
+`RunLoopScheduler` is the macOS slot, `HandDrivenScheduler` the test slot.
+
+**Nothing asks what time it is**, which the first draft of this plan had wrong. `Date()` is the same Foundation
+on every platform, so it is not a capability the platform provides and not a port. What the platform provides is
+the *waiting*.
 
 **Why first.** Six core modules build a `Timer` and add it to `RunLoop.main`: `DailyLimitWatch`,
 `DeviceReconnector`, `LowBatteryWatch`, `HistoryTimer`, `QuitSequence`, `WriteDebounce`. `FacetLinux` never
@@ -76,14 +80,25 @@ is on while insisting it does not.
 are internal so a test can take the place of the run loop. That is the port in embryo: the decision is
 already separated from the thing that schedules it. Three modules do not have it.
 
-- [ ] Name the port and put it in the core, with the hand-driven adapter the tests already want.
-- [ ] `WriteDebounce` first: smallest, one timer, `fire()` already there.
-- [ ] `HistoryTimer` and `LowBatteryWatch`: same shape, `fire()` already there.
-- [ ] `DailyLimitWatch`: needs a `fire()` before it can move.
-- [ ] `DeviceReconnector`: three timer sites, the most tangled.
-- [ ] `QuitSequence`: the five second deadline, moved on 2026-09-10 and still on `RunLoop.main`.
-- [ ] The macOS adapter in `FacetMac`, injected from `main.swift`.
-- [ ] Widen `PlatformBlindCoreTests` to fail on `RunLoop.main` in the core, now that nothing needs it.
+- [x] Name the port and put it in the core, with the hand-driven adapter the tests already want.
+- [x] `WriteDebounce` first: smallest, one timer, `fire()` already there.
+- [x] `HistoryTimer` and `LowBatteryWatch`: same shape, `fire()` already there. `HistoryTimer`'s hand-set
+      `Timer.tolerance` became `mayGroup` on the port: permission rather than a number, because the core knows
+      whether a wake must land on the second and the platform knows what to do about it. Its `TimerHolder` went
+      too, and what that bought is written onto the property that replaced it.
+- [x] `DailyLimitWatch`: needed no `fire()` in the end, the port being the seam. **`start`, `stop` and
+      `resumeIfStopped` had no coverage at all** before this, including the guard run 116 paid for on
+      2026-08-27; all three are tested now and that regression fails in a tenth of a second.
+- [x] `DeviceReconnector`: the backoff *walk* is now testable, where only the pure
+      `DeviceReconnectRules.delay(afterFailures:)` was before. One test that said "nothing to assert but that it
+      survives and schedules" can now assert that it schedules.
+- [x] `QuitSequence`: the five second deadline. Its test **spent six real seconds** waiting on a real timer
+      with a five second grace on top; it is now a `tick()`, and the XCTest run dropped from 20.0s to 13.9s.
+- [x] The macOS adapter in `FacetMac`, injected from `main.swift`. One instance, because there is one run loop.
+- [x] Widen `PlatformBlindCoreTests` to fail on `RunLoop` in the core, now that nothing needs it. It is a
+      second check, `theCoreUsesItsPorts`, scanning non-comment lines against a list of banned spellings.
+      `Timer.scheduledTimer` is on it beside `RunLoop`, because it adds to a run loop **without naming one** and
+      would have walked straight past a check that only looked for the first.
 
 ## 2. Files and folders
 
@@ -96,6 +111,8 @@ test above. None of them carries a `#if`, so the platform-blindness check has ne
 
 `InstanceLock` is the sharpest example in the whole codebase: `flock`, `errno` and `strerror` with **zero**
 platform conditionals in the file.
+
+**Item 1 leaves 11 core files reaching a platform capability with no conditional**, and this item is 8 of them.
 
 `Bundle.main` is the same question wearing a different hat, in `DatabaseBootstrap`, `DevicePINStore`,
 `GoogleCredentials` and `GoogleTokenStore`.

@@ -16,6 +16,7 @@ import Testing
 /// real reconnection does is still a device run's answer (see `Tests/Scripted`).
 @Suite @MainActor
 final class DeviceReconnectorOfferTests {
+    private let clock = HandDrivenScheduler()
     private let database: TemporaryDatabase
     private var settings: SettingStore!
     /// A real log, because what the loop does once it has stood down is *nothing* -- and the only way to tell nothing
@@ -67,6 +68,7 @@ final class DeviceReconnectorOfferTests {
             radio: radio,
             settings: settings,
             debugLog: debugLog,
+            scheduler: clock,
             storedPINs: { [] }
         )
         loop.onCubeNotFound = { reason, answer in
@@ -286,10 +288,42 @@ final class DeviceReconnectorOfferTests {
             radio: radio,
             settings: settings,
             debugLog: nil,
+            scheduler: clock,
             storedPINs: { [] }
         )
 
-        // Nothing to assert but that it survives and schedules: the value is that this path exists and is exercised.
         loop.noteOutcome(.unreachable)
+
+        // **This used to say there was nothing to assert but that it survives.** There was: whether it actually
+        // arranged the retry, which was invisible while the retry was a `Timer` on `RunLoop.main`. A build with
+        // nowhere to put a dialog that quietly stopped reaching for the cube would just look broken.
+        #expect(clock.wakes.count == 1, "no presenter, so it retries rather than asking")
+        #expect(clock.wakes.first?.seconds == DeviceReconnectRules.delay(afterFailures: 0))
+    }
+
+    @Test func testEachFailureWaitsLongerThanTheOneBefore() {
+        // **`DeviceReconnectRules.delay(afterFailures:)` was already tested to the last edge case, and none of it
+        // said this module counts.** The rule is pure and the walk through it was a `Timer` on `RunLoop.main`, so
+        // whether the failure count grew, and whether the delay handed over was the one for it, could not be
+        // asserted anywhere. That is the shape the architecture review calls a pure function extracted for
+        // testability while the bug hides in how it is called.
+        setPaired(true)
+        let loop = DeviceReconnector(
+            radio: radio,
+            settings: settings,
+            debugLog: nil,
+            scheduler: clock,
+            storedPINs: { [] }
+        )
+
+        var waited: [TimeInterval] = []
+        for _ in 0..<3 {
+            loop.noteOutcome(.unreachable)
+            // One at a time: arranging the next cancels the one before it, so the list never holds two.
+            waited.append(clock.wakes.first?.seconds ?? -1)
+        }
+
+        #expect(waited == [2, 4, 6], "the backoff grows with the failures rather than repeating the first delay")
+        #expect(clock.wakes.count == 1, "and there is only ever one retry outstanding")
     }
 }

@@ -20,18 +20,20 @@ import Testing
 /// never joins the allowlist. **This list emptying would therefore not mean the target had been reached**, and
 /// the rule in `CLAUDE.md` should not be read as saying it would.
 ///
-/// Measured on 2026-09-10: the allowlist is 7 files and at least 22 files in the core reach for a platform
-/// capability with no conditional at all. The sharpest example is `InstanceLock`, which is `flock`, `errno` and
-/// `strerror` with **zero** `#if` in the file. It does not compile on Windows, where the equivalent is a named
-/// mutex or `LockFileEx`, which is a different implementation and so a port by this rule's own test. This check
-/// will never report it.
+/// Measured on 2026-09-10, after the clock became a port: the conditional allowlist is down to 1 file, from 7,
+/// and 11 files in the core still reach a platform capability with no conditional at all. The sharpest example
+/// is `InstanceLock`, which is `flock`, `errno` and `strerror` with **zero** `#if` in the file. It does not
+/// compile on Windows, where the equivalent is a named mutex or `LockFileEx`, which is a different
+/// implementation and so a port by this rule's own test. The conditional scan will never report it.
 ///
-/// Others in the same position: `DatabaseConnection` and three more files on `sqlite3_*`; `RunLoop.main` in five
-/// modules; `FileManager.default.urls(for: .applicationSupportDirectory, ...)` in five; `Bundle.main` in four.
+/// Others in the same position: `DatabaseConnection` and three more files on `sqlite3_*`;
+/// `FileManager.default.urls(for: .applicationSupportDirectory, ...)` in four; `Bundle.main` in four. That is
+/// item 2 of `docs/architecture-ports-plan.md`.
 ///
-/// **Widening this to catch them is a real candidate and not a small one**: it means naming the platform-only
-/// symbols worth failing on, which is a judgement per symbol rather than a pattern. Until that exists, treat a
-/// green run here as "nothing new has declared itself", not as "the core is platform-blind".
+/// **`theCoreUsesItsPorts` below is the widening**, and it works the only way this can be widened: by naming
+/// the platform-only spellings worth failing on, one at a time. `RunLoop` and `Timer.scheduledTimer` are the
+/// first two, added with the clock. Until a spelling is named, treat a green run here as "nothing new has
+/// declared itself", not as "the core is platform-blind".
 ///
 /// The scan is also **not recursive** (`contentsOfDirectory` below). `Sources/FacetCore` is flat today apart from
 /// `Resources/`, so nothing is missed; a subdirectory would carry adapters past it silently.
@@ -142,6 +144,54 @@ struct PlatformBlindCoreTests {
                 need only a different import for, add its subject to `shims` and say why.
                 """
             )
+        }
+    }
+
+    /// Platform-only spellings the core may no longer use, with what to use instead.
+    ///
+    /// **This is the check being widened, one symbol at a time**, which is the only way it can be widened: the
+    /// scan above sees a violation only where the violation announces itself with a `#if`, and the things doing
+    /// the real damage carry none. Deciding a symbol belongs here is a judgement per symbol, so each row is a
+    /// decision that was argued rather than a pattern that matched.
+    ///
+    /// **`RunLoop` is the first, added once the clock became a port on 2026-09-10.** Six modules built a `Timer`
+    /// and added it to `RunLoop.main`, and `FacetLinux` never runs `RunLoop.main`, so on Linux the history fetch,
+    /// the battery flash, the daily limit, the reconnect backoff, the settings debounce and the quit deadline
+    /// were all silently dead. Nothing declared itself, so nothing here could have caught it.
+    ///
+    /// `Timer.scheduledTimer` is on the list beside it because it adds to the current run loop **without naming
+    /// one**, which would have walked straight past a check that only looked for `RunLoop`.
+    private static let bannedSpellings: [(symbol: String, instead: String)] = [
+        ("RunLoop", "take a `Scheduler` and call `wake(in:)`; the run loop is `RunLoopScheduler`'s business"),
+        ("Timer.scheduledTimer", "the same, and note this one adds to a run loop without naming it"),
+    ]
+
+    @Test("FacetCore names no platform-only spelling it has a port for")
+    func theCoreUsesItsPorts() throws {
+        let files = try FileManager.default
+            .contentsOfDirectory(at: Self.core, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "swift" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        #expect(!files.isEmpty, "the scan found no sources at all, so it has stopped working")
+
+        for file in files {
+            let name = file.lastPathComponent
+            for (index, raw) in try String(contentsOf: file, encoding: .utf8).split(
+                separator: "\n", omittingEmptySubsequences: false
+            ).enumerated() {
+                let line = raw.trimmingCharacters(in: .whitespaces)
+                // Prose may name what the code may not, and `Scheduler` itself has to say what it replaced.
+                guard !line.hasPrefix("//") else { continue }
+                for banned in Self.bannedSpellings where line.contains(banned.symbol) {
+                    Issue.record(
+                        """
+                        \(name):\(index + 1) names `\(banned.symbol)`, which the core has a port for: \
+                        \(banned.instead). See CLAUDE.md, "The core is platform-blind, and every platform \
+                        capability is a port".
+                        """
+                    )
+                }
+            }
         }
     }
 

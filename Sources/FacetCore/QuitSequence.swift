@@ -54,13 +54,15 @@ package final class QuitSequence {
     package var cubeLock: CubeLock?
 
     /// Stops the app being held open for ever by a cube that went quiet part way through.
-    private var deviceDeadline: Timer?
+    private let scheduler: Scheduler
+    private var deviceDeadline: ScheduledWake?
 
     /// What to call once the cube has nothing left to say, held while the two writes are out. `nil` once it has been
     /// called, which is what makes the deadline and the last acknowledgement safe to race.
     private var quitFinished: (() -> Void)?
 
-    package init(deviceEvents: DeviceEventRecorder, debugLog: DebugLog?) {
+    package init(deviceEvents: DeviceEventRecorder, debugLog: DebugLog?, scheduler: Scheduler) {
+        self.scheduler = scheduler
         self.deviceEvents = deviceEvents
         self.debugLog = debugLog
     }
@@ -108,17 +110,17 @@ package final class QuitSequence {
         // Held rather than captured, so the deadline and the sequence race for it instead of both firing: whichever
         // gets here first takes it and leaves `nil` behind. The same shape as `DeviceLogin.finishExchange`.
         quitFinished = finished
-        deviceDeadline?.invalidate()
-        deviceDeadline = Timer(timeInterval: Self.deviceSeconds, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.debugLog?.record(
-                    .quit,
-                    "Quit: the cube did not finish answering within \(Int(Self.deviceSeconds))s, so quitting anyway"
-                )
-                self?.letTheQuitProceed()
-            }
+        deviceDeadline?.cancel()
+        // **Not `mayGroup`.** This is the one wake in the app with a person waiting on the other side of it, and
+        // what they are waiting for is the app to go away: five seconds the platform was free to stretch is a
+        // quit that hangs for longer than the deadline says it can.
+        deviceDeadline = scheduler.wake(in: Self.deviceSeconds) { [weak self] in
+            self?.debugLog?.record(
+                .quit,
+                "Quit: the cube did not finish answering within \(Int(Self.deviceSeconds))s, so quitting anyway"
+            )
+            self?.letTheQuitProceed()
         }
-        if let deviceDeadline { RunLoop.main.add(deviceDeadline, forMode: .common) }
 
         let started = cubeLock.lock { [weak self] stopped in
             self?.debugLog?.record(
@@ -131,7 +133,7 @@ package final class QuitSequence {
             // Nothing went out, so nothing is coming back. The deadline is taken down and the completion dropped
             // rather than called: the delegate above has not asked to delay the quit yet, and replying to a
             // termination nobody deferred is a reply for the next quit to trip over.
-            deviceDeadline?.invalidate()
+            deviceDeadline?.cancel()
             deviceDeadline = nil
             quitFinished = nil
             return false
@@ -141,7 +143,7 @@ package final class QuitSequence {
 
     /// Says there is nothing left to wait for, once and only once.
     private func letTheQuitProceed() {
-        deviceDeadline?.invalidate()
+        deviceDeadline?.cancel()
         deviceDeadline = nil
         let finished = quitFinished
         quitFinished = nil

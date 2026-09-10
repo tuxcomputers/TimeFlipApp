@@ -186,16 +186,21 @@ not answer "is anything violating this", so something has to read the sources.
 The allowlist is the debt, written down. **Adding to it is a decision to be argued for; removing from it is the
 work.** A new adapter in the core fails the test rather than joining the list quietly.
 
-**What that check cannot see, which is most of it.** It catches a violation only where the violation announces
+**What that check cannot see.** The conditional scan catches a violation only where the violation announces
 itself with a platform conditional. An adapter reaching a platform capability through a concrete type or a hard
-static carries no `#if` and is invisible to it. Measured on 2026-09-10: the allowlist is 7 files and at least 22
-files in the core reach for a platform capability with no conditional at all. `InstanceLock` is the sharpest,
-being `flock`, `errno` and `strerror` with none, and it does not compile on Windows.
+static carries no `#if` and is invisible to it. `InstanceLock` is the sharpest, being `flock`, `errno` and
+`strerror` with none, and it does not compile on Windows.
 
-**So the allowlist emptying would not mean this rule was satisfied**, and a green run means "nothing new has
-declared itself" rather than "the core is platform-blind". The judgement is still a person's. Widening the check
-means naming the platform-only symbols worth failing on, one at a time, which is a decision per symbol rather
-than a pattern to match.
+**So a second check names platform-only spellings outright**, `bannedSpellings`, and it is widened one symbol at
+a time because deciding a symbol belongs there is a judgement rather than a pattern. `RunLoop` and
+`Timer.scheduledTimer` are the first rows, added on 2026-09-10 when the clock became a port.
+
+**The allowlist emptying would still not mean this rule was satisfied**, and a green run means "nothing new has
+declared itself, and nothing names a spelling we have already ruled out" rather than "the core is
+platform-blind". The judgement is still a person's. Measured on 2026-09-10, after the clock: the conditional
+allowlist is down to 1 file (`GoogleLoopbackListener`, from 7), and 11 files still reach a platform capability
+with no conditional at all, on `applicationSupportDirectory`, `Bundle.main`, `sqlite3_*`, `FileManager.default`
+or `flock`. `docs/architecture-ports-plan.md` is the ordered list of what is left.
 
 ### What this rule does not settle
 

@@ -221,7 +221,7 @@ timingReadout.cubeSaysPaused = { radio.cubeStatus?.isPaused }
 // What happens on the way out, and it has to be set before `run()`. Kept in a binding because
 // `NSApplication.delegate` is a **weak** reference: a quit sequence nobody retains is deallocated
 // immediately and the app then ends without running any of it, silently.
-let quitSequence = QuitSequence(deviceEvents: deviceEvents, debugLog: debugLog)
+let quitSequence = QuitSequence(deviceEvents: deviceEvents, debugLog: debugLog, scheduler: scheduler)
 // The sequence is the core's; what AppKit needs is a delegate, and `QuitDelegate` is the six lines that were
 // ever AppKit about it. Both are held: the delegate reference is weak, and the sequence is what everything
 // else below talks to.
@@ -340,6 +340,7 @@ let reconnector = DeviceReconnector(
     radio: radio,
     settings: settings,
     debugLog: debugLog,
+    scheduler: scheduler,
     storedPINs: { DevicePINSource(keychain: devicePINs, debugLog: debugLog).stored() },
     rotatingTo: { DevicePINRules.target() }
 )
