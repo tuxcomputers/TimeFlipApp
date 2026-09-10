@@ -656,7 +656,7 @@ they get in the way. The window is one fixed width as a first consequence, and t
 
 | | Candidate | State |
 | --- | --- | --- |
-| 1 | Radio seam below the sequencing | **two clusters of five done**, and the seam itself exists: `CubeGatt` |
+| 1 | Radio seam below the sequencing | **three clusters of five done**, and the seam itself exists: `CubeGatt` |
 | 2 | `CubeRadio` is a hypothetical seam | **done**, `InMemoryCubeRadio` is the second adapter |
 | 3 | One secret store | **done** |
 | 4 | The daily limit asked five ways | **done** |
@@ -672,9 +672,15 @@ and talks to a UUID-keyed transport rather than to a `CBPeripheral`. `CoreBlueto
 testable at all. `DeviceLoginTests` is the first test that file has ever had, and it earned its place
 immediately by catching a canonical-UUID bug that compiled perfectly.
 
-That took the PIN rotation machine with it, `rotatingTo` and `rotated` being `DeviceLogin`'s now. **Candidate
-1's three remaining clusters are the reach and candidate order, the reset proof and the history fetch**, all
-still in `BluetoothRadio` (1,411 lines) behind a `CBCentralManager`, and so all still untestable.
+That took two clusters with it: the PIN rotation machine, `rotatingTo` and `rotated` being `DeviceLogin`'s
+now, and the history fetch. **Candidate 1's two remaining clusters are the reach and candidate order, and the
+reset proof.**
+
+**Read the call rather than the name when deciding which are left**, because `BluetoothRadio` still spells all
+four. `fetchHistory` and `readLastEvent` are now a six-line guard and a delegation to `login`, so the cluster
+has gone even though the method has not. `factoryReset` reads the same from the outside and has not gone: it
+arms a `ResetConfirmation` and a deadline and drives the proof itself. The reach is the same, `reachOrder`
+being a core rule with the loop that drives it still here.
 
 **The exclusion list is what this bought, and it is less than it looks, exactly as predicted.**
 `handover-mac.md` item 15 worked out in advance that only `BLETraceTests` would come off, and only one did.
