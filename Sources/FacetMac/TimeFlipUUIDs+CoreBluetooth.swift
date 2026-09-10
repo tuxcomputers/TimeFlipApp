@@ -58,15 +58,8 @@ extension TimeFlipUUIDs {
         [manufacturerName, modelNumber, hardwareRevision, firmwareRevision]
     }
 
-    /// A readable name for the raw comms log.
-    ///
-    /// **The names come from the core's one table**, rather than from a `CBUUID` switch of its own. This used to
-    /// hold a second copy, and the two spelled the same sixteen characteristics differently.
-    ///
-    /// **Falls back to the bare UUID rather than to "unknown"**, which is the archive's decision and worth keeping
-    /// verbatim: the point of logging every characteristic is to see traffic this app has no handler for, so a UUID
-    /// appearing here unnamed is a genuine finding and has to be printed in full to be looked up in the spec.
-    static func name(for uuid: CBUUID) -> String {
-        name(for: uuid.uuidString) ?? uuid.uuidString
-    }
+    // **There was a `name(for: CBUUID)` here and nothing calls it any more.** The trace rows moved into
+    // `FacetCore.BLETrace` on 2026-09-11 and name their own UUIDs from the core's one table, so this had become a
+    // spelling with no caller -- which is what `feature/commandChannel` was gated on for `linkEnded()`, and the
+    // same answer applies.
 }

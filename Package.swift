@@ -46,7 +46,11 @@ let testDependencies: [Target.Dependency] = ["FacetMac", "FacetCore"]
 // behaves. A file that cannot run has to be absent from the build rather than inert within it.
 
 // **Needs AppKit, CoreBluetooth or a `FacetMac` type**, so it waits on items 9, 10 and 11 of
-// `docs/linux-port.md`: the OAuth listener, the BlueZ radio, and a UI. 33 files, counted rather than carried.
+// `docs/linux-port.md`: the OAuth listener, the BlueZ radio, and a UI. 32 files, counted rather than carried.
+//
+// **`BLETraceTests` came off on 2026-09-11.** It named `CBUUID` and `FacetMac`, and neither was the point of it:
+// the trace wordings moved into `FacetCore.BLETrace` when BlueZ became a second radio that has to write the same
+// rows, so what the file checks is core and runs on both platforms now.
 //
 // **It said 48 until 2026-09-09, and ten of those needed none of the three.** Each carried a
 // `@testable import FacetMac` it never used a type from, which is enough on its own to keep a file out of
@@ -66,7 +70,6 @@ let platformBoundTests = [
     "ActivityIconTests.swift",
     "AppSettingsPaneTests.swift",
     "AutoPauseSettlesBeforeItIsSentTests.swift",
-    "BLETraceTests.swift",
     "CategoryCreateControlTests.swift",
     "CategoryListViewTests.swift",
     "CategoryTableTests.swift",

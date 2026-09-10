@@ -1,6 +1,4 @@
-@testable import FacetMac
 @testable import FacetCore
-import CoreBluetooth
 import Foundation
 import XCTest
 
@@ -10,6 +8,10 @@ import XCTest
 /// `docs/timeflip2-firmware-observations.md` is three findings nobody set out to look for, all of them read out of
 /// rows like these afterwards. A format that quietly dropped a byte would not fail anything until somebody tried to
 /// answer a question with it a month later.
+///
+/// **It runs on both platforms since 2026-09-11**, `BLETrace` having moved into `FacetCore` when BlueZ became a
+/// second radio that writes the same rows. Nothing here changed in the move except the spelling of a UUID: these
+/// were `CBUUID`s and are strings, which is what the core's one table has always been keyed on.
 final class BLETraceTests: XCTestCase {
     func testBytesAreHexUppercaseAndPadded() {
         // Two characters per byte, always: `0F` and not `F`, so a frame can be read as a frame rather than counted.
@@ -46,15 +48,15 @@ final class BLETraceTests: XCTestCase {
         // A named characteristic is what makes a trace readable at a glance; an unnamed one falls back to the full
         // UUID rather than to "unknown", because a UUID appearing here unnamed is a finding and has to be lookup-able
         // in the vendor spec.
-        XCTAssertEqual(TimeFlipUUIDs.name(for: TimeFlipUUIDs.password), "password")
-        XCTAssertEqual(TimeFlipUUIDs.name(for: TimeFlipUUIDs.commandResult), "commandResult")
+        XCTAssertEqual(BLETrace.name(for: TimeFlipUUIDs.passwordString), "password")
+        XCTAssertEqual(BLETrace.name(for: TimeFlipUUIDs.commandResultString), "commandResult")
 
         // **Not one of the cube's own any more.** This used to be the double-tap characteristic, which was the
         // obvious example of something the app never touched -- and it is now subscribed to and named, along with the
         // other four the cube pushes on, so the trace can be read without a spec open beside it. Anything genuinely
         // unknown still falls back to its UUID, which is the behaviour this asserts.
-        let unhandled = CBUUID(string: "F1196FFF-71A4-11E6-BDF4-0800200C9A66")
-        XCTAssertEqual(TimeFlipUUIDs.name(for: unhandled), unhandled.uuidString)
+        let unhandled = "F1196FFF-71A4-11E6-BDF4-0800200C9A66"
+        XCTAssertEqual(BLETrace.name(for: unhandled), unhandled)
     }
 
     func testEverythingTheCubePushesOnIsNamed() {
@@ -67,7 +69,7 @@ final class BLETraceTests: XCTestCase {
             (TimeFlipUUIDs.systemStateString, "systemState"),
             (TimeFlipUUIDs.historyString, "history"),
         ] {
-            XCTAssertEqual(TimeFlipUUIDs.name(for: CBUUID(string: string)), name)
+            XCTAssertEqual(BLETrace.name(for: string), name)
         }
     }
 }

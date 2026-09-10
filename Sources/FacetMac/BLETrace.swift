@@ -2,134 +2,69 @@ import CoreBluetooth
 import FacetCore
 import Foundation
 
-/// Every byte this app sends the cube and every byte it gets back, as a `debug_log` row.
+/// CoreBluetooth's spelling of the trace rows, and nothing else.
 ///
-/// **The whole conversation, not the parts a feature happened to find interesting.** This is the one kind of logging
-/// worth doing unconditionally, and the archive is the argument for it: `docs/timeflip2-firmware-observations.md`
-/// exists because a complete `ble-tx`/`ble-rx` trace was there to read afterwards, and all three of its findings are
-/// things nobody set out to measure. Finding 2 in particular -- that most commands never update the command result
-/// characteristic, so a stale answer from a previous command reads as success -- could only be seen by having every
-/// write and every value side by side in one ordered list.
+/// **Every wording moved into `FacetCore.BLETrace` on 2026-09-11**, when BlueZ became a second radio that has to
+/// write the same rows. What is left here is the translation `CBUUID` needs: a `CBCharacteristic` is a live object
+/// this platform hands out and its `uuidString` is what the core's table is keyed on, so each of these turns one
+/// into the other and forwards.
 ///
-/// Two tags rather than one, because direction is the first thing anybody reading a trace needs and grepping for an
-/// arrow inside a message is not the same as being able to ask the table for one side of the conversation.
+/// **Why the wordings could not stay here.** They are read back out of `debug_log` by `Tests/Scripted` with SQL
+/// `LIKE` and `GLOB` patterns, which makes them interface. Two copies of an interface diverge one row at a time and
+/// nothing fails when they do -- and this file has already paid for exactly that once, holding a second UUID-name
+/// table that spelled `commandResult` as `command result` (see `TimeFlipUUIDs.named`).
 ///
-/// **`ble-tx` is anything the host sends, bytes or not**, which is the archive's meaning and is why a read request
-/// and a discovery are `ble-tx` rows despite carrying no payload: they are packets going out, and each is a round
-/// trip that can fail. What is *not* kept from the archive is its wording -- it wrote `read request batteryLevel` and
-/// `batteryLevel -> 63`, leading with the operation and marking direction with an arrow inside the message. Every row
-/// here leads with the characteristic instead, so one `LIKE 'batteryLevel%'` gets a characteristic's whole
-/// conversation in both directions, and the arrows are gone because the tag already carries what they said.
-///
-/// **Bytes as they went, including the PIN.** The login write is six ASCII digits and they appear here in hex like
-/// everything else: a trace with a hole in it is worth less than no trace, and this log only exists in a developer
-/// build (`DebugLog` is `nil` otherwise). Anything printable is rendered beside the hex, which is what turns the
-/// cube's undocumented ASCII narration (finding 3) from a row of numbers into a sentence.
+/// **The errors are turned into strings here too.** `localizedDescription` is Foundation's on both platforms, but a
+/// `CBError` is not something the core should have to name, and BlueZ hands its failures over as strings already --
+/// so the core's rows take `failed: String?` and each side says what a failure is in its own terms.
 extension DebugLog {
     /// A write on its way out.
     func transmitted(_ data: Data, to uuid: CBUUID, type: CBCharacteristicWriteType) {
-        let acknowledged = type == .withResponse ? "withResponse" : "withoutResponse"
-        record(.transmit, "\(TimeFlipUUIDs.name(for: uuid)) \(acknowledged): \(BLETrace.describe(data))")
+        transmitted(data, to: uuid.uuidString, acknowledged: type == .withResponse)
     }
 
-    /// A value arriving: the answer to a read, or a notification the cube sent unasked. Both are the same row,
-    /// deliberately, because the characteristic and the bytes are what matter and CoreBluetooth delivers them
-    /// through one callback either way.
+    /// A value arriving: the answer to a read, or a notification the cube sent unasked.
     func received(_ data: Data?, from uuid: CBUUID, error: Error?) {
-        let name = TimeFlipUUIDs.name(for: uuid)
-        if let error {
-            record(.receive, "\(name): failed, \(error.localizedDescription)")
-            return
-        }
-        guard let data else {
-            record(.receive, "\(name): no value")
-            return
-        }
-        record(.receive, "\(name): \(BLETrace.describe(data))")
+        received(data, from: uuid.uuidString, failed: error?.localizedDescription)
     }
 
-    /// A write the cube acknowledged, or refused. Not bytes, but it is the other half of a `withResponse` write and
-    /// belongs in the same ordered list: a write that was never acknowledged looks identical to one that was, unless
-    /// the acknowledgement is a row too.
+    /// A write the cube acknowledged, or refused.
     func acknowledged(_ uuid: CBUUID, error: Error?) {
-        let name = TimeFlipUUIDs.name(for: uuid)
-        record(.receive, error.map { "\(name): write refused, \($0.localizedDescription)" } ?? "\(name): write acknowledged")
+        acknowledged(uuid.uuidString, failed: error?.localizedDescription)
     }
 
     /// A read on its way out.
-    ///
-    /// **Carries no bytes and is the row the trace most needs.** Without it a value in the log cannot be told from a
-    /// value the cube volunteered, and that distinction is the whole of finding 7 in
-    /// `docs/timeflip2-firmware-observations.md` -- which could only be measured because the archive logged its reads.
     func requested(_ uuid: CBUUID) {
-        record(.transmit, "\(TimeFlipUUIDs.name(for: uuid)): read requested")
+        requested(uuid.uuidString)
     }
 
     /// A subscription being turned on or off.
     func subscribing(_ enabled: Bool, to uuid: CBUUID) {
-        record(.transmit, "\(TimeFlipUUIDs.name(for: uuid)): notify \(enabled ? "on" : "off") requested")
+        subscribing(enabled, to: uuid.uuidString)
     }
 
-    /// What the cube made of it. **A refused subscription and a characteristic that never changes are both silence**,
-    /// so without this row there is no way to tell a feature that stopped hearing from one that has nothing to hear.
+    /// What the cube made of it.
     func notifying(_ uuid: CBUUID, isNotifying: Bool, error: Error?) {
-        let name = TimeFlipUUIDs.name(for: uuid)
-        record(
-            .receive,
-            error.map { "\(name): notify refused, \($0.localizedDescription)" }
-                ?? "\(name): \(isNotifying ? "notifying" : "not notifying")"
-        )
+        notifying(uuid.uuidString, isNotifying: isNotifying, failed: error?.localizedDescription)
     }
 
-    /// A discovery on its way out. Discovery is traffic like any other -- round trips that can fail, and that a cube
-    /// missing a service answers differently -- so it is in the list rather than only in whichever feature asked.
+    /// A discovery on its way out.
     func discovering(services uuids: [CBUUID]) {
-        record(.transmit, "discover services: \(BLETrace.names(uuids))")
+        discovering(services: uuids.map(\.uuidString))
     }
 
     func discovering(characteristics uuids: [CBUUID]?, of service: CBUUID) {
-        let asked = uuids.map { BLETrace.names($0) } ?? "everything"
-        record(.transmit, "discover characteristics on \(TimeFlipUUIDs.name(for: service)): \(asked)")
+        discovering(characteristics: uuids?.map(\.uuidString), of: service.uuidString)
     }
 
-    /// What came back. **The whole list every time**, because that is what CoreBluetooth hands over: `peripheral
-    /// .services` accumulates across discoveries, so the third one answers with all three and a row naming only what
-    /// was asked for would be this app's summary rather than the cube's answer.
+    /// What came back.
     func discovered(services uuids: [CBUUID], error: Error?) {
-        record(.receive, error.map { "service discovery failed, \($0.localizedDescription)" }
-            ?? "services: \(BLETrace.names(uuids))")
+        discovered(services: uuids.map(\.uuidString), failed: error?.localizedDescription)
     }
 
-    /// **The inventory, and the archive's reason for it kept verbatim**: this names every characteristic the cube
-    /// actually exposes, including ones nothing here touches, so the log says what traffic is even *possible* beside
-    /// the traffic that happened. A UUID appearing here unnamed is one to go and look up in the spec.
     func discovered(characteristics uuids: [CBUUID], of service: CBUUID, error: Error?) {
-        let name = TimeFlipUUIDs.name(for: service)
-        record(.receive, error.map { "\(name): characteristic discovery failed, \($0.localizedDescription)" }
-            ?? "\(name): characteristics \(BLETrace.names(uuids))")
+        discovered(
+            characteristics: uuids.map(\.uuidString), of: service.uuidString, failed: error?.localizedDescription
+        )
     }
-}
-
-/// How bytes are written down. Its own type so the format is one decision rather than one per call site.
-enum BLETrace {
-    /// A list of characteristics or services, named. `none` rather than an empty string, so a discovery that came
-    /// back with nothing is a row that says so rather than one that looks truncated.
-    static func names(_ uuids: [CBUUID]) -> String {
-        uuids.isEmpty ? "none" : uuids.map { TimeFlipUUIDs.name(for: $0) }.joined(separator: ", ")
-    }
-
-    /// `30 30 30 30 30 30 (000000)`, with the bracketed half present only when the bytes are readable.
-    ///
-    /// **Hex first and always.** The text is a convenience for the ASCII the cube narrates with; the hex is the
-    /// record, and a rendering that replaced it would lose exactly the bytes a surprise is made of.
-    ///
-    /// **Brackets rather than quotation marks**, which is not decoration: the two halves need separating or the ASCII
-    /// runs straight on from the hex, and every debug message is plain text now -- no apostrophes, no quotation marks
-    /// -- because they are read back out with SQL `LIKE` patterns and both need escaping on the way (see `CLAUDE.md`).
-    /// Brackets need escaping nowhere and the app already writes `(category_id 4)` in the same breath.
-    static func describe(_ data: Data) -> String { CubeBytes.describe(data) }
-
-    /// The bytes as text, when every one of them is printable ASCII. All of them, not most: a frame that is half
-    /// readable is a binary frame that happens to contain letters, and rendering it as a string invites reading
-    /// meaning into a coincidence.
 }
