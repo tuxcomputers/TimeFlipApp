@@ -32,7 +32,14 @@
        work landing first will turn arms and slots green for a long while before any square follows.
 
        A black slot means the code for that platform exists but is not yet through a port. A dashed slot means
-       it has not been written. -->
+       it has not been written.
+
+       GREY is the fourth state and the only one that is not about progress: a capability that turned out not
+       to need a port at all, because one implementation already answers it correctly on every platform. It is
+       neither amber (a port still to build) nor green (a port built). `Files and folders` is the one:
+       `FileManager.applicationSupportDirectory` resolves to Application Support on a Mac and to the XDG data
+       directory on Linux, measured on real hardware 2026-09-08, and `flock` is POSIX. Wrapping that in a port
+       would buy nothing. Windows keeps its dashed slot, being untested and out of scope. -->
 
   <!-- Windows is drawn because the model allows for it, not because it is planned. Nothing is in scope for it. -->
 
@@ -137,17 +144,17 @@
   <g>
     <rect x="962" y="770" width="210" height="112" rx="4" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
     <text x="1067" y="792" text-anchor="middle" font-size="13" font-weight="600" fill="#0f172a">Menu bar</text>
-    <rect x="974" y="802" width="186" height="22" rx="3" fill="#0f172a"/>
+    <rect x="974" y="802" width="186" height="22" rx="3" fill="#059669"/>
     <text x="1067" y="817" text-anchor="middle" font-size="10" fill="#ffffff">macOS: NSStatusItem</text>
     <rect x="974" y="828" width="186" height="22" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
     <text x="1067" y="843" text-anchor="middle" font-size="10" fill="#94a3b8">Linux: AppIndicator</text>
     <rect x="974" y="854" width="186" height="22" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
     <text x="1067" y="869" text-anchor="middle" font-size="10" fill="#94a3b8">Windows</text>
   </g>
-  <line x1="822" y1="680" x2="960" y2="784" stroke="#b45309" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowMissing)" marker-start="url(#arrowMissing)"/>
-  <rect x="838" y="716" width="124" height="30" rx="4" fill="#fffbeb" stroke="#fcd34d"/>
-  <text x="900" y="729" text-anchor="middle" font-size="9.5" fill="#78350f" font-weight="600">a title, a menu,</text>
-  <text x="900" y="740" text-anchor="middle" font-size="9.5" fill="#78350f" font-weight="600">a click and its side</text>
+  <line x1="822" y1="680" x2="960" y2="784" stroke="#059669" stroke-width="2.5" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+  <rect x="838" y="716" width="124" height="30" rx="4" fill="#ecfdf5" stroke="#6ee7b7"/>
+  <text x="900" y="729" text-anchor="middle" font-size="9.5" fill="#065f46" font-weight="600">a title, a menu,</text>
+  <text x="900" y="740" text-anchor="middle" font-size="9.5" fill="#065f46" font-weight="600">a click and its side</text>
 
   <!-- S: Windows and dialogs -->
   <g>
@@ -169,78 +176,83 @@
   <g>
     <rect x="108" y="770" width="210" height="112" rx="4" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
     <text x="213" y="792" text-anchor="middle" font-size="13" font-weight="600" fill="#0f172a">Starting and stopping</text>
-    <rect x="120" y="802" width="186" height="22" rx="3" fill="#0f172a"/>
+    <rect x="120" y="802" width="186" height="22" rx="3" fill="#059669"/>
     <text x="213" y="817" text-anchor="middle" font-size="10" fill="#ffffff">macOS: NSApplication</text>
     <rect x="120" y="828" width="186" height="22" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
     <text x="213" y="843" text-anchor="middle" font-size="10" fill="#94a3b8">Linux: gtk_main</text>
     <rect x="120" y="854" width="186" height="22" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
     <text x="213" y="869" text-anchor="middle" font-size="10" fill="#94a3b8">Windows</text>
   </g>
-  <line x1="458" y1="680" x2="320" y2="784" stroke="#b45309" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowMissing)" marker-start="url(#arrowMissing)"/>
-  <rect x="318" y="716" width="124" height="30" rx="4" fill="#fffbeb" stroke="#fcd34d"/>
-  <text x="380" y="729" text-anchor="middle" font-size="9.5" fill="#78350f" font-weight="600">may I stop yet,</text>
-  <text x="380" y="740" text-anchor="middle" font-size="9.5" fill="#78350f" font-weight="600">and now you may</text>
+  <line x1="458" y1="680" x2="320" y2="784" stroke="#059669" stroke-width="2.5" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+  <rect x="318" y="716" width="124" height="30" rx="4" fill="#ecfdf5" stroke="#6ee7b7"/>
+  <text x="380" y="729" text-anchor="middle" font-size="9.5" fill="#065f46" font-weight="600">may I stop yet,</text>
+  <text x="380" y="740" text-anchor="middle" font-size="9.5" fill="#065f46" font-weight="600">and now you may</text>
 
   <!-- W: Clock -->
   <g>
     <rect x="48" y="504" width="210" height="112" rx="4" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
     <text x="153" y="526" text-anchor="middle" font-size="13" font-weight="600" fill="#0f172a">The clock</text>
-    <rect x="60" y="536" width="186" height="22" rx="3" fill="#0f172a"/>
+    <rect x="60" y="536" width="186" height="22" rx="3" fill="#059669"/>
     <text x="153" y="551" text-anchor="middle" font-size="10" fill="#ffffff">macOS: RunLoop.main</text>
     <rect x="60" y="562" width="186" height="22" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
     <text x="153" y="577" text-anchor="middle" font-size="10" fill="#94a3b8">Linux: g_timeout_add</text>
     <rect x="60" y="588" width="186" height="22" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
     <text x="153" y="603" text-anchor="middle" font-size="10" fill="#94a3b8">driven by hand, for tests</text>
   </g>
-  <line x1="388" y1="560" x2="260" y2="560" stroke="#b45309" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowMissing)" marker-start="url(#arrowMissing)"/>
-  <rect x="278" y="530" width="94" height="30" rx="4" fill="#fffbeb" stroke="#fcd34d"/>
-  <text x="325" y="543" text-anchor="middle" font-size="9.5" fill="#78350f" font-weight="600">wake me in</text>
-  <text x="325" y="554" text-anchor="middle" font-size="9.5" fill="#78350f" font-weight="600">N seconds</text>
+  <line x1="388" y1="560" x2="260" y2="560" stroke="#059669" stroke-width="2.5" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+  <rect x="278" y="530" width="94" height="30" rx="4" fill="#ecfdf5" stroke="#6ee7b7"/>
+  <text x="325" y="543" text-anchor="middle" font-size="9.5" fill="#065f46" font-weight="600">wake me in</text>
+  <text x="325" y="554" text-anchor="middle" font-size="9.5" fill="#065f46" font-weight="600">N seconds</text>
 
   <!-- NW: Files and folders -->
   <g>
     <rect x="108" y="238" width="210" height="112" rx="4" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
     <text x="213" y="260" text-anchor="middle" font-size="13" font-weight="600" fill="#0f172a">Files and folders</text>
-    <rect x="120" y="270" width="186" height="22" rx="3" fill="#0f172a"/>
-    <text x="213" y="285" text-anchor="middle" font-size="10" fill="#ffffff">macOS: Application Support</text>
-    <rect x="120" y="296" width="186" height="22" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
-    <text x="213" y="311" text-anchor="middle" font-size="10" fill="#94a3b8">Linux: XDG</text>
+    <rect x="120" y="270" width="186" height="22" rx="3" fill="#cbd5e1"/>
+    <text x="213" y="285" text-anchor="middle" font-size="10" fill="#334155">macOS: Application Support</text>
+    <rect x="120" y="296" width="186" height="22" rx="3" fill="#cbd5e1"/>
+    <text x="213" y="311" text-anchor="middle" font-size="10" fill="#334155">Linux: XDG</text>
     <rect x="120" y="322" width="186" height="22" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
     <text x="213" y="337" text-anchor="middle" font-size="10" fill="#94a3b8">Windows: AppData</text>
   </g>
-  <line x1="458" y1="440" x2="320" y2="336" stroke="#b45309" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowMissing)" marker-start="url(#arrowMissing)"/>
-  <rect x="322" y="368" width="120" height="30" rx="4" fill="#fffbeb" stroke="#fcd34d"/>
-  <text x="382" y="381" text-anchor="middle" font-size="9.5" fill="#78350f" font-weight="600">where my data</text>
-  <text x="382" y="392" text-anchor="middle" font-size="9.5" fill="#78350f" font-weight="600">lives, and the lock</text>
+  <line x1="458" y1="440" x2="320" y2="336" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrowSmall)" marker-start="url(#arrowSmall)"/>
+  <rect x="322" y="368" width="120" height="30" rx="4" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text x="382" y="381" text-anchor="middle" font-size="9.5" fill="#475569" font-weight="600">where my data</text>
+  <text x="382" y="392" text-anchor="middle" font-size="9.5" fill="#475569" font-weight="600">lives, and the lock</text>
 
   <!-- ══════════ legend ══════════ -->
   <line x1="48" y1="1046" x2="1232" y2="1046" stroke="#e2e8f0" stroke-width="1"/>
 
-  <text x="48" y="1068" font-size="11" fill="#64748b" letter-spacing="1.2">THREE THINGS GO GREEN, AT THREE DIFFERENT MOMENTS</text>
+  <text x="48" y="1066" font-size="11" fill="#64748b" letter-spacing="1.2">THREE THINGS GO GREEN, AT THREE DIFFERENT MOMENTS</text>
 
-  <!-- One row per line. Two columns collided here once: the left column's text ran under the right column's
-       swatches, because the text is long and nothing constrained it. Keep this a single column. -->
+  <!-- One row per line, evenly spaced at 26. Two columns collided here once: the left column's text ran under
+       the right column's swatches, because the text is long and nothing constrained it. Keep this a single
+       column, and re-space every row when one is added rather than squeezing the new one in under the last. -->
   <g font-size="11.5" fill="#334155">
     <!-- the arm -->
-    <line x1="52" y1="1092" x2="102" y2="1092" stroke="#059669" stroke-width="2.5" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
-    <text x="120" y="1096"><tspan font-weight="600" fill="#065f46">The arm</tspan>, once the port exists and something is handed over it. Amber and dashed until then.</text>
+    <line x1="52" y1="1088" x2="102" y2="1088" stroke="#059669" stroke-width="2.5" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+    <text x="120" y="1092"><tspan font-weight="600" fill="#065f46">The arm</tspan>, once the port exists and something is handed over it. Amber and dashed until then.</text>
 
     <!-- the slot -->
-    <rect x="52" y="1114" width="50" height="17" rx="3" fill="#059669"/>
-    <text x="120" y="1127"><tspan font-weight="600" fill="#065f46">One slot</tspan>, once that platform's adapter sits in the square and its own composition root hands it over.</text>
+    <rect x="52" y="1106" width="50" height="17" rx="3" fill="#059669"/>
+    <text x="120" y="1118"><tspan font-weight="600" fill="#065f46">One slot</tspan>, once that platform's adapter sits in the square and its own composition root hands it over.</text>
 
     <!-- the square -->
-    <rect x="52" y="1142" width="50" height="19" rx="3" fill="#f0fdf4" stroke="#059669" stroke-width="2"/>
-    <text x="120" y="1155"><tspan font-weight="600" fill="#065f46">The square</tspan>, only once <tspan font-weight="600">every</tspan> platform's adapter is done, so a green square means the capability is settled rather than started.</text>
+    <rect x="52" y="1131" width="50" height="19" rx="3" fill="#f0fdf4" stroke="#059669" stroke-width="2"/>
+    <text x="120" y="1144"><tspan font-weight="600" fill="#065f46">The square</tspan>, only once <tspan font-weight="600">every</tspan> platform's adapter is done, so a green square means the capability is settled rather than started.</text>
 
     <!-- written, no port -->
-    <rect x="52" y="1172" width="50" height="17" rx="3" fill="#0f172a"/>
-    <text x="120" y="1185"><tspan font-weight="600">Black</tspan>, where that platform's code is written but is not behind a port: the core reaches it directly, or it sits on the wrong side of the line.</text>
+    <rect x="52" y="1158" width="50" height="17" rx="3" fill="#0f172a"/>
+    <text x="120" y="1170"><tspan font-weight="600">Black</tspan>, where that platform's code is written but is not behind a port: the core reaches it directly, or it sits on the wrong side of the line.</text>
 
     <!-- not written -->
-    <rect x="52" y="1200" width="50" height="17" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
-    <text x="120" y="1213"><tspan font-weight="600">Dashed</tspan>, where nothing is written yet. The build selects one slot per square, and the core cannot tell which it got.</text>
+    <rect x="52" y="1184" width="50" height="17" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
+    <text x="120" y="1196"><tspan font-weight="600">Dashed</tspan>, where nothing is written yet. The build selects one slot per square, and the core cannot tell which it got.</text>
+
+    <!-- no port needed -->
+    <rect x="52" y="1210" width="50" height="17" rx="3" fill="#cbd5e1"/>
+    <text x="120" y="1222"><tspan font-weight="600" fill="#475569">Grey</tspan>, where no port is needed: one implementation already answers correctly on every platform, so there is nothing to swap and nothing to build.</text>
   </g>
 
-  <text x="48" y="1248" font-size="12" fill="#64748b" font-style="italic">The rule this draws is in CLAUDE.md, under "The core is platform-blind, and every platform capability is a port".</text>
+  <text x="48" y="1256" font-size="12" fill="#64748b" font-style="italic">The rule this draws is in CLAUDE.md, under "The core is platform-blind, and every platform capability is a port".</text>
 </svg>
