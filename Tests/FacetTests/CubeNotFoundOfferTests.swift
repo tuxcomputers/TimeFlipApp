@@ -1,4 +1,3 @@
-@testable import FacetMac
 @testable import FacetCore
 import XCTest
 
@@ -88,10 +87,10 @@ final class CubeNotFoundOfferTests: XCTestCase {
         // **The situation a person is in is the same in every case**: their cube is not usable, and they have to
         // decide whether to keep waiting for it. The distinctions the app can draw are about the radio.
         //
-        // The guarantee is structural rather than a matter of keeping strings in step: `CubeNotFoundAlert.ask` takes no
+        // The guarantee is structural rather than a matter of keeping strings in step: `CubeNotFoundQuestion` takes no
         // reason at all, so there is nothing for a reason to vary. This pins the text it does use.
-        XCTAssertEqual(CubeNotFoundAlert.messageText, "Unable to find your device")
-        XCTAssertTrue(CubeNotFoundAlert.informativeText.hasPrefix("No TimeFlip answered:"))
+        XCTAssertEqual(CubeNotFoundQuestion.dialogue.title, "Unable to find your device")
+        XCTAssertTrue(CubeNotFoundQuestion.dialogue.message.hasPrefix("No TimeFlip answered:"))
     }
 
     @MainActor
@@ -99,7 +98,7 @@ final class CubeNotFoundOfferTests: XCTestCase {
         // **Timing by hand is a button again, so the text names what pressing it does rather than a route to it.**
         // The two facts somebody needs before choosing are that the device stays paired, which makes the choice free
         // to make, and that getting the cube back is a restart, since this launch stops looking for good.
-        let text = CubeNotFoundAlert.informativeText
+        let text = CubeNotFoundQuestion.dialogue.message
         XCTAssertTrue(text.contains("Rescan"), text)
         XCTAssertTrue(text.contains("Time by Hand"), text)
         XCTAssertTrue(text.contains("stays paired"), text)
@@ -116,7 +115,7 @@ final class CubeNotFoundOfferTests: XCTestCase {
         // the next desk, found because it is a TimeFlip in range, on the morning theirs was left at home. "Your
         // TimeFlip would not accept this app's PIN" asserts both that it was theirs and that theirs refused them, and
         // sends somebody hunting a PIN problem they do not have.
-        let text = CubeNotFoundAlert.informativeText
+        let text = CubeNotFoundQuestion.dialogue.message
         XCTAssertFalse(text.contains("Your TimeFlip"), text)
         XCTAssertFalse(text.contains("it would not accept"), text)
         XCTAssertTrue(text.contains("none of the ones found"), "the archive's wording names no device")

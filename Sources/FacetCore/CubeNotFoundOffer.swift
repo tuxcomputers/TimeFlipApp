@@ -88,3 +88,42 @@ struct CubeNotFoundOffer {
         }
     }
 }
+
+/// The question itself: what it says, and which answers it offers.
+///
+/// **Moved out of `FacetMac.CubeNotFoundAlert` with the dialogue port.** None of it was ever AppKit: the wording
+/// is the archive's, the three answers are `CubeNotFoundAnswer`, and the order they go in is a decision about
+/// which one a stray Return should reach. What a Mac contributes is `NSAlert`, and a GTK app will contribute a
+/// `GtkMessageDialog` to the same three fields.
+package enum CubeNotFoundQuestion {
+    /// The answers, **in the order they are offered**, which is the archive's and is not arbitrary: Rescan
+    /// first because it is the answer that changes nothing and can be given again, Quit last because that is
+    /// where a dismissing button belongs.
+    package static let answers: [CubeNotFoundAnswer] = [.rescan, .timeByHand, .quit]
+
+    /// **"Time by Hand" rather than "Switch to Manual Mode"**, which is what the archive called it. Nothing on
+    /// screen anywhere in this app says "manual mode" to a user, the Faces tab simply times, so a button naming
+    /// a mode would be introducing a concept to explain itself. What somebody wants here is the activity, not
+    /// the state they will be in while doing it.
+    package static func title(for answer: CubeNotFoundAnswer) -> String {
+        switch answer {
+        case .rescan: "Rescan"
+        case .timeByHand: "Time by Hand"
+        case .quit: "Quit"
+        }
+    }
+
+    package static let dialogue = Dialogue(
+        title: "Unable to find your device",
+        message: """
+        No TimeFlip answered: either none is in range, or none of the ones found would accept this app's PIN.
+
+        Rescan looks again. Time by Hand carries on without it: your device stays paired and the app keeps its \
+        own clock, so quit and start the app when you want the cube back.
+        """,
+        choices: answers.map(title(for:)),
+        // Rescan: the answer that changes nothing and can be given again.
+        wayOut: 0,
+        isWarning: true
+    )
+}

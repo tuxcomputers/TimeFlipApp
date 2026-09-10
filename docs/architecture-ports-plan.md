@@ -264,9 +264,17 @@ the core reaching through the arm rather than along it.
 This is last of the real work because it is the least mechanical and because items 1 to 4 all teach
 something it needs.
 
-- [ ] The dialog port: a question, its answers, and which came back, with no button indices in it.
-- [ ] `CategoryRenameRules.choice(forButtonIndex:)` off AppKit indices.
-- [ ] The 19 alert sites onto the port.
+- [x] The dialogue port. `Dialogue` is a value (heading, wording, the buttons in order, which is the way out,
+      whether it is a warning); `DialoguePresenter` shows one and reports what came back. `AlertPresenter` is
+      the macOS slot and `RecordingDialogues` the test one, so the seam has two adapters from day one.
+- [x] `choice(forButtonIndex:)` off AppKit indices, and **deleted**: it existed in `CategoryRenameRules` and
+      `CategoryCreateRules` as the same three lines of array lookup, only because an index arrived at the
+      surface. The generic `ask(_:offering:)` does it once and nothing that decides sees a number.
+- [x] All 19 alert sites onto the port. `SettingsWindowController` names `NSAlert` nowhere, 3,536 lines to
+      3,506, and every `keyEquivalent` decision is in one file instead of four call sites that spelled it two
+      different ways.
+- [x] `CubeNotFoundQuestion` into the core with the rest, so `CubeNotFoundOfferTests` comes off
+      `platformBoundTests` (35 files to 34) and the wording is checked on both platforms.
 - [ ] Then the panes, which is its own list once the alerts are out of the way.
 
 ## 7. Storage

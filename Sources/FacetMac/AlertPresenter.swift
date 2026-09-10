@@ -3,10 +3,16 @@ import FacetCore
 
 /// The macOS slot in the dialogue square: `NSAlert`, presented as a sheet on the Settings window.
 ///
-/// **A sheet rather than a free-standing alert**, which is what every one of these was before the port and is
-/// the platform's own answer for a question about the window in front of you. The window is held weakly and a
-/// dialogue with nowhere to go is dropped rather than shown detached: an alert floating with no parent, from an
-/// accessory app with no Dock icon, is one somebody may never find.
+/// **A sheet where there is a window, and an app-modal alert where there is not.** The eighteen dialogues the
+/// Settings window raises are sheets, which is the platform's own answer for a question about the window in
+/// front of you. The nineteenth is the cube-not-found offer, which has to be answerable when no window is open
+/// at all: that is the ordinary case at startup for a menu bar app, and it is the archive's decision unchanged.
+///
+/// **The app-modal path activates first, and that is not a flourish.** An accessory app is not frontmost, so
+/// without it the alert can come up behind whatever somebody is actually looking at.
+///
+/// **The window is held weakly**, so a presenter built for a window that has gone falls back to app-modal
+/// rather than dropping the question. A dialogue nobody is shown is worse than one in the wrong place.
 ///
 /// **Everything about `keyEquivalent` is here and nowhere else**, which is the whole reason this file earns its
 /// place. `Dialogue.wayOut` says which answer changes nothing; what a Mac has to do about that is a measured
@@ -55,9 +61,11 @@ final class AlertPresenter: DialoguePresenter {
         }
 
         guard let window else {
-            // **Said rather than swallowed.** A question nobody was asked is not the same as one answered, and
-            // the caller is about to be told nothing at all, so the row is the only trace there would be.
-            debugLog?.record(.field, "No window to put a dialogue on, so it was not shown: \(dialogue.title)")
+            // **Modal, and answered before this returns.** The app has nothing else on screen to interact
+            // with, and somebody who starts the app and walks away has to find the question exactly where they
+            // left it rather than a launch that quietly carried on.
+            NSApp.activate(ignoringOtherApps: true)
+            answered(alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue)
             return
         }
         alert.beginSheetModal(for: window) { response in

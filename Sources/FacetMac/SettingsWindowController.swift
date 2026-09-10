@@ -1009,11 +1009,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     ///
     /// The words are `DeviceNameProblem`'s, where the reasoning about attributing the limit to the vendor lives.
     private func showNameProblem(_ problem: DeviceNameProblem) {
-        let alert = NSAlert()
-        alert.messageText = problem.title
-        alert.informativeText = problem.message
-        alert.addButton(withTitle: "OK")
-        alert.beginSheetModal(for: window)
+        dialogues.tell(Dialogue(title: problem.title, message: problem.message))
     }
 
     /// Says that the rename worked and that the world will take a while to agree.
@@ -1025,11 +1021,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// watching is the moment they pressed Return, so that is when it is said.
     private func showRenameLag(newName: String, previousName: String?) {
         debugLog?.record(.field, "The cube is now called \(newName), and will go on advertising its old name")
-        let alert = NSAlert()
-        alert.messageText = "The TimeFlip has been renamed"
-        alert.informativeText = DeviceNameRules.renameLagNotice(newName: newName, previousName: previousName)
-        alert.addButton(withTitle: "OK")
-        alert.beginSheetModal(for: window)
+        dialogues.tell(Dialogue(
+            title: "The TimeFlip has been renamed",
+            message: DeviceNameRules.renameLagNotice(newName: newName, previousName: previousName)
+        ))
     }
 
     /// What a PIN that reached the cube and nowhere else says.
@@ -1039,43 +1034,40 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// vendor default and whatever it used to hold, and neither is right. The recovery is the vendor's own -- the
     /// batteries -- and it is worth stating plainly, since nothing on screen would otherwise suggest it.
     private func showPINNotRecorded() {
-        let alert = NSAlert()
-        alert.messageText = "The TimeFlip PIN could not be saved"
-        alert.informativeText = "The device has been given a new PIN, and neither the Keychain nor this app's "
-            + "config file would take a copy of it -- so Facet cannot log in to it again.\n\n"
-            + "Take the batteries out of the TimeFlip and put them back. That returns it to its factory PIN, and "
-            + "pairing again will set a new one."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "OK")
-        alert.beginSheetModal(for: window)
+        dialogues.tell(Dialogue(
+            title: "The TimeFlip PIN could not be saved",
+            message: "The device has been given a new PIN, and neither the Keychain nor this app's "
+                + "config file would take a copy of it -- so Facet cannot log in to it again.\n\n"
+                + "Take the batteries out of the TimeFlip and put them back. That returns it to its factory PIN, "
+                + "and pairing again will set a new one.",
+            isWarning: true
+        ))
     }
 
     private func showRefusedByTheCube(_ what: String) {
-        let alert = NSAlert()
-        alert.messageText = "The TimeFlip did not accept that"
-        alert.informativeText = """
-        The \(what) setting was sent to the device and the device did not confirm it, so nothing has changed and \
-        the window has gone back to what is stored.
+        dialogues.tell(Dialogue(
+            title: "The TimeFlip did not accept that",
+            message: """
+            The \(what) setting was sent to the device and the device did not confirm it, so nothing has changed \
+            and the window has gone back to what is stored.
 
-        This usually means the device is out of range or busy. Trying again is safe.
-        """
-        alert.addButton(withTitle: "OK")
-        alert.beginSheetModal(for: window)
+            This usually means the device is out of range or busy. Trying again is safe.
+            """
+        ))
     }
 
     /// What a cube that took it and a table that would not says. Rarer than the above and worse, so it says plainly
     /// that the two now disagree and which one the app will believe next time.
     private func showNotRecorded(_ what: String) {
-        let alert = NSAlert()
-        alert.messageText = "That setting was not saved"
-        alert.informativeText = """
-        The TimeFlip accepted \(what), but the database would not record it, so the window has gone back to what is \
-        stored.
+        dialogues.tell(Dialogue(
+            title: "That setting was not saved",
+            message: """
+            The TimeFlip accepted \(what), but the database would not record it, so the window has gone back to \
+            what is stored.
 
-        The device and the app now disagree until the next time this is set. Trying again is safe.
-        """
-        alert.addButton(withTitle: "OK")
-        alert.beginSheetModal(for: window)
+            The device and the app now disagree until the next time this is set. Trying again is safe.
+            """
+        ))
     }
 
     /// Connects the TimeFlip section's button to the radio.
@@ -1400,23 +1392,23 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
 
     /// Asks before wiping a cube. **The archive's words**, which say exactly what goes and that it cannot be undone.
     private func confirmReset(_ decided: @escaping (Bool) -> Void) {
-        let alert = NSAlert()
-        alert.messageText = "Reset this TimeFlip to factory settings?"
-        alert.informativeText = """
-            This erases everything stored on the device -- face colours, task settings, name, and password -- back to \
-            factory defaults. This cannot be undone.
-            """
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Reset Device")
-        alert.addButton(withTitle: "Cancel")
-        // Return goes on Cancel, explicitly: AppKit relocates a button titled "Cancel" to the left, which would make
-        // the agreeing button the one a stray Return fires. The same measured trap `showNameTaken` documents, and this
-        // is the most destructive answer on the tab.
-        alert.buttons.first?.keyEquivalent = ""
-        if alert.buttons.count > 1 { alert.buttons[1].keyEquivalent = "\r" }
-        alert.beginSheetModal(for: window) { response in
-            decided(response == .alertFirstButtonReturn)
-        }
+        // `wayOut: 1` is Cancel, and it is the most destructive answer on the tab, so a stray Return must not
+        // reach it. What a Mac has to do about that is `AlertPresenter`'s, and it is a measured trap.
+        dialogues.ask(
+            Dialogue(
+                title: "Reset this TimeFlip to factory settings?",
+                message: """
+                This erases everything stored on the device -- face colours, task settings, name, and password \
+                -- back to factory defaults. This cannot be undone.
+                """,
+                choices: ["Reset Device", "Cancel"],
+                wayOut: 1,
+                isWarning: true
+            ),
+            // In the same order as the choices above, so the answer comes back as the meaning rather than a
+            // position. A dismissed sheet answers `nil`, which is not a reset.
+            offering: [true, false]
+        ) { decided($0 == true) }
     }
 
     /// Records a **confirmed** wipe: the app gives the cube up, and the name goes with it.
@@ -1715,23 +1707,21 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             showTraceMissing(at: trace.url)
             return
         }
-        let alert = NSAlert()
-        alert.messageText = "Clear the debug trace?"
-        alert.informativeText = """
-        This removes every message Facet has recorded so far. It cannot be undone, and anything you have been \
-        asked to send in goes with it.
+        dialogues.ask(
+            Dialogue(
+                title: "Clear the debug trace?",
+                message: """
+                This removes every message Facet has recorded so far. It cannot be undone, and anything you have \
+                been asked to send in goes with it.
 
-        Nothing else is affected: your recorded time, categories and settings are in a different file.
-        """
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Clear Trace")
-        // Return must not clear anything, and adding Cancel first is not enough to arrange that: AppKit puts a
-        // button titled "Cancel" on the left whatever order it went in, so the rightmost button -- the one Return
-        // activates -- ends up being the destructive one. The same measurement the calendar delete carries.
-        alert.buttons[0].keyEquivalent = "\r"
-        alert.buttons[1].keyEquivalent = ""
-        alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertSecondButtonReturn else {
+                Nothing else is affected: your recorded time, categories and settings are in a different file.
+                """,
+                choices: ["Cancel", "Clear Trace"],
+                wayOut: 0
+            ),
+            offering: [false, true]
+        ) { [weak self] clears in
+            guard clears == true else {
                 self?.debugLog?.record(.trace, "The trace was not cleared")
                 return
             }
@@ -1747,40 +1737,37 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     }
 
     private func showTraceClearFailed() {
-        let alert = NSAlert()
-        alert.messageText = "The trace was not cleared"
-        alert.informativeText = """
-        Facet could not empty its debug trace, so it still holds everything it did before.
+        dialogues.tell(Dialogue(
+            title: "The trace was not cleared",
+            message: """
+            Facet could not empty its debug trace, so it still holds everything it did before.
 
-        Nothing else has been changed, and trying again is safe.
-        """
-        alert.addButton(withTitle: "OK")
-        alert.beginSheetModal(for: window)
+            Nothing else has been changed, and trying again is safe.
+            """
+        ))
     }
 
     private func showTraceMissing(at url: URL) {
-        let alert = NSAlert()
-        alert.messageText = "There is no trace to show"
-        alert.informativeText = """
-        Facet expected its debug trace at \(url.path), and there is no file there.
+        dialogues.tell(Dialogue(
+            title: "There is no trace to show",
+            message: """
+            Facet expected its debug trace at \(url.path), and there is no file there.
 
-        It is written as the app runs, so there is nothing to show until something has been logged.
-        """
-        alert.addButton(withTitle: "OK")
-        alert.beginSheetModal(for: window)
+            It is written as the app runs, so there is nothing to show until something has been logged.
+            """
+        ))
     }
 
     private func showTraceCopyFailed(to destination: URL) {
-        let alert = NSAlert()
-        alert.messageText = "The trace was not copied"
-        alert.informativeText = """
-        Facet could not write a copy of its debug trace to \(destination.path).
+        dialogues.tell(Dialogue(
+            title: "The trace was not copied",
+            message: """
+            Facet could not write a copy of its debug trace to \(destination.path).
 
-        Nothing has been changed. The trace itself is untouched, and trying again, or choosing another \
-        folder, is safe.
-        """
-        alert.addButton(withTitle: "OK")
-        alert.beginSheetModal(for: window)
+            Nothing has been changed. The trace itself is untouched, and trying again, or choosing another \
+            folder, is safe.
+            """
+        ))
     }
 
     /// Runs the sign-in, and writes what comes back.
@@ -2018,19 +2005,21 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// **It does not claim to know which happened.** A calendar deleted at Google and an id belonging to a different
     /// account both come back as "not found", and a message that picked one would be wrong half the time.
     private func askAboutMissingGoogleCalendar() async -> Bool {
-        let alert = NSAlert()
-        alert.messageText = "Facet cannot find its calendar"
-        alert.informativeText = """
-        The calendar Facet was using is not in this Google account. It may have been deleted, or this may be a \
-        different account from the one it was made in.
+        // **No `wayOut`, which is what this dialogue already did.** It never set a key equivalent, and neither
+        // answer changes anything already recorded: making a calendar is additive and Not Now does nothing.
+        let asking = Dialogue(
+            title: "Facet cannot find its calendar",
+            message: """
+            The calendar Facet was using is not in this Google account. It may have been deleted, or this may be \
+            a different account from the one it was made in.
 
-        Facet can make a new one. Anything already written to the old calendar stays where it is.
-        """
-        alert.addButton(withTitle: "Create Calendar")
-        alert.addButton(withTitle: "Not Now")
+            Facet can make a new one. Anything already written to the old calendar stays where it is.
+            """,
+            choices: ["Create Calendar", "Not Now"]
+        )
         return await withCheckedContinuation { continuation in
-            alert.beginSheetModal(for: window) { response in
-                continuation.resume(returning: response == .alertFirstButtonReturn)
+            dialogues.ask(asking, offering: [true, false]) { creates in
+                continuation.resume(returning: creates == true)
             }
         }
     }
@@ -2068,27 +2057,22 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         guard let id = pane.values.googleCalendar.id else { return }
         let name = pane.values.googleCalendar.name ?? GoogleCalendarRules.defaultName
 
-        let alert = NSAlert()
-        alert.messageText = "Delete the \"\(name)\" calendar?"
-        alert.informativeText = """
-        This deletes the calendar from your Google account, along with every event Facet has written to it. \
-        It cannot be undone from here.
+        dialogues.ask(
+            Dialogue(
+                title: "Delete the \"\(name)\" calendar?",
+                message: """
+                This deletes the calendar from your Google account, along with every event Facet has written to \
+                it. It cannot be undone from here.
 
-        Your recorded time is not affected: it stays in Facet, and a new calendar can be made and filled from it.
-        """
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Delete Calendar")
-        // **Return must not delete anything, and adding Cancel first is not enough to arrange that.** AppKit puts a
-        // button titled "Cancel" on the left whatever order it went in, so the rightmost button -- the one Return
-        // activates -- ends up being the destructive one. Measured 2026-08-16: the buttons read back as
-        // "Delete Calendar", "Cancel", not the order they were added in.
-        //
-        // So the key equivalents are set rather than inferred from position: Return dismisses, Escape dismisses, and
-        // deleting takes a deliberate click. The answer is still read by addition order, which is unaffected.
-        alert.buttons[0].keyEquivalent = "\r"
-        alert.buttons[1].keyEquivalent = ""
-        alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertSecondButtonReturn else {
+                Your recorded time is not affected: it stays in Facet, and a new calendar can be made and filled \
+                from it.
+                """,
+                choices: ["Cancel", "Delete Calendar"],
+                wayOut: 0
+            ),
+            offering: [false, true]
+        ) { [weak self] deletes in
+            guard deletes == true else {
                 self?.debugLog?.record(.field, "Button clicked: Cancel, calendar \(name) not deleted")
                 return
             }
@@ -2175,11 +2159,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// What a failed sign-in says. The message comes from `GoogleOAuthRules.Failure`, which is where the wording lives
     /// so that one failure cannot be described two ways.
     private func showGoogleFailed(_ error: Error) {
-        let alert = NSAlert()
-        alert.messageText = "Facet could not connect to Google"
-        alert.informativeText = error.localizedDescription
-        alert.addButton(withTitle: "OK")
-        alert.beginSheetModal(for: window)
+        dialogues.tell(Dialogue(
+            title: "Facet could not connect to Google", message: error.localizedDescription
+        ))
     }
 
     /// Signs the Google account out: clears the identity, and nothing else in the row.
@@ -2224,16 +2206,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// explain one fault differently. The App tab passes `AppSettingsRules.title(for:)`, which is where its rows are
     /// named.
     private func showSettingRefused(_ title: String) {
-        let alert = NSAlert()
-        alert.messageText = "That setting was not saved"
-        alert.informativeText = """
-        The database would not take the new value for "\(title)", so the setting is \
-        unchanged and the row has gone back to what is stored.
+        dialogues.tell(Dialogue(
+            title: "That setting was not saved",
+            message: """
+            The database would not take the new value for "\(title)", so the setting is \
+            unchanged and the row has gone back to what is stored.
 
-        Nothing else has been affected. Trying again is safe.
-        """
-        alert.addButton(withTitle: "OK")
-        alert.beginSheetModal(for: window)
+            Nothing else has been affected. Trying again is safe.
+            """
+        ))
     }
 
     /// Points the Categories tab's edits at the tables they write to.
@@ -2549,15 +2530,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
 
     /// The dead end for a name an active category already holds. Wording carried over from the previous app.
     private func showNameTaken(_ category: CategoryRecord) {
-        let alert = NSAlert()
-        alert.messageText = "That name is already in use"
-        alert.informativeText = """
-        An active category is already called "\(category.name)", so this one cannot be reinstated under that name.
+        dialogues.tell(Dialogue(
+            title: "That name is already in use",
+            message: """
+            An active category is already called "\(category.name)", so this one cannot be reinstated under that \
+            name.
 
-        Rename one of them first, then try again.
-        """
-        alert.addButton(withTitle: "OK")
-        alert.beginSheetModal(for: window)
+            Rename one of them first, then try again.
+            """
+        ))
     }
 
     /// Draws the session: which category, whether it is running, and how much time that category has.
@@ -3483,11 +3464,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// The dead end: an active category already holds the name, so there is nothing to decide and only
     /// something to say. Wording carried over from the previous app.
     private func showAlreadyActive(_ existing: CategoryRecord) {
-        let alert = NSAlert()
-        alert.messageText = "That category already exists"
-        alert.informativeText = "\"\(existing.name)\" is already in the Active list. Scroll up -- it is right there."
-        alert.addButton(withTitle: "Ok")
-        alert.beginSheetModal(for: window)
+        // **"OK" rather than the "Ok" this used to spell.** Every notice takes its dismissal from
+        // `AlertPresenter` now, so the twelve of them cannot disagree about how the one button is written.
+        dialogues.tell(Dialogue(
+            title: "That category already exists",
+            message: "\"\(existing.name)\" is already in the Active list. Scroll up -- it is right there."
+        ))
     }
 
     @objc
