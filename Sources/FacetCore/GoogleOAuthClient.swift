@@ -1,31 +1,32 @@
-// **AppKit for one line, and it is why this file stays on the platform side.** `NSWorkspace.shared.open`
-// is the default argument that puts the sign-in URL in front of a browser. Everything else here is
-// portable, and the loopback listener that used to live in this file has moved to `FacetCore` -- see
-// `GoogleLoopbackListener`, which has a Berkeley-sockets half for platforms with no `Network`.
-import AppKit
-import FacetCore
 import Foundation
 // `URLSession` and its request and response types live in `FoundationNetworking` on the corelibs
-// Foundation Linux uses, and in `Foundation` itself on Darwin. The module does not exist here, so
-// `canImport` is false and this compiles to nothing: the condition is what makes the file portable
-// without changing what it does on macOS.
+// Foundation Linux uses, and in `Foundation` itself on Darwin. A shim rather than a port by the test in
+// `CLAUDE.md`: the same code reaching the same Foundation through a different spelling, not a second
+// implementation. `GoogleCalendarClient` and `GoogleEventClient` carry the same three lines.
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
 
 /// Runs the sign-in, start to finish.
+///
+/// **Putting the URL in front of a browser is the one thing here the platform has to do**, and it arrives as
+/// `open` rather than being reached for. That single argument is what makes the rest of this file core: the
+/// authorization URL, PKCE, the loopback redirect and the token exchange are the same on every platform, and
+/// `GoogleLoopbackListener` already carries a Berkeley-sockets half for the ones with no `Network`.
 @MainActor
-enum GoogleSignIn {
+package enum GoogleSignIn {
     /// How long a sign-in is allowed to sit unfinished before the port is given back.
-    static let timeout: Duration = .seconds(300)
+    package static let timeout: Duration = .seconds(300)
 
     /// Opens the browser, waits for the redirect, and exchanges the code for tokens.
     ///
     /// **Nothing is written here.** This answers with what Google said and leaves storing it to the caller, so the
     /// window keeps its one rule: write, read back, and only then believe it.
-    static func run(
+    /// - Parameter open: hands the sign-in URL to whatever shows the user a browser. **No default**, which is
+    ///   what obliges a caller to supply one: a default would be this module choosing a platform.
+    package static func run(
         credentials: GoogleCredentials,
-        open: (URL) -> Void = { NSWorkspace.shared.open($0) },
+        open: (URL) -> Void,
         session: URLSession = .shared
     ) async throws -> GoogleOAuthRules.Tokens {
         let pkce = GoogleOAuthRules.pkce()

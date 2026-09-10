@@ -1795,7 +1795,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         Task { @MainActor [weak self, weak pane] in
             defer { pane?.setSigningIn(false) }
             do {
-                let tokens = try await GoogleSignIn.run(credentials: credentials)
+                // **The browser is handed over rather than reached for.** `GoogleSignIn` is core and has no
+                // default for this, so the one AppKit line in the sign-in is here, on the platform side.
+                let tokens = try await GoogleSignIn.run(
+                    credentials: credentials, open: { NSWorkspace.shared.open($0) }
+                )
                 guard let refresh = tokens.refreshToken, tokenStore.save(refreshToken: refresh) else {
                     throw GoogleOAuthRules.Failure.exchangeFailed("the token could not be saved to your Keychain")
                 }

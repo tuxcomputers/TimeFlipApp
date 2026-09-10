@@ -211,8 +211,10 @@ let appTarget: Target = .executableTarget(
         "Resources/AppIcon.icns"
     ],
     resources: [
-        // The icons `ActivityIcon` draws and the Google client `GoogleOAuthClient` reads. Both are read
-        // by files that stay on this side, so they stay with them.
+        // The icons `ActivityIcon` draws, and nothing else. The Google client is **not** here: it sits in
+        // `FacetCore/Resources` because `GoogleCredentials` reads it, through `Bundle.main` then
+        // `Bundle.module`, and that file is core. This comment used to name `GoogleOAuthClient`, which read
+        // no resource even before it moved across.
         .process("Resources")
     ],
     linkerSettings: [

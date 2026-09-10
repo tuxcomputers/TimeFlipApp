@@ -54,7 +54,13 @@ struct PlatformBlindCoreTests {
         "FoundationNetworking",   // `URLSession` needs its own import on Linux and is otherwise the same code
         "CoreGraphics",           // `CGFloat`
         "Darwin",                 // `setvbuf`, which glibc refuses and which is guarded rather than solved
-        "CryptoKit",              // SHA-256, with `PortableSHA256` as the same answer computed by hand
+        // SHA-256, and the one entry here that is settled by something better than the shim-or-port test.
+        // The `#else` branch is `PortableSHA256`, which is platform-free and already written, so a third
+        // platform needs **nothing**: it falls into that branch and works. The `#if` is therefore an opt-in
+        // to Apple's implementation on one platform, not a gap being filled per platform, and no caller can
+        // tell which ran because SHA-256 is fully specified. `PortableSHA256`'s own tests check the two
+        // agree, on Darwin, against the CryptoKit answer it is not being used for.
+        "CryptoKit",
         "Glibc",                  // the other half of the above
     ]
 
