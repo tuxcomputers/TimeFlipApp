@@ -336,7 +336,28 @@ something it needs.
       different ways.
 - [x] `CubeNotFoundQuestion` into the core with the rest, so `CubeNotFoundOfferTests` comes off
       `platformBoundTests` (35 files to 34) and the wording is checked on both platforms.
-- [ ] Then the panes, which is its own list once the alerts are out of the way.
+### The panes
+
+- [x] **The settings-write sequence, which was the biggest cluster in the window.** Eight rows on the Device
+      tab each spelled out `CLAUDE.md`'s settings rule for themselves, and six of those also spelled out the
+      ordering the first design rule turns on: the cube first, the table only once the cube has taken it.
+      `DeviceSettingWrite` is that written once. It carries the outcome, whether the surface puts its row
+      back, and which of the three notices it deserves, and the three wordings moved into the core with it.
+- [x] **Its tests are the first the ordering has ever had.** Every copy lived inside
+      `SettingsWindowController` behind a real radio and a real `NSAlert`, so nothing could assert that the
+      table is not written when the cube refuses. Mutation-checked: writing the table first, and putting the
+      row back on success, are each caught.
+- [x] **The log wording is preserved exactly, and the existing tests are what proved it.** Generalising it
+      first produced `Auto-pause 15m: sending` where every row had said `Auto-pause: sending 15m`, and four
+      tests failed. Those rows are read back with SQL `LIKE` patterns by `Tests/Scripted`, which is set
+      aside and so cannot complain, and `label: verb value` is now a documented part of the interface.
+
+- [ ] The double-tap pair, `applyDoubleTapEnabled` and `applyDoubleTapValues`, are the same shape and have
+      not moved yet: both carry extra steps around the sequence (cancelling a pending write, sending four
+      registers with the flag) that want reading before they are folded in.
+- [ ] `renameDevice` / `sendRename` is the eighth, and the odd one: its read-back is functional rather than
+      a command, so it does not fit `send` as it stands.
+- [ ] The rest of the window is view construction and tab wiring, which is what an adapter is for.
 
 ## 7. Storage
 

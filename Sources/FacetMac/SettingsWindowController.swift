@@ -503,24 +503,18 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// left ticked while the table says otherwise is the two-answers problem the first rule in `CLAUDE.md` is about,
     /// and this one would be found out at the next lock rather than on screen.
     private func applyPauseOnLock(_ pausesOnLock: Bool, on pane: DevicePane) {
-        guard let settings else {
-            debugLog?.record(.field, "Pause on lock: there is no settings store, so the box goes back")
-            pane.showPauseOnLock(!pausesOnLock)
-            return
-        }
-        let stored = settings.write("pause_on_lock", field: "enabled", pausesOnLock)
-        debugLog?.record(
-            .field,
-            stored
-                ? "Pause on lock: the table now holds \(pausesOnLock ? "on" : "off")"
-                : "Pause on lock: the table REFUSED \(pausesOnLock ? "on" : "off")"
+        let outcome = DeviceSettingWrite.record(
+            "Pause on lock",
+            value: pausesOnLock ? "on" : "off",
+            into: settings,
+            recording: { $0.write("pause_on_lock", field: "enabled", pausesOnLock) },
+            debugLog: debugLog
         )
-        guard stored else {
-            // What the table holds, read now rather than remembered, for the reason every other put-back on this tab
-            // reads it: a write has just failed, so what is stored is precisely the question being asked.
-            pane.showPauseOnLock(deviceSettings().pausesOnLock)
-            showSettingRefused("Pause the device when locking it")
-            return
+        // What the table holds, read now rather than remembered, for the reason every put-back on this tab reads
+        // it: a write has just failed, so what is stored is precisely the question being asked.
+        if outcome.putsTheRowBack { pane.showPauseOnLock(deviceSettings().pausesOnLock) }
+        if let notice = DeviceSettingWrite.notice(for: outcome, setting: "Pause the device when locking it") {
+            dialogues.tell(notice)
         }
     }
 
@@ -540,21 +534,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// so this carries the number the arrows were let go on rather than the one the row opened with.
     private func applyBatteryWarning(on pane: DevicePane) {
         let percent = pane.batteryWarningPercent
-        guard let settings else {
-            debugLog?.record(.field, "Battery warning: there is no settings store, so \(percent) percent goes back")
-            pane.showBatteryWarning(deviceSettings().batteryWarningPercent)
-            return
-        }
-        let stored = settings.write("low_battery_level", field: "percent", percent)
-        debugLog?.record(
-            .field,
-            stored
-                ? "Battery warning: the table now holds \(percent) percent"
-                : "Battery warning: the table REFUSED \(percent) percent"
+        let outcome = DeviceSettingWrite.record(
+            "Battery warning",
+            value: "\(percent) percent",
+            into: settings,
+            recording: { $0.write("low_battery_level", field: "percent", percent) },
+            debugLog: debugLog
         )
-        guard stored else {
-            pane.showBatteryWarning(deviceSettings().batteryWarningPercent)
-            showSettingRefused("Battery warning at")
+        if outcome.putsTheRowBack { pane.showBatteryWarning(deviceSettings().batteryWarningPercent) }
+        if let notice = DeviceSettingWrite.notice(for: outcome, setting: "Battery warning at") {
+            dialogues.tell(notice)
             return
         }
         // Nothing moves on screen: a field stepped again while this was being written holds a newer number with a
@@ -718,32 +707,24 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         record: @escaping (DevicePane, Int) -> Void
     ) {
         let described = "\(name) \(value) \(unit)"
-        // **No radio at all refuses and says so**, exactly as the double-tap path does: a field left showing a number
-        // that reached neither the cube nor the table is the surface claiming something about hardware nobody ever
-        // asked.
-        guard let radio else {
-            debugLog?.record(.field, "LED: there is no radio to send to, so \(described) goes back")
-            putBack(pane, deviceSettings())
-            return
-        }
-        debugLog?.record(.field, "LED: sending \(described)")
-        radio.send(command) { [weak self, weak pane] acknowledged in
+        // **Acknowledged rather than confirmed.** `0x09` and `0x0A` have no read-back defined in the vendor
+        // spec, so the acknowledgement is genuinely all there is; the matrix is in `docs/timeflip.md`.
+        DeviceSettingWrite.send(
+            command,
+            "LED",
+            value: described,
+            through: radio.map { radio in { payload, reported in radio.send(payload, reported) } },
+            // Worded as an acknowledgement rather than a confirmation, which is the honest word here and the
+            // reason this row exists: somebody reading the log for a cube whose light did not change has to be
+            // able to see that nothing ever checked.
+            tookIt: "LED: the cube acknowledged \(described), and there is no read-back to confirm it with",
+            recording: { [weak self] in self?.recordLED(field: field, value, describing: described) ?? false },
+            debugLog: debugLog
+        ) { [weak self, weak pane] outcome in
             guard let self, let pane else { return }
-            guard acknowledged else {
-                self.debugLog?.record(.field, "LED: the cube did not take \(described), so the window goes back")
-                putBack(pane, self.deviceSettings())
-                self.showRefusedByTheCube("LED \(name)")
-                return
-            }
-            // Worded as an acknowledgement rather than as a confirmation, which is the honest word for it here and
-            // the reason this row exists at all: somebody reading the log for a cube whose light did not change has
-            // to be able to see that nothing ever checked.
-            self.debugLog?.record(
-                .field, "LED: the cube acknowledged \(described), and there is no read-back to confirm it with"
-            )
-            guard self.recordLED(field: field, value, describing: described) else {
-                putBack(pane, self.deviceSettings())
-                self.showNotRecorded("the LED \(name)")
+            if outcome.putsTheRowBack { putBack(pane, self.deviceSettings()) }
+            if let notice = DeviceSettingWrite.notice(for: outcome, setting: "the LED \(name)") {
+                self.dialogues.tell(notice)
                 return
             }
             // Nothing moves on screen, deliberately: a field moved again while the command was out holds a newer
@@ -806,36 +787,28 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// this carries the number the arrows were let go on rather than the one the row opened with.
     private func applyAutoPause(on pane: DevicePane) {
         let minutes = pane.autoPauseMinutes
-        // **No radio at all refuses and says so**, as on the two paths above: a field left showing a number that
-        // reached neither the cube nor the table is the surface claiming something nobody ever asked.
-        guard let radio else {
-            debugLog?.record(.field, "Auto-pause: there is no radio to send to, so \(minutes)m goes back")
-            pane.showAutoPause(deviceSettings().autoPauseMinutes)
-            return
-        }
-        debugLog?.record(.field, "Auto-pause: sending \(minutes)m")
-        radio.send(DeviceCommandRules.autoPause(minutes)) { [weak self, weak pane] confirmed in
+        // **Confirmed rather than merely acknowledged**, which is where this is stronger than the LED pair:
+        // `0x10` reports the delay the cube is set to, so `DeviceCommandRules.readBack(for:)` compares the
+        // cube's own answer against the bytes that went out and `send` reports that.
+        DeviceSettingWrite.send(
+            DeviceCommandRules.autoPause(minutes),
+            "Auto-pause",
+            value: "\(minutes)m",
+            through: radio.map { radio in { payload, reported in radio.send(payload, reported) } },
+            recording: { [weak self] in self?.recordAutoPause(minutes) ?? false },
+            debugLog: debugLog
+        ) { [weak self, weak pane] outcome in
             guard let self, let pane else { return }
-            guard confirmed else {
-                self.debugLog?.record(
-                    .field, "Auto-pause: the cube did not take \(minutes)m, so the window goes back"
-                )
-                // What the table holds, read now rather than remembered, for the reason `putDoubleTapBack` gives: a
-                // write has just failed, so what is stored is precisely the question being asked.
-                pane.showAutoPause(self.deviceSettings().autoPauseMinutes)
-                self.showRefusedByTheCube("auto-pause")
+            // What the table holds, read now rather than remembered: a write has just failed, so what is stored
+            // is precisely the question being asked.
+            if outcome.putsTheRowBack { pane.showAutoPause(self.deviceSettings().autoPauseMinutes) }
+            if let notice = DeviceSettingWrite.notice(for: outcome, setting: "the auto-pause delay") {
+                self.dialogues.tell(notice)
                 return
             }
-            guard self.recordAutoPause(minutes) else {
-                // The cube took it and the table did not, which is the case `showNotRecorded` is worded for: the
-                // window follows the table, that being what the next open reads, and the alert says the two disagree.
-                pane.showAutoPause(self.deviceSettings().autoPauseMinutes)
-                self.showNotRecorded("the auto-pause delay")
-                return
-            }
-            // Nothing moves on screen, deliberately, as on the two paths above: a field stepped again while the
-            // command was out holds a newer number with a write of its own already queued, and assigning this one
-            // would take that edit off the screen and then send it again on the next tick.
+            // Nothing moves on screen, deliberately: a field stepped again while the command was out holds a
+            // newer number with a write of its own already queued, and assigning this one would take that edit
+            // off the screen and then send it again on the next tick.
             pane.recordAutoPause(minutes)
         }
     }
