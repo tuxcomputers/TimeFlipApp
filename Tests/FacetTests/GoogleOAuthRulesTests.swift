@@ -1,5 +1,7 @@
 @testable import FacetCore
+#if canImport(CryptoKit)
 import CryptoKit
+#endif
 import Foundation
 import XCTest
 
@@ -15,7 +17,18 @@ final class GoogleOAuthRulesTests: XCTestCase {
         // challenge did not match the verifier, Google would reject every sign-in; if it were the verifier itself,
         // anybody intercepting the redirect could complete the exchange.
         let pkce = GoogleOAuthRules.pkce()
-        let expected = Data(SHA256.hash(data: Data(pkce.verifier.utf8)))
+        // **What this proves differs by platform, and the weaker half is on the platform that runs the
+        // portable code**, which is the same shape `PortableSHA256Tests` records: on Darwin the digest comes
+        // from CryptoKit, so the assertion is a differential against a second implementation; on Linux it comes
+        // from the very function `pkce()` called, so what is left being checked is the base64url wiring -- the
+        // three substitutions and the stripped padding, which is where a challenge Google rejects would come
+        // from. The digest itself is carried there by `PortableSHA256Tests`' published vectors.
+        #if canImport(CryptoKit)
+        let digest = Data(SHA256.hash(data: Data(pkce.verifier.utf8)))
+        #else
+        let digest = Data(PortableSHA256.hash(Data(pkce.verifier.utf8)))
+        #endif
+        let expected = digest
             .base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
