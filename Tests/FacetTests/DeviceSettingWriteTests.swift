@@ -158,14 +158,16 @@ struct DeviceSettingWriteTests {
 
     // MARK: - the rows a scripted check reads
 
-    @Test func testTheRowsKeepTheWordingTheCheckersMatchOn() {
+    @Test func testTheRowsKeepTheWordingTheCheckersMatchOn() throws {
         // **`label: verb value`, and it is not cosmetic.** `Tests/Scripted` reads these back with SQL `LIKE`
         // patterns, and that suite is set aside, so a tidied message would break checks that cannot say so.
         let wire = Wire()
         wire.cubeTakesIt = false
         let database = TemporaryDatabase()
         defer { database.remove() }
-        try? database.bootstrap()
+        // Not `try?`: a bootstrap that failed would leave this asserting against an empty table and
+        // reporting the wording as wrong, which is the swallowed failure `CLAUDE.md` is about.
+        try database.bootstrap()
         let log = DebugLog(databaseURL: database.debugURL, isRecording: true)
 
         DeviceSettingWrite.send(

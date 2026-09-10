@@ -10,6 +10,36 @@ import Testing
 /// test that only looked at the bytes, while writing to flash on every reconnect for no reason.
 @Suite @MainActor
 final class DeviceSettingsSyncTests {
+    /// **`Stored.seeded` and the DDL are two copies of five numbers, and this is what stops them parting.**
+    ///
+    /// The fallbacks moved into the core on 2026-09-11 so a second composition root would not write them out
+    /// again, which took the count from three copies to two. It cannot get to one: the DDL has to seed the
+    /// rows and Swift has to know what a missing row means. So the remaining pair is checked rather than
+    /// trusted, against a database really built from `database/011_setting.sql` rather than against the
+    /// numbers retyped here.
+    ///
+    /// Move a seed in the DDL without moving the constant and a fresh launch sends the cube one number while
+    /// the tab shows another, with nothing failing anywhere. That is the two-copies fault the first rule in
+    /// `CLAUDE.md` exists for, in the one place the rule cannot simply delete a copy.
+    @Test func testTheSeededFallbacksAreWhatTheDDLActuallySeeds() throws {
+        let database = TemporaryDatabase()
+        defer { database.remove() }
+        try database.bootstrap()
+        let settings = SettingStore(connection: database.connection())
+        let seeded = DeviceSettingsSync.Stored.seeded
+
+        #expect(settings.integer("auto_pause_minutes", field: "minutes") == seeded.autoPauseMinutes)
+        #expect(settings.integer("led_settings", field: "brightness") == seeded.ledBrightnessPercent)
+        #expect(settings.integer("led_settings", field: "blink_interval") == seeded.ledBlinkSeconds)
+        #expect(settings.flag("double_tap_settings", field: "enabled") == seeded.isDoubleTapEnabled)
+        #expect(
+            settings.integer("double_tap_settings", field: "clickThreshold") == Int(seeded.doubleTap.threshold)
+        )
+        #expect(settings.integer("double_tap_settings", field: "limit") == Int(seeded.doubleTap.limit))
+        #expect(settings.integer("double_tap_settings", field: "latency") == Int(seeded.doubleTap.latency))
+        #expect(settings.integer("double_tap_settings", field: "window") == Int(seeded.doubleTap.window))
+    }
+
     /// What the pretend cube was told, in order.
     private final class Wire {
         var sent: [Data] = []
