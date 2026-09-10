@@ -134,11 +134,16 @@ second answers, so a third platform needs no new implementation. The one thing w
 and a release build fighting over one keyring item does not separate them there.
 
 - [x] Establish whether this is a port at all. **It is not**, on the evidence above.
-- [ ] The bundle-identifier degradation on Linux: a real gap, but it belongs to whoever writes the Linux
-      keyring adapter, and it is a value the composition root should supply rather than a port.
-- [ ] `Facet_FacetCore.resources` must ship beside the executable or a Linux binary dies with a `fatalError`
+- [x] ~~The bundle-identifier degradation on Linux: a real gap, but it belongs to whoever writes the Linux
+      keyring adapter, and it is a value the composition root should supply rather than a port.~~
+- [x] ~~`Facet_FacetCore.resources` must ship beside the executable or a Linux binary dies with a `fatalError`
       before `DatabaseBootstrap.Failure.ddlDirectoryNotFound` can report anything (`docs/linux-port.md`). That
-      is a packaging rule for `docs/distribution.md`, not an arm on this diagram.
+      is a packaging rule for `docs/distribution.md`, not an arm on this diagram.~~
+
+**Struck through rather than carried**, because neither is an arm and leaving them open here would make this
+list the place two unrelated jobs go to be forgotten. Both are real and both are recorded where they belong:
+the keyring service name with whoever writes the Linux keyring adapter, and the resource directory in
+`docs/linux-port.md`, which is what `docs/distribution.md` has to satisfy.
 
 ## 3. Starting and stopping
 
@@ -232,7 +237,12 @@ the database every time a value is needed, which is right for a local file and i
 question over an API. That has to be settled before a non-SQLite adapter is written, and settled in
 `CLAUDE.md` rather than inside whoever writes it.
 
-- [ ] Nothing, until either the remote adapter is real or an in-memory test adapter earns its keep.
+- [x] ~~Nothing, until either the remote adapter is real or an in-memory test adapter earns its keep.~~
+
+**Struck through, because it is not work and should not sit on a list of work.** A line waiting on something
+nobody has scheduled reads as a job somebody forgot. If a remote adapter is ever written, the tension with the
+first design rule gets settled in `CLAUDE.md` first and this section is reopened then; until that day there is
+one adapter and nothing to do.
 
 ---
 

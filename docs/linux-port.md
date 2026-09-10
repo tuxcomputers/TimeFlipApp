@@ -20,16 +20,17 @@ moving is a finding that will be measured twice.
 | Does the app's core compile on Linux? | **Yes -- `FacetCore` entire**, 89 files, 0 errors, 0 warnings, from a deleted `.build` in 13s | 2026-09-07, Linux |
 | Does the logic behave? | **Yes**, 432 tests pass | 2026-09-06 |
 | Can the whole test suite run? | **Under XCTest no**, `@MainActor` blocks ~60%. **Under swift-testing yes** | 2026-09-06 |
-| Does any of the suite run on Linux? | **Yes. `swift test` passes 1,095 of 1,772 tests** across 69 suites -- 590 under XCTest in 1.9s, 505 under swift-testing in 59s. **All 37 files still excluded need AppKit, CoreBluetooth or a `FacetMac` type** and come back with items 10 and 11; there is one exclusion list again, the run-loop one having emptied | 2026-09-09, Linux |
+| Does any of the suite run on Linux? | **Yes. `swift test` passes 1,095 of 1,772 tests** across 69 suites -- 590 under XCTest in 1.9s, 505 under swift-testing in 59s | 2026-09-09, Linux |
+| What is still excluded from the Linux run? | **Only what really draws or really talks to CoreBluetooth.** The exclusion list shrinks as each arm lands rather than waiting for items 10 and 11: a decision moved into `FacetCore` takes its tests with it, and they then run on both. It was 37 files when the split was made and 35 by 2026-09-10, the menu bar's dropdown, the quit sequence and the status item's title having crossed | ongoing, Mac |
 | Can Swift talk to BlueZ? | **Yes, in process, over libdbus.** `SystemBus` calls methods, marshals arguments both ways and receives signals with typed values; seven tests drive it against the real system bus | 2026-09-07, Linux |
 | Can it discover? | **Yes**, and the cube is found by `DeviceScanRules` -- the app's own rule, unchanged | 2026-09-07, Linux |
 | Can it drive the cube from Swift? | **Yes, every stage the app needs.** Connect, resolve, 16 characteristics by UUID, log in on the vendor PIN, read, the `0x10` status read-back parsed by the app's own rules, and **face turns arriving as notifications -- ten pushes over seven distinct faces**. Nothing but the PIN and `0x10` has been written | 2026-09-07, Linux |
 | Is there a UI? | **A menu bar item, and that settles the toolkit.** Swift calling GTK3 and `AyatanaAppIndicator3` through a modulemap, one process, one language. No Settings window yet | 2026-09-09, Linux |
 | Does the app run on Linux? | **Yes.** It boots, takes the instance lock, applies the DDL, puts an icon in the bar and quits from its own menu | 2026-09-09, Linux |
 | Can a GTK3 app be driven by a test harness? | **Yes, and the tray over D-Bus rather than AT-SPI.** Press, type, toggle and read back, all without a mouse and while the window is covered. Measured against a stand-in, not against Facet | 2026-09-08, Linux |
-| Is there a `FacetCore` target? | **Yes.** 86 files, no AppKit, and `FacetMac` builds on it. 589 access-level edits | 2026-09-07, Mac |
+| Is there a `FacetCore` target? | **Yes.** 86 files when it was made, no AppKit, and `FacetMac` builds on it. 589 access-level edits. It has grown since, and on purpose: the ports remodel moves decisions in, so **the number going up is the port getting smaller** | 2026-09-07, Mac |
 | ~~What is left before Linux can try the core?~~ | **Nothing. All four are done**: `SQLite3` has a modulemap target, `CoreGraphics` a `package typealias`, `Security` the login keyring through `secret-tool`, `CryptoKit` a written SHA-256 | 2026-09-07, Linux |
-| What is left before Linux can **run** anything? | The suite (item 6, swift-testing) to know it behaves; then item 9 for sign-in and item 10 for the radio. Both of those are in `FacetMac`, not the core | 2026-09-07, Linux |
+| What is left before Linux can **run** anything? | Two empty slots, not two rewrites. Item 10 is the BlueZ transport behind the radio port; item 11 is GTK behind the menu bar, window and dialog ports. Everything either of them would have had to decide is in `FacetCore` and is tested on both platforms already | ports model, 2026-09-10 |
 | Does CI check any of this? | **Yes, since today, and it did not before.** Two Linux jobs, mirroring the macOS pair -- merge preview and branch tip -- run `swift build`, start a private `dbus-daemon`, then `swift test` on `ubuntu-latest` in a `swift:6.2-noble` container -- **1,064 tests**, being the 1,059 the Mac also runs plus 5 of the 7 D-Bus ones. `all-tests-pass` requires both. Only 2 are skipped, both needing a real BlueZ adapter | 2026-09-09, Linux |
 | Does the core actually run outside `swift test`? | **Yes.** A real binary linked against it resolves the XDG data directory, applies the DDL through the bundle, takes the instance lock against a second process and reaches the keyring. One fault found: the resource bundle (below) | 2026-09-08, Linux |
 
@@ -37,12 +38,29 @@ moving is a finding that will be measured twice.
 11,000 lines of decision logic and the hermetic suite come across rather than being rewritten against the
 documents. That was the fork the spike existed to resolve.
 
-**A remodel is under way that this document predates.** `docs/architecture-ports-plan.md` is turning the
-core into ports and platform adapters, and it moves the line between `FacetCore` and `FacetMac` as it goes.
-**Every measurement here is still true** -- the radio stages, D-Bus and the tray, the XDG resolution, the
-resource-bundle fault, the corelibs symlink finding -- because those are facts about machines. What ages is
-the file counts, the test counts and any sentence about which side a file sits on. Where the two disagree,
-the plan is newer. Sections it has overturned are marked where they stand rather than deleted.
+## Written against the ports model
+
+**This document now describes the port as it stands once the remodel in
+[architecture-ports-plan.md](architecture-ports-plan.md) has landed**, on the owner's instruction of
+2026-09-10, so that the Linux work is planned against the shape it will actually meet rather than the one
+it was sized against. **The remodel is not finished.** That plan is where its state is tracked, arm by arm,
+and it is the newer document wherever the two disagree.
+
+Read it with one line held firmly in mind, because it is the difference between a plan and a fiction:
+
+- **Every measurement here was really taken, on the machine and date it names.** The radio stages against
+  the cube, D-Bus and the tray, the XDG data directory, the resource-bundle `fatalError`, the corelibs
+  symlink finding, `@MainActor` not being the main thread. Nothing in that class has been rewritten, and
+  none of it expires when code moves, because they are facts about machines rather than about the tree.
+- **Everything about which side of the line a file sits on, and what is left to write, is the finished
+  model.** Some of it is done and some is not; the plan says which.
+
+**What the model changes for this port, in one paragraph.** The core states each platform capability as a
+port and something outside hands over the thing that does it, so the Linux job stops being "reimplement the
+half that is AppKit" and becomes "fill the empty slot in each square". Everything the two platforms decide
+identically -- what the menu bar says, what its dropdown holds, what a click means, the command channel and
+its read-back discipline, the quit sequence -- is written once in `FacetCore` and is already tested on both
+platforms. What is left for Linux is genuinely GTK, genuinely BlueZ, and nothing else.
 
 ## The machines it was measured on
 
@@ -393,40 +411,37 @@ incomplete**, which the compiler settled on the Mac on 2026-09-06:
   `GoogleCredentials.builtIn` reads it through `Bundle.module` and that accessor is per-target.
   `.gitignore` and `scripts/generate-credentials.sh` name the new path.
 
-### ~~`StatusItemTitle` stays on the platform side~~ It moved, on 2026-09-10
+### The menu bar is shared, and only the drawing is the toolkit's
 
-**Overturned by the ports remodel** (`docs/architecture-ports-plan.md`). What this section said is kept
-below because the reasoning was right and the conclusion still inverted, which is worth being able to see.
+**This section used to say the opposite**, and the correction is worth keeping because the reasoning was
+right and the conclusion still inverted.
 
-**It said:** this was the one file on the 83-file move list the split had to refuse. Its colours are
-deliberately *semantic* AppKit ones -- `.labelColor`, `.systemCyan`, `.systemRed`, `.systemGreen`,
-`.systemYellow` -- and the file carried the reason above the property: the menu bar tints from the
-wallpaper rather than from the appearance setting, so a colour resolved before the draw is a frozen
-answer. Four fixed components cannot express that. `colourDescription` also switched on those constants
-to put the drawn line into words, which is what the scripted checks read, the accessibility tree
+**It said:** `StatusItemTitle` was the one file on the 83-file move list the split had to refuse. Its
+colours are deliberately *semantic* AppKit ones -- `.labelColor`, `.systemCyan`, `.systemRed`,
+`.systemGreen`, `.systemYellow` -- and the file carried the reason above the property: the menu bar tints
+from the wallpaper rather than from the appearance setting, so a colour resolved before the draw is a
+frozen answer. Four fixed components cannot express that. `colourDescription` also switched on those
+constants to put the drawn line into words, which is what the scripted checks read, the accessibility tree
 carrying no colour at all. So a Linux UI would need its own equivalent regardless.
 
-**What was missed is in that last sentence.** `colourDescription` turning each `NSColor` back into
-"cyan", "green", "red" was the tell: the *word* was the answer all along and the `NSColor` was a detour.
-`StatusColour` is five named cases with the word as the raw value, `StatusItemTitle` chooses between
-them knowing nothing about how a Mac draws, and `FacetMac.StatusColourDrawing` is a five-line table from
-case to `NSColor`. The semantic colours are still semantic and still resolve at draw time, because what
-crosses the arm is the *question* rather than an answer to it. The move **deleted** code rather than
-relocating it: `name(of:)` and its `default` returning "unnamed" both went, an enum having no fallthrough.
+**What was missed is in `colourDescription` itself.** Turning each `NSColor` back into "cyan", "green",
+"red" was the tell: the *word* was the answer all along and the `NSColor` was a detour. `StatusColour` is
+five named cases with the word as the raw value; `StatusItemTitle` chooses between them knowing nothing
+about how a Mac draws; `FacetMac.StatusColourDrawing` is a five-line table from case to `NSColor`. The
+semantic colours are still semantic and still resolve at draw time, because **what crosses the arm is the
+question rather than an answer to it**. The move deleted code rather than relocating it: `name(of:)` and
+its `default` returning "unnamed" both went, an enum having no fallthrough.
 
-So the portable colour type for everything else is still **`Colour`**, four sRGB `Double`s, covering
-`CategoryStore`, `TimeEntryStore`, `ColourStore`, `FaceColourRules` and `DeviceFaceRules`, converted at
-the point of drawing through `Colour.nsColor`. That part stands. What does not is the idea that a menu
-bar title is a toolkit question: **the words and the colour names are shared, and only the drawing is
-the toolkit's.** `StatusItemMenu` went the same way on the same day, so the dropdown is shared too.
+**So the whole of the menu bar's meaning is shared.** `StatusItemTitle` decides the line in the bar and
+`StatusItemMenu` decides the dropdown -- which lines there are, what each says, whether it can be chosen
+and what choosing it does -- and both are in `FacetCore` with tests that run on both platforms. The
+identifiers a check addresses them by are shared too, reaching `AXIdentifier` on a Mac and
+`com.canonical.dbusmenu`'s `GetLayout` here. What `FacetLinux.MenuBar` has to do is render an answer it is
+handed, which is the shape it already had.
 
-Two consequences worth knowing before the same conversion is done anywhere else:
-
-- **`FaceColourRules` no longer converts to sRGB before reading channels**, `Colour` holding no other
-  space. The branch that treated an unconvertible colour as off went with the failure it handled.
-- **`NSColor.black` and `.white` are Generic Gray, and `Colour.black.nsColor` is sRGB.** The same
-  pixel, but `NSColor` equality compares the space, so a test asserting a drawn colour against the
-  AppKit constant fails after the conversion. `TimingViewTests` asserts against the ink itself now.
+The portable colour type for everything else is still **`Colour`**, four sRGB `Double`s, covering
+`CategoryStore`, `TimeEntryStore`, `ColourStore`, `FaceColourRules` and `DeviceFaceRules`, converted at the
+point of drawing. That part always stood.
 
 ### Two files were carrying an `import AppKit` they had stopped needing
 
@@ -610,7 +625,9 @@ Roughly in dependency order. Nothing here is started.
      `GoogleOAuthClient.swift`.
    - ~~The target, and the files into it.~~ Done. 86 files in `FacetCore`, 35 in `FacetMac`,
      `FacetCore` compiling with 0 errors and no AppKit, the DDL and `google-client.json` moved to its
-     resources.
+     resources. **Those two numbers are the split as it was made and are not a target to hold**: the
+     ports remodel goes on moving decisions in, and `FacetMac` shrinking towards nothing but drawing and
+     CoreBluetooth is the intended end of it.
    - ~~Stage 3, the access-level loop.~~ Done 2026-09-07. **589 `package` declarations**, 152 types and
      437 members, every one of them named by the compiler.
    - ~~Stage 5, the test target.~~ Done. `@testable import FacetCore` beside `FacetMac` in 100 files,
@@ -821,11 +838,23 @@ Roughly in dependency order. Nothing here is started.
    waiting, and `cancel` settles whoever is waiting. That last-but-one is the case that actually broke a
    sign-in once. Mutation-checked rather than assumed: the code assertion was pointed at a wrong value
    and the test failed, so it is really talking to a socket.
-10. **The BlueZ backend in Swift.** Roughly 600-1000 lines behind the interface `BluetoothRadio` already
-   presents. `scripts/linux-ble-probe.py` is the working reference for every D-Bus call it needs -- and the
-   whole of what it needs is **11 methods and 2 signals**: `GetManagedObjects`, `Get`/`GetAll`/`Set`,
+10. **The BlueZ adapter: the Linux slot in the radio square.** Not a backend to write behind whatever
+   `BluetoothRadio` happens to present, which is how this item read before the ports remodel. The radio is
+   a port, `CubeRadio`, and the protocol reasoning that used to sit inside `BluetoothRadio` and
+   `DeviceLogin` -- the command channel, the queue, the read-back matrix, which commands can be confirmed
+   at all -- is in `FacetCore` and is the same on both platforms. **What this slot owes is transport**:
+   connect, read, write, subscribe, and the answers handed back up the arm in the shape the port names.
+
+   `scripts/linux-ble-probe.py` is the working reference for every D-Bus call it needs -- and the whole of
+   what it needs is **11 methods and 2 signals**: `GetManagedObjects`, `Get`/`GetAll`/`Set`,
    `StartDiscovery`, `StopDiscovery`, `Connect`, `Disconnect`, `ReadValue`, `WriteValue`, `StartNotify`,
    `StopNotify`, with `PropertiesChanged` and `InterfacesAdded` to listen to.
+
+   **The read-back discipline comes free, and that is the point of the arm.** `CLAUDE.md` requires every
+   command with a read-back to be sent and then read back, and the two measured traps in the `0x10` answer
+   -- that it carries no echoed command byte, and that a locked cube reports itself paused whatever its
+   pause byte says -- are decided in the core. This adapter cannot get them wrong differently from the Mac,
+   because it does not decide them.
 
    **Groundwork done 2026-09-07, Linux**: `TimeFlipUUIDs` is in the core now, its `CBUUID` accessors
    split off into `TimeFlipUUIDs+CoreBluetooth.swift` beside the radio. What is portable about a UUID is
@@ -965,13 +994,33 @@ Roughly in dependency order. Nothing here is started.
    the same bytes over typed. That is the opposite conclusion to the keyring's in item 7, and for a
    consistent reason: there the subprocess won because the swap was contained in one file and the values
    were strings; here the values are the point.
-11. **The UI.** **The toolkit is decided and the first two slices are done**: Swift calling GTK3 and the
-    Ayatana indicator through `Sources/CGtk`, which is a `systemLibrary` modulemap exactly as `SQLite3` and
-    `CDBus` are, so it is one process and one language and no Swift bindings to keep in step with. What
-    exists is `Sources/FacetLinux` -- the boot, and a menu bar item whose one working control is Quit. What
-    is left is the rest of it: the timing readout in the label (`TimingReadout` is already in `FacetCore`,
-    and the label carries a `00:00:00` guide for it), the Settings window and its five tabs, and the Report
-    tab. Those are the 31 AppKit files, and they are the bulk of the port.
+11. **The UI: filling the GTK slots.** **The toolkit is decided and the first two slices are done**:
+    Swift calling GTK3 and the Ayatana indicator through `Sources/CGtk`, which is a `systemLibrary`
+    modulemap exactly as `SQLite3` and `CDBus` are, so it is one process and one language and no Swift
+    bindings to keep in step with. What exists is `Sources/FacetLinux` -- the boot, and a menu bar item
+    whose one working control is Quit.
+
+    **This is a smaller item than the file count says, and the ports remodel is why.** It used to read
+    "those are the 31 AppKit files, and they are the bulk of the port". What is in those files is now two
+    different things, and only one of them is this item:
+
+    - **What the app decides** is in `FacetCore` and is already written and already tested on both
+      platforms. The menu bar's line and its dropdown, what a click means, which category a face is filed
+      under, what a report adds up, what each Settings control may be set to, which dialog a refusal
+      raises and what the answers to it mean. None of it is written twice.
+    - **What a toolkit draws** is this item: an indicator, a window, the widgets on five tabs, and the
+      dialogs. GTK for all of it, and no decisions in any of it.
+
+    The menu bar is the worked example and it is done on both sides. `MenuBar` takes a label and a list of
+    items as closures, reads them and remembers nothing; `MenuBarController` renders the same answers into
+    `NSStatusItem` and `NSMenu`. Neither decides anything, and the tests for what they show run on both
+    platforms. **The remaining slots are the same job at a larger size**: the timing readout in the label
+    (`TimingReadout` is core, and the label already carries a `00:00:00` guide for it), then the Settings
+    window and its five tabs, then Report.
+
+    The dialogs are their own arm rather than part of the window work: what to show and which answer came
+    back is core, an `NSAlert` here and a `GtkMessageDialog` there. That is what stops
+    `CategoryRenameRules` taking an AppKit button index, which it did before the remodel.
 12. **The scripted suite on AT-SPI.** The largest single piece, and the only thing that can say the app
     works. `Tests/Methods.md` techniques survive; the locator layer is new. **The mechanism is no longer a
     question** -- the section above drove a GTK3 window and an AppIndicator menu end to end, including
@@ -998,7 +1047,7 @@ Open questions, with what would answer each.
 | **Is `contentsOfDirectory(at:)` on a symlink a known corelibs bug or intended?** Worth reporting upstream if the former. **Narrowed 2026-09-07, Linux**: it is specific to a symlinked *directory*. A symlinked **file** inside a real directory is listed by both `at:` and `atPath:` and read straight through by `String(contentsOf:)` -- measured on `database/500_timezone.sql`, 13 of 13 `.sql` files found either way. So a report has a smaller and sharper case than the original finding suggested | Check the swift-corelibs-foundation tracker |
 | ~~**Does SwiftPM follow the symlinked resources directory on macOS?**~~ **Yes**, before and after the split: 13 `.sql` files in the built bundle, flattened to its root | Answered 2026-09-06, Mac |
 | ~~Does `Thread.isMainThread` matter?~~ **No.** It reads `false` inside a `@MainActor` test on Linux -- isolation holds, the OS thread simply is not thread 1 -- and nothing in `Sources/` calls it | Answered 2026-09-06 |
-| ~~**What do the 41 platform files actually need?**~~ **35 of them, and now assessed by the compiler.** `FacetMac` is what did not move: the panes and views, `BluetoothRadio`, `DeviceLogin`, `BLETrace`, `TimeFlipUUIDs`, `MenuBarController`, `MainMenu`, `ActivityIcon`, `GoogleOAuthClient`, `QuitSequence`, `StatusItemTitle`, `ColourDrawing` and `main.swift`. **Three of those have since moved** (2026-09-10): `GoogleOAuthClient`, `QuitSequence` and `StatusItemTitle`, leaving `QuitDelegate` and `StatusColourDrawing` behind them | Answered 2026-09-06, Mac; partly superseded 2026-09-10 |
+| ~~**What do the 41 platform files actually need?**~~ **35 of them, and now assessed by the compiler.** `FacetMac` is what did not move: the panes and views, `BluetoothRadio`, `DeviceLogin`, `BLETrace`, `TimeFlipUUIDs`, `MenuBarController`, `MainMenu`, `ActivityIcon`, `GoogleOAuthClient`, `QuitSequence`, `StatusItemTitle`, `ColourDrawing` and `main.swift`. **That answer is what the ports remodel then went to work on**, and the question it asks is the wrong one: a file needing AppKit is not the same as a file being about AppKit. `GoogleOAuthClient` needed one line of it, `QuitSequence` six, `StatusItemTitle` a table of five colours. All three are core now, with `QuitDelegate` and `StatusColourDrawing` left behind as the AppKit that was really there | Answered 2026-09-06, Mac; the question replaced 2026-09-10 |
 | ~~**How many members does stage 3 actually have to widen?**~~ **437 members, over 152 types, 589 `package` declarations in total.** The loop was run and the section above carries the working; the type count of 94 this row quoted was low by more than half, because what the compiler asks for is the types `FacetMac` names *plus* everything that comes with them | Answered 2026-09-07, Mac |
 | ~~**Does the scripted suite still pass after the split?**~~ **Yes, in full**, reported by the owner from a shakedown run on the Mac. Not a stamped run and not evidence for CI, which still wants one -- but it answers the question this row was asking, which was whether moving `Sources/` wholesale had broken the app on hardware. It had not | Answered 2026-09-07, Mac |
 | **Does the rename apply immediately or is it deferred?** Open since August; finding 1 wants a second BLE central with no cached record, and this box is one | Rename from the Mac, read the GAP name from Linux |
