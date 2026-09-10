@@ -75,9 +75,24 @@ final class HandDrivenScheduler: Scheduler {
     ///
     /// The list is copied before anything runs, so a tick that arranges the next wake (which is how a one-shot
     /// repeats itself, and how `DeviceReconnector` backs off) does not extend the run it is inside.
+    ///
+    /// **A wake cancelled part-way through the pass is skipped**, which is not tidying: a module that arms a poll
+    /// and a deadline together cancels the second from inside the first, and firing it anyway would run a timeout
+    /// whose work has already happened. `BlueZCubeRadio` is the case -- the scan poll finding the cube closes the
+    /// window, and the window's own deadline must not then close it again.
     func tickAll() {
         let waiting = wakes
-        for wake in waiting { fire(wake) }
+        for wake in waiting where wakes.contains(where: { $0 === wake }) { fire(wake) }
+    }
+
+    /// Fires every wake waiting that was arranged for this interval, oldest first.
+    ///
+    /// **For a subject holding several at once**, where `tickAll` would drive all of them and `tick` refuses
+    /// because there is more than one. The interval is what tells them apart, which is why the modules that have
+    /// several keep theirs as named constants.
+    func tickAll(after seconds: TimeInterval) {
+        let waiting = wakes.filter { $0.seconds == seconds }
+        for wake in waiting where wakes.contains(where: { $0 === wake }) { fire(wake) }
     }
 
     /// Fires one wake and takes it off the list unless it repeats.
