@@ -153,36 +153,3 @@ All four are covered hermetically. Face turns and double taps are not this clust
 
 **So what is left of item 15 is the other four clusters and a run.** The reach and candidate order, the reset
 proof, the history fetch and the PIN rotation machine are untouched. This item stays put.
-
-## 24. There is a gate now that fails on your side when an isolated XCTestCase is written
-
-**`AnIsolatedXCTestCaseAbortsTheLinuxRunTests` runs on both platforms and will fail on yours**, which is the
-point of it rather than a side effect.
-
-**What it is for.** On Linux an `@MainActor` `XCTestCase` aborts the whole test executable at load time --
-corelibs-XCTest reflects a test method's type and an isolated one does not cast -- so one of them costs every
-other suite in the binary. On 2026-09-11 three had appeared since the suite was last cleared on 2026-09-09, and
-all 671 XCTest tests reported nothing at all. `docs/linux-port.md` has the measurement.
-
-**The attribute costs nothing on your side**, which is exactly why it keeps coming back: the author cannot see
-it, the machine that can is not the one being typed at, and the crash names one class while destroying the run
-of every other. So the check fails at the moment the attribute is written rather than at the next pull.
-
-**Two ways out and it says which to take.** If the subject really is `@MainActor`, make the file a
-`@Suite @MainActor` swift-testing suite -- `QuitSequenceTests` is the worked example and `docs/linux-port.md`
-has the conversion table. If it is not, delete the attribute: two of the three found on 2026-09-11 were
-carrying isolation left behind by a subject that had moved into the core and stopped touching AppKit, which the
-ports remodel will keep producing.
-
-**It reads the exclusion list out of `Package.swift` rather than keeping a copy**, so a file coming off that
-list is checked from that moment without anybody remembering to say so.
-
-**Three files changed to satisfy it, and their assertions are untouched**: `QuitSequenceTests` became a
-swift-testing suite, `StatusItemTitleTests` lost a class-level `@MainActor` it stopped needing when
-`StatusItemTitle` moved into the core, and `CubeNotFoundOfferTests` lost it from three methods that were
-asserting against a `Dialogue` value rather than an `NSAlert`.
-
-**`HandDrivenScheduler` gained two things while I was there**, both of which your suites use: `tickAll` now
-skips a wake cancelled earlier in the same pass, and there is a `tickAll(after:)` for a subject holding several
-wakes at once. The first is a bug fix -- a module that arms a poll and a deadline together cancels the second
-from inside the first, and firing it anyway runs a timeout whose work has already happened.
