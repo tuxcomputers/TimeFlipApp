@@ -316,13 +316,23 @@ in memory for tests. Every other square reads macOS, Linux, Windows. What it was
 intention that a remote backend would arrive as an adapter one day, and that is a deployment choice rather
 than a platform one.
 
-**That intention is still real and is recorded here rather than on the picture.** If a remote adapter is ever
-written, the tension `CLAUDE.md` names has to be settled first: the first design rule says read from the
-database every time a value is needed, which is right for a local file and is a network round trip per question
-over an API. Settling it is a decision for `CLAUDE.md`, not something to discover inside whoever writes the
-adapter.
+**The remote server turned out not to be a backend at all**, which closes the question that was in front of
+this and makes removing the square right for a stronger reason than the one above. Settled by the owner on
+2026-09-10: Facet always uses SQLite as its local database, and the Facet server is an *additional* thing that
+can be turned on and off at will, exactly like the Google connection. Nothing replaces the database as the
+source of truth.
+
+So there is no non-SQLite adapter to write and no tension with the first design rule to resolve. `CLAUDE.md`
+records the decision where the open question used to be.
+
+**What a Facet server client will be, when it is written**, is `CalendarSync`'s shape and nothing new: a core
+module holding the connection and the settings, reading them at the point of use, reaching the network through
+an injected closure so it can be exercised with no account and no network, and writing anything it syncs down
+into the database for the app to read back. Syncing categories down, if that is what it does, needs no rule
+this codebase does not already have.
 
 - [x] Establish whether this is an arm at all. **It is not**, on the evidence above, and the square is gone.
+- [x] Settle whether a remote backend forces the database rule to relax. **The case never arises.**
 
 ---
 

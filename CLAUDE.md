@@ -202,13 +202,29 @@ allowlist is down to 1 file (`GoogleLoopbackListener`, from 7), and 11 files sti
 with no conditional at all, on `applicationSupportDirectory`, `Bundle.main`, `sqlite3_*`, `FileManager.default`
 or `flock`. `docs/architecture-ports-plan.md` is the ordered list of what is left.
 
-### What this rule does not settle
+### The remote server is a peer, not a backend (settled 2026-09-10)
 
-**The database rule and a remote backend are in tension, and this rule does not resolve it.** The first design
-rule says read from the database at the moment it is needed, every time, which is right for a local file and is a
-network round trip per question over an API. Whether the rule relaxes for a remote adapter, or the adapter is
-obliged to make reads cheap, is an open decision. It has to be settled before a non-SQLite adapter is written,
-and settled here rather than inside whoever writes it.
+**This used to record an open tension and it is closed.** The question was whether the first design rule relaxes
+for a remote adapter, since reading from the database every time a value is needed is right for a local file and
+is a network round trip per question over an API.
+
+**It does not relax, because the case never arises.** The owner has settled it: **Facet always uses SQLite as its
+local database**, on every platform, and the Facet server is an *additional* thing that can be turned on and off
+at will, exactly like the Google connection. Nothing replaces the database as the source of truth, so the rule
+applies unchanged.
+
+What follows, and it is all precedent rather than new ground:
+
+- **A Facet server client is a core module that talks HTTP**, beside `GoogleCalendarClient` and
+  `GoogleEventClient`. Not a port and not a square: `URLSession` needs `import FoundationNetworking` on Linux and
+  `Foundation` on Darwin, which is a different import and not a different implementation.
+- **Syncing anything *down* writes it to the database, and the app then reads the database.** That is
+  `CalendarSync`'s shape: it holds the connection and the settings, reads them at the point of use, and reaches
+  the network through an injected closure so a sweep can be exercised with no account and no network. A sync that
+  handed values straight to a surface would be the second copy the first rule exists to forbid.
+- **Storage is therefore not an arm at all**, which is why it was taken off `docs/architecture-model.svg`. All
+  four files that touch `sqlite3_` are already in `FacetCore`, and `import SQLite3` is the same line on both
+  platforms.
 
 ## The previous implementation is in the git history, not in the tree
 
