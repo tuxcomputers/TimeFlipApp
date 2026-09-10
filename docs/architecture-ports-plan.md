@@ -36,10 +36,10 @@ The cheap and the blocking come first, the large and the discretionary last.
 |---|-----|-------|----------|
 | 0 | Housekeeping | **done** | Corrections that cost nothing and were noise in every scan. |
 | 1 | The clock | **done, and the square is green** | Six core modules on `RunLoop.main`, which `FacetLinux` never runs. A live latent fault. The Linux slot landed 2026-09-11. |
-| 3 | Starting and stopping | **done** | Landed with `QuitSequence`. Turned out to need no protocol at all: see its section. |
+| 3 | Starting and stopping | **done, both slots** | Landed with `QuitSequence`. Turned out to need no protocol at all: see its section. The Linux slot is `endTheApp` in that platform's composition root, GTK's Quit being a menu item rather than a delegate callback. |
 | 2 | Files and folders | **not an arm** | Off the diagram on 2026-09-10, like storage: it is in the core and there is nothing to select. |
-| 4 | Menu bar | **done** | The **second adapter already exists** and is the right shape. A real seam with one outlier, not a hypothetical one. |
-| 5 | Radio | **arm done; the Linux slot is half built** |  The biggest port with a protocol already standing. Wanted `feature/commandChannel` landed first. `CubeGatt` has a BlueZ adapter as of 2026-09-11; `CubeRadio` does not, and nothing composes either. |
+| 4 | Menu bar | **done, both slots** | The **second adapter already exists** and is the right shape. A real seam with one outlier, not a hypothetical one. The Linux slot stopped deciding on 2026-09-11. |
+| 5 | Radio | **done, both slots** |  The biggest port with a protocol already standing. Wanted `feature/commandChannel` landed first. `BlueZCubeGatt` and `BlueZCubeRadio` landed on 2026-09-11 and `FacetLinux/main.swift` hands both over. |
 | 6 | Windows and dialogs | arm green, one row left; the dialogue half has both slots | 3,487 lines and the least mechanical work in the app. Everything above teaches something it needs. The GTK dialogue slot landed 2026-09-11; the window half is not behind a port at all. |
 | 7 | Storage | **not an arm** | Off the diagram on 2026-09-10. It is in the core and was never a platform capability. |
 
@@ -459,6 +459,40 @@ this codebase does not already have.
 
 - [x] Establish whether this is an arm at all. **It is not**, on the evidence above, and the square is gone.
 - [x] Settle whether a remote backend forces the database rule to relax. **The case never arises.**
+
+---
+
+## What the Linux slots cost, and what they said about the arms
+
+**Written on 2026-09-11, after filling five of them in a day.** The claim the model makes is that a second
+platform is adapters and nothing else, and this is the audit of whether that held.
+
+**It held, and the number is zero.** Not one core module needed a line changed to run on Linux. `DeviceLogin`,
+`DeviceReconnector`, `CubeCommandChannel`, `HistoryIngestor`, `HistoryTimer`, `CubeLock`, `FaceColourSync`,
+`DeviceSettingsSync`, `LowBatteryWatch`, `DailyLimitWatch`, `ForcedPauseWatch` and `QuitSequence` were all
+constructed in a second composition root and ran.
+
+**Three things did have to move, and each one is the same shape**: a decision written down inside a platform
+target that the second platform needed too.
+
+- **The BLE trace.** Ten `debug_log` wordings keyed on `CBUUID` in `FacetMac`. They are read back by
+  `Tests/Scripted` with `LIKE` and `GLOB`, so they are interface, and a second radio would have written a second
+  copy that diverged one row at a time.
+- **The seeded device settings.** Five numbers in `DevicePane.Values.seeded`, which is an AppKit view. They are
+  `database/011_setting.sql`'s own seeds and any composition root reading a fresh database needs them.
+- **The Settings line in the dropdown.** `StatusItemMenu` always drew one, and this platform has no window to
+  open. `openSettings` is optional now and `nil` means the line is not offered, which is the same judgement
+  `choose: nil` already makes about a control that looks live and does nothing.
+
+**One thing went the other way and is worth naming as a limit.** The Linux menu carries lines the Mac has no
+equivalent for -- a list of today's totals standing in for a Report tab, a pairing control standing in for a
+Device tab. Those are that platform's composition root's, marked as such, and they are what item 22 of
+`docs/handover-linux.md` predicts: a second platform finds decisions the first never had to make.
+
+**And one asymmetry turned out to be the argument for a port rather than a cost of one.** `Dialogue.wayOut`
+carries a *position*, and the reason written on it is a measured AppKit trap: a button titled Cancel is
+relocated, which takes Return off the way out. GTK relocates nothing, so the Linux adapter honours the field in
+one line. A port whose shape was chosen by one platform's difficulty turned out to cost the other nothing.
 
 ---
 
