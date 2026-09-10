@@ -18,13 +18,23 @@
 
   <rect width="1280" height="1200" fill="#f6f6f4"/>
 
-  <!-- THE CONVENTION, so each finished adapter is marked the same way.
-       A capability is done when its port exists and the macOS adapter sits in its own square, handed over by the
-       composition root. When that happens, three things change together:
-         1. the arm goes solid green (#059669) from dashed amber
-         2. the macOS slot goes green (#059669) from black
-         3. the square goes green-bordered on a pale green ground (#059669 on #f0fdf4) from black on white
-       A black slot means the code exists but is not yet through a port. A dashed slot means it is not written. -->
+  <!-- THE CONVENTION, so each finished adapter is marked the same way. Three things go green, and they go green
+       at three different moments, which is the point of having three of them.
+
+         1. THE ARM (#059669 solid, from #b45309 dashed) once the port exists and something is handed over it.
+         2. THE SLOT (#059669, from black #0f172a) once that one platform's adapter sits in the square and its
+            composition root hands it over. One slot per platform, each going green on its own.
+         3. THE SQUARE (#059669 border on #f0fdf4, from black on white) only once EVERY platform's adapter is
+            done. A capability with a finished macOS adapter and no Linux one keeps a black square: the arm is
+            green and the macOS slot is green, and the square says the capability itself is not finished.
+
+       So a green square means the whole capability is settled, not that somebody made a start on it. The macOS
+       work landing first will turn arms and slots green for a long while before any square follows.
+
+       A black slot means the code for that platform exists but is not yet through a port. A dashed slot means
+       it has not been written. -->
+
+  <!-- Windows is drawn because the model allows for it, not because it is planned. Nothing is in scope for it. -->
 
   <!-- ══════════ title ══════════ -->
   <text x="48" y="52" font-size="26" font-weight="600" fill="#0f172a" font-family="Newsreader,Georgia,serif">The shape Facet is being moved into</text>
@@ -93,8 +103,8 @@
 
   <!-- NE: Secrets -->
   <g>
-    <rect x="962" y="238" width="210" height="112" rx="4" fill="#f0fdf4" stroke="#059669" stroke-width="2.5"/>
-    <text x="1067" y="260" text-anchor="middle" font-size="13" font-weight="600" fill="#065f46">Secrets</text>
+    <rect x="962" y="238" width="210" height="112" rx="4" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    <text x="1067" y="260" text-anchor="middle" font-size="13" font-weight="600" fill="#0f172a">Secrets</text>
     <rect x="974" y="270" width="186" height="22" rx="3" fill="#059669"/>
     <text x="1067" y="285" text-anchor="middle" font-size="10" fill="#ffffff">macOS: Keychain</text>
     <rect x="974" y="296" width="186" height="22" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
@@ -206,24 +216,29 @@
   <!-- ══════════ legend ══════════ -->
   <line x1="48" y1="1046" x2="1232" y2="1046" stroke="#e2e8f0" stroke-width="1"/>
 
+  <text x="48" y="1068" font-size="11" fill="#64748b" letter-spacing="1.2">THREE THINGS GO GREEN, AT THREE DIFFERENT MOMENTS</text>
+
   <g font-size="11.5" fill="#334155">
-    <!-- done: green arm, green macOS slot, green square -->
-    <line x1="52" y1="1074" x2="102" y2="1074" stroke="#059669" stroke-width="2.5" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
-    <rect x="112" y="1065" width="44" height="17" rx="3" fill="#f0fdf4" stroke="#059669" stroke-width="2"/>
-    <rect x="118" y="1069" width="32" height="9" rx="2" fill="#059669"/>
-    <text x="170" y="1078"><tspan font-weight="600" fill="#065f46">Done.</tspan> The port exists, the macOS adapter is in its square, and the composition root hands it over.</text>
+    <!-- the arm -->
+    <line x1="52" y1="1094" x2="102" y2="1094" stroke="#059669" stroke-width="2.5" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+    <text x="116" y="1098"><tspan font-weight="600" fill="#065f46">The arm</tspan>, once the port exists and something is handed over it. Amber and dashed until then.</text>
 
-    <!-- not yet: dashed amber arm, black macOS slot, black square -->
-    <line x1="52" y1="1104" x2="102" y2="1104" stroke="#b45309" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowMissing)" marker-start="url(#arrowMissing)"/>
-    <rect x="112" y="1095" width="44" height="17" rx="3" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
-    <rect x="118" y="1099" width="32" height="9" rx="2" fill="#0f172a"/>
-    <text x="170" y="1108"><tspan font-weight="600">Not yet.</tspan> The macOS code exists and is written, but it is not behind a port: the core reaches it directly, or it sits on the wrong side of the line.</text>
+    <!-- the slot -->
+    <rect x="52" y="1113" width="50" height="17" rx="3" fill="#059669"/>
+    <text x="116" y="1126"><tspan font-weight="600" fill="#065f46">One slot</tspan>, once that platform's adapter sits in the square and its own composition root hands it over. Each platform's slot goes green on its own.</text>
 
-    <!-- a slot nobody has written -->
-    <rect x="112" y="1125" width="44" height="17" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
-    <text x="170" y="1138">A slot waiting to be written. The build selects one slot per square, and the core cannot tell which it got.</text>
+    <!-- the square -->
+    <rect x="52" y="1140" width="50" height="19" rx="3" fill="#f0fdf4" stroke="#059669" stroke-width="2"/>
+    <text x="116" y="1153"><tspan font-weight="600" fill="#065f46">The square</tspan>, only once <tspan font-weight="600">every</tspan> platform's adapter is done. A finished macOS adapter with no Linux one keeps a black square: the capability is not finished, only started.</text>
   </g>
 
-  <text x="48" y="1172" font-size="12" fill="#64748b" font-style="italic">Drawn 2026-09-10, and updated as each square is finished. The rule this draws is in CLAUDE.md, under "The core is platform-blind, and every platform capability is a port".</text>
-  <text x="48" y="1191" font-size="12" fill="#065f46"><tspan font-weight="600">1 of 8 squares finished.</tspan> <tspan fill="#b45309">29 per cent of Sources/FacetMac is genuinely square-code; the other 66 per cent is circle-code that has not moved inside yet.</tspan></text>
+  <g font-size="11.5" fill="#334155">
+    <rect x="700" y="1113" width="50" height="17" rx="3" fill="#0f172a"/>
+    <text x="762" y="1126">Written, but not behind a port yet.</text>
+    <rect x="700" y="1140" width="50" height="17" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
+    <text x="762" y="1153">Not written. The build selects one slot per square.</text>
+  </g>
+
+  <text x="48" y="1180" font-size="12" fill="#64748b" font-style="italic">Drawn 2026-09-10 and updated as each adapter lands. The rule this draws is in CLAUDE.md, under "The core is platform-blind, and every platform capability is a port".</text>
+  <text x="48" y="1197" font-size="12" fill="#b45309"><tspan fill="#065f46" font-weight="600">1 macOS adapter done, of 8.</tspan> No square is finished yet, and none can be until the Linux port resumes. 29 per cent of Sources/FacetMac is genuinely square-code.</text>
 </svg>
