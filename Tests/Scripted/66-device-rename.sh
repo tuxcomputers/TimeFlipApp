@@ -13,7 +13,11 @@
 #   renaming a cube to Hazza on 2026-08-01 made every reconnect time out from the next launch onwards, because
 #   reconnecting is a scan and the filter matched one name;
 # - that nothing is written down until the cube has taken it, which is the first rule in `CLAUDE.md` and the reason
-#   the row ids are compared below rather than the two rows merely both being present.
+#   the row ids are compared below rather than the two rows merely both being present;
+# - that the **cube** is carrying the new name once the app has been shut down and started again, rather than the app
+#   simply still believing what it wrote. Every other check here reads what this app recorded, so all of them would
+#   pass on a cube that had ignored `0x15` completely. `peripheralDidUpdateName` is the one thing that says
+#   otherwise, and the check that reads it is at the bottom.
 #
 # **The name goes back at the end**, and not because anything after this depends on it: `99-quit` wipes the cube and
 # clears the row with it. It goes back so a run stopped between here and there leaves the cube as it was found.
@@ -24,7 +28,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=21
+EXPECTED_CHECKS=22
 start "renaming the cube from the Device tab"
 
 require_a_paired_cube "there is no cube to rename"
@@ -142,11 +146,37 @@ sleep 1
 # it, and this is the only place that claim meets real hardware.
 
 close_settings
+# **Marked before the restart, because the row that matters arrives seconds after the login does.**
+# `relink_a_cube` quits the app and brings it back, and returns as soon as the cube is logged in; the name
+# comes later on that same connection.
+restarted=$(mark)
 if relink_a_cube; then
     pass "the app found its cube again after the rename and got back to it"
 else
     fail "the app could not get back to the cube after renaming it, which is the failure the previous app shipped"
 fi
+
+# **The only row in this script that comes off the device rather than out of this app.** Everything above
+# reads what the app wrote down, so all of it would still pass if the cube had ignored `0x15` entirely and
+# the app had recorded its own wish -- which is precisely the fault the first rule in `CLAUDE.md` is about,
+# and `0x15` has no read-back to catch it with. This row is `peripheralDidUpdateName`, which is macOS
+# handing over the GAP name it has just re-read off the hardware.
+#
+# **It only fires because the restart happens before anything else reconnects.** macOS caches the GAP name
+# and refreshes it on connecting, and the callback fires on a *change* -- so this works here, on the first
+# connection after the rename, and would not if some earlier section had already synced the cache.
+#
+# **Thirty seconds, and it is not generous.** Measured twice on 2026-09-10 against this cube: 4.2s and 5.3s
+# from the link coming up. Finding 1 used to say "about two seconds", which is why it no longer says it.
+expect_log "the cube itself reports the new name, which is the only proof the hardware took it" \
+    "$restarted" "The cube now reports its name as $TEST_NAME" 30
+
+# **Narrated rather than checked, because it is macOS's behaviour and not this app's.** The scan that found
+# the cube on the way back up renders the *cached* GAP name, so straight after a rename it shows the old one
+# -- which is why "the scan shows the new name" cannot be the check above, and looks like a failed rename
+# when it is not (measured 2026-09-10: renamed to Bandicoot, the relaunch scan still said TimeFlip v2.0).
+seen=$(dsql "SELECT message FROM debug_log WHERE debug_log_id > $restarted AND message LIKE '%: peripheral %' ORDER BY debug_log_id LIMIT 1;")
+step "the scan on the way back up said ${seen:-nothing}"
 
 # **And the rename survives that connection, whichever name it reported.** macOS re-reads the GAP name only on
 # connecting and can hand out the *previous* one for a connection or two -- so the app may well have just been told
