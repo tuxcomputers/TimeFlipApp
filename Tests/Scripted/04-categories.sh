@@ -401,8 +401,8 @@ check "and the alert is gone" "no" "$(alert_is_open && echo yes || echo no)"
 since=$(mark)
 ask_about "$RENAMED"
 expect_log "a name an active category holds is refused outright" "$since" "%Save new category $RENAMED -> already active as category_id $ID%"
-check "the alert offers one button, which only dismisses" "Ok" "$(alert_buttons)"
-press_title Ok
+check "the alert offers one button, which only dismisses" "OK" "$(alert_buttons)"
+press_title OK
 sleep 0.8
 check "nothing was created" "1" "$(sql "SELECT COUNT(*) FROM category WHERE category_name = '$RENAMED';")"
 

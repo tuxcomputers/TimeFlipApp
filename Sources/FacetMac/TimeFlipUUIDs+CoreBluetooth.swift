@@ -60,28 +60,13 @@ extension TimeFlipUUIDs {
 
     /// A readable name for the raw comms log.
     ///
+    /// **The names come from the core's one table**, rather than from a `CBUUID` switch of its own. This used to
+    /// hold a second copy, and the two spelled the same sixteen characteristics differently.
+    ///
     /// **Falls back to the bare UUID rather than to "unknown"**, which is the archive's decision and worth keeping
     /// verbatim: the point of logging every characteristic is to see traffic this app has no handler for, so a UUID
     /// appearing here unnamed is a genuine finding and has to be printed in full to be looked up in the spec.
     static func name(for uuid: CBUUID) -> String {
-        switch uuid {
-        case service: return "timeFlipService"
-        case commandResult: return "commandResult"
-        case command: return "command"
-        case password: return "password"
-        case deviceInformation: return "deviceInformation"
-        case manufacturerName: return "manufacturerName"
-        case modelNumber: return "modelNumber"
-        case hardwareRevision: return "hardwareRevision"
-        case firmwareRevision: return "firmwareRevision"
-        case batteryService: return "batteryService"
-        case batteryLevel: return "batteryLevel"
-        case CBUUID(string: eventsDataString): return "eventsData"
-        case CBUUID(string: facesString): return "faces"
-        case CBUUID(string: doubleTapString): return "doubleTap"
-        case CBUUID(string: systemStateString): return "systemState"
-        case CBUUID(string: historyString): return "history"
-        default: return uuid.uuidString
-        }
+        name(for: uuid.uuidString) ?? uuid.uuidString
     }
 }

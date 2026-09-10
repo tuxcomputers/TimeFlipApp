@@ -108,18 +108,29 @@ package enum TimeFlipUUIDs {
     }
 
     /// What this app calls a UUID, for a log or a listing. `nil` for one it has never named -- which is a
-    /// finding rather than noise: a cube offering something unnamed is still subscribed to.
+    /// finding rather than noise: a cube offering something unnamed is still subscribed to, and a caller writing
+    /// a log line falls back to the bare UUID so it can be looked up in the vendor spec.
+    ///
+    /// **These are the spellings that go into `debug_log`**, which makes them interface rather than decoration:
+    /// `Tests/Scripted` reads the trace back with SQL `LIKE` and `GLOB` patterns naming them.
     package static func name(for uuid: String) -> String? {
-        let named: [(String, String)] = [
-            (serviceString, "service"), (commandResultString, "command result"),
-            (commandString, "command"), (passwordString, "password"),
-            (eventsDataString, "events data"), (facesString, "faces"),
-            (doubleTapString, "double tap"), (systemStateString, "system state"),
-            (historyString, "history"), (deviceInformationString, "device information"),
-            (manufacturerNameString, "manufacturer name"), (modelNumberString, "model number"),
-            (hardwareRevisionString, "hardware revision"), (firmwareRevisionString, "firmware revision"),
-            (batteryServiceString, "battery service"), (batteryLevelString, "battery level"),
-        ]
-        return named.first { match($0.0, uuid) }?.1
+        named.first { match($0.0, uuid) }?.1
     }
+
+    /// Every UUID this app has a name for.
+    ///
+    /// **One table, and it has already cost a run to have two.** The Mac target held a second copy keyed on
+    /// `CBUUID`, spelling the same sixteen characteristics differently (`commandResult` against `command result`),
+    /// and the two only ever met when `DeviceLogin` moved into the core: the login started resolving to this list
+    /// instead, and two of its log rows changed wording with nothing to catch it.
+    package static let named: [(String, String)] = [
+        (serviceString, "timeFlipService"), (commandResultString, "commandResult"),
+        (commandString, "command"), (passwordString, "password"),
+        (eventsDataString, "eventsData"), (facesString, "faces"),
+        (doubleTapString, "doubleTap"), (systemStateString, "systemState"),
+        (historyString, "history"), (deviceInformationString, "deviceInformation"),
+        (manufacturerNameString, "manufacturerName"), (modelNumberString, "modelNumber"),
+        (hardwareRevisionString, "hardwareRevision"), (firmwareRevisionString, "firmwareRevision"),
+        (batteryServiceString, "batteryService"), (batteryLevelString, "batteryLevel"),
+    ]
 }

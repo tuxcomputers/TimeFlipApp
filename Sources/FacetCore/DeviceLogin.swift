@@ -1,4 +1,3 @@
-import FacetCore
 import Foundation
 
 /// One connected cube, from a live link to a verdict on a PIN, and then to a PIN of the app's own choosing.
@@ -1246,7 +1245,7 @@ extension DeviceLogin: CubeGattEvents {
             if let failed {
                 debugLog?.record(
                     .info,
-                    "\(TimeFlipUUIDs.name(for: characteristic)) could not be read: \(failed)"
+                    "\(TimeFlipUUIDs.name(for: characteristic) ?? characteristic) could not be read: \(failed)"
                 )
             }
             received(failed == nil ? value : nil, for: characteristic)

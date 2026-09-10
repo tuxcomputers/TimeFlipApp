@@ -23,12 +23,12 @@ final class DeviceLoginTests {
     private var reportedInfo: DeviceInfo?
     private var reportedFace: Int?
 
-    private func login(pin: String = "000000") -> DeviceLogin {
+    private func login(pin: String = "000000", debugLog: DebugLog? = nil) -> DeviceLogin {
         DeviceLogin(
             gatt: gatt,
             pin: pin,
             rotatingTo: nil,
-            debugLog: nil,
+            debugLog: debugLog,
             scheduler: clock,
             rotated: { _ in },
             reported: { [self] in reportedInfo = $0 },
@@ -177,5 +177,27 @@ final class DeviceLoginTests {
         let info = try #require(reportedInfo, "reported once the two it has are in, not held for the other two")
         #expect(info.manufacturer == "DI_LABS")
         #expect(info.firmware == nil)
+    }
+
+    // MARK: - the rows a scripted check reads
+
+    /// **The row that broke, and the test that would have caught it.** `51-device-connect` waits on
+    /// `Found characteristic commandResult%` to decide whether what it connected to is a TimeFlip at all.
+    ///
+    /// Moving this file into the core on 2026-09-10 changed that row to `Found characteristic command result`,
+    /// because the core held a second naming table nothing had ever called and the login started resolving to it.
+    /// Everything compiled, all 1846 hermetic tests passed, and the run failed on hardware.
+    @Test func testEachCharacteristicIsLoggedUnderTheNameTheTraceIsReadBackBy() throws {
+        let database = TemporaryDatabase()
+        defer { database.remove() }
+        try database.bootstrap()
+        let log = DebugLog(databaseURL: database.debugURL, isRecording: true)
+
+        reachThePINPrompt(login(debugLog: log))
+
+        let rows = database.debugString("SELECT group_concat(message, ' | ') FROM debug_log;") ?? ""
+        #expect(rows.contains("Found characteristic commandResult"), "\(rows)")
+        #expect(rows.contains("Found characteristic password"), "\(rows)")
+        #expect(!rows.contains("command result"), "the spelling nothing reads back")
     }
 }

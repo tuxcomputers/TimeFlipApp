@@ -66,4 +66,42 @@ struct TimeFlipUUIDTests {
         #expect(TimeFlipUUIDs.passwordString == "F1196F57-71A4-11E6-BDF4-0800200C9A66")
         #expect(TimeFlipUUIDs.historyString == "F1196F58-71A4-11E6-BDF4-0800200C9A66")
     }
+
+    /// The names are interface, and there is one table of them.
+    ///
+    /// **These exact spellings are read back out of `debug_log`.** `Tests/Scripted` matches the trace with SQL
+    /// `LIKE` and `GLOB` patterns naming them -- `commandResult: 02`, `batteryLevel: [0-9A-F]`,
+    /// `timeFlipService: characteristics%`, `Found characteristic commandResult%` -- and that suite is set aside,
+    /// so a tidied name would break checks that cannot say so.
+    ///
+    /// **Written down because there used to be two tables and they disagreed.** The Mac target had its own switch
+    /// keyed on `CBUUID` spelling these in camelCase, and the core had this one spelling them with spaces. Nothing
+    /// called the core's, so the two never met -- until `DeviceLogin` moved into the core on 2026-09-10 and started
+    /// resolving to it, which silently changed two of its log rows and failed `51-device-connect`.
+    @Test func everyNamedUUIDKeepsTheSpellingTheTraceIsReadBackBy() {
+        let expected = [
+            "timeFlipService", "commandResult", "command", "password", "eventsData", "faces", "doubleTap",
+            "systemState", "history", "deviceInformation", "manufacturerName", "modelNumber", "hardwareRevision",
+            "firmwareRevision", "batteryService", "batteryLevel",
+        ]
+        #expect(TimeFlipUUIDs.named.map(\.1) == expected)
+    }
+
+    @Test func aNameIsFoundWhicheverWayTheUUIDIsSpelled() {
+        // The whole reason the lookup goes through `match`: CoreBluetooth hands over `2A19` and the vendor's own
+        // uppercase, BlueZ hands over the expanded lowercase, and both have to find the same row.
+        #expect(TimeFlipUUIDs.name(for: "2A19") == "batteryLevel")
+        #expect(TimeFlipUUIDs.name(for: "00002a19-0000-1000-8000-00805f9b34fb") == "batteryLevel")
+        #expect(TimeFlipUUIDs.name(for: TimeFlipUUIDs.commandResultString) == "commandResult")
+        #expect(
+            TimeFlipUUIDs.name(for: TimeFlipUUIDs.commandResultString.lowercased()) == "commandResult",
+            "which is the spelling a real adapter answers in"
+        )
+    }
+
+    @Test func aUUIDTheAppHasNeverNamedHasNoName() {
+        // `nil` rather than a placeholder, so each caller falls back to the bare UUID: a characteristic appearing
+        // in the trace unnamed is a finding, and it has to be printed in full to be looked up in the spec.
+        #expect(TimeFlipUUIDs.name(for: "F1196FFF-71A4-11E6-BDF4-0800200C9A66") == nil)
+    }
 }
