@@ -57,12 +57,39 @@ which items unblock the most, and where the milestone is.
 2. ~~**16, the clock.**~~ **Done 2026-09-11**: `GLibScheduler`, injected from `main.swift`.
 3. ~~**17, `CubeGatt`.**~~ **Done 2026-09-11**: `BlueZCubeGatt`, 22 tests, unverified on a cube.
 4. ~~**18, `CubeRadio`.**~~ **Done 2026-09-11**: `BlueZCubeRadio`, 21 tests, unverified on a cube.
-5. **19, compose the device half.** ⇐ **the milestone: a Linux Facet that pairs with the cube and records
-   time.** No window, and it would already be doing the thing the app is for.
+5. **19, compose the device half.** ⇐ **the milestone.** Written and booted 2026-09-11; open until a cube
+   has answered it.
 6. ~~**20, the menu bar onto the core modules**, then **21, the dialogues.**~~ Both done 2026-09-11.
 7. **22 is not a task**, it is a warning about the one part of the Mac that is not ready for you.
 
 ## 19. Compose the device half in `main.swift`, and the app starts working
+
+> **Written, hermetically green, and half run. Stays put until a cube has answered it.** (2026-09-11, Linux.)
+>
+> The wiring is done and the claim held: not one core module needed a line. `DeviceLogin`,
+> `DeviceReconnector`, `CubeCommandChannel`, `HistoryIngestor`, `HistoryTimer`, `CubeLock`,
+> `FaceColourSync`, `DeviceSettingsSync`, `LowBatteryWatch`, `DailyLimitWatch`, `ForcedPauseWatch` and
+> `QuitSequence` are all constructed in this platform's composition root and run.
+>
+> **The boot is confirmed on this machine.** A ten second launch on 2026-09-11 wrote seven rows and no
+> stderr: the instance lock, the database, `Launch mode: manual, no device is paired`, the history timer
+> standing itself down, `DeviceReconnector` reading the table and correctly declining to scan,
+> `Menu bar: name label, glyph label, figure label` -- which is `StatusItemReadout`, the core module the
+> macOS status item reads, writing its colour row on this platform for the first time -- and the tray
+> item coming up.
+>
+> **What is not confirmed is everything a cube answers**, and that is the whole of what is left here:
+> the scan, the reach, the login, the PIN candidates, the face subscription, the history fetch, and time
+> actually being recorded. Nothing on this box is paired, so a launch never touches the radio. **The
+> owner has the cube and has not cleared it for a run yet**; the ask is one session with Facet quit on
+> the Mac, and this item is finished the moment a face turn shows up in `device_event`.
+>
+> **The first thing to check when it happens**, because it is the one open measurement the port carries:
+> `BlueZRadio.scannedDevices` maps BlueZ's `Name` to both `peripheralName` and `advertisedName`, and
+> whether a `0x15` rename moves BlueZ's `Name` the way it moves CoreBluetooth's has never been measured.
+> `BlueZCubeGatt` now reports a device `PropertiesChanged` as `nameArrived`, so a rename has somewhere to
+> show up.
+
 
 With 16, 17 and 18 in place this is wiring: inject the scheduler, the radio, the GATT and the secret store,
 and `DeviceLogin`, `DeviceReconnector`, `CubeCommandChannel`, `LowBatteryWatch` and `HistoryTimer` all run
