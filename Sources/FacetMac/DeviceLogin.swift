@@ -138,7 +138,7 @@ final class DeviceLogin: NSObject {
     private let settled: () -> Void
     private let finished: (DeviceLoginOutcome) -> Void
 
-    private var deadline: Timer?
+    private var deadline: ScheduledWake?
     private var isFinished = false
     private var password: CBCharacteristic?
     private var commandResult: CBCharacteristic?
@@ -169,7 +169,7 @@ final class DeviceLogin: NSObject {
     /// frame resets this; what it catches is a stream that stopped part way, which otherwise leaves a fetch out for
     /// ever and every later refresh standing down behind it.
     private static let historyFrameSeconds: TimeInterval = 6
-    private var historyDeadline: Timer?
+    private var historyDeadline: ScheduledWake?
     private var step: Step?
     /// The PIN being set, from the moment the cube is asked to take it. Held because the confirmation presents it
     /// again and the caller is told it only once the cube has proved it.
@@ -179,7 +179,7 @@ final class DeviceLogin: NSObject {
     /// long after the login is over, on a connection this object is still the delegate of.
     /// **Counts as an exchange being out**, so nothing is written over a reset waiting for its acknowledgement.
     private var isFactoryResetRunning = false
-    private var resetDeadline: Timer?
+    private var resetDeadline: ScheduledWake?
     private var resetReported: ((Bool) -> Void)?
 
     /// The command characteristic's queue and its read-back discipline, which used to be this file's.
@@ -228,12 +228,12 @@ final class DeviceLogin: NSObject {
     private var isListening = false
     /// Whether a `0x17` is out and its answer still expected.
     private var isReadingDoubleTap = false
-    private var tapDeadline: Timer?
+    private var tapDeadline: ScheduledWake?
     /// The characteristics asked for and not yet answered. Built from what discovery actually found rather than from
     /// the four that were asked for, so a cube missing one does not leave this waiting on a read nobody will answer.
     private var awaitingInfo: Set<CBUUID> = []
     private var info = DeviceInfo()
-    private var infoDeadline: Timer?
+    private var infoDeadline: ScheduledWake?
 
     /// - Parameters:
     ///   - pin: the PIN to present on this connection.
@@ -301,14 +301,11 @@ final class DeviceLogin: NSObject {
     /// Starts the exchange on a peripheral that is already connected.
     func begin() {
         peripheral.delegate = self
-        deadline?.invalidate()
-        deadline = Timer(timeInterval: Self.timeoutSeconds, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.debugLog?.record(.login, "The cube stopped answering part way through the login")
-                self?.finish(.timedOut)
-            }
+        deadline?.cancel()
+        deadline = scheduler.wake(in: Self.timeoutSeconds) { [weak self] in
+            self?.debugLog?.record(.login, "The cube stopped answering part way through the login")
+            self?.finish(.timedOut)
         }
-        if let deadline { RunLoop.main.add(deadline, forMode: .common) }
         // Only the TimeFlip service. Anything else the cube exposes belongs to whatever reads it, and asking for
         // everything here would be several round trips spent in front of the one answer somebody is waiting for --
         // which is why Device Information is discovered separately once the verdict is out (`readDeviceInfo`), and
@@ -320,7 +317,7 @@ final class DeviceLogin: NSObject {
         guard !isFinished else { return }
         isFinished = true
         step = nil
-        deadline?.invalidate()
+        deadline?.cancel()
         deadline = nil
         finished(outcome)
         // **Only once the verdict is out, and never in front of it.** A cube that will not say what it is is still a
@@ -367,14 +364,11 @@ final class DeviceLogin: NSObject {
             }
             self.isFactoryResetRunning = true
             self.resetReported = reported
-            self.resetDeadline?.invalidate()
-            self.resetDeadline = Timer(timeInterval: Self.infoTimeoutSeconds, repeats: false) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.debugLog?.record(.pair, "The cube never acknowledged the reset command")
-                    self?.finishReset(false)
-                }
+            self.resetDeadline?.cancel()
+            self.resetDeadline = scheduler.wake(in: Self.infoTimeoutSeconds) { [weak self] in
+                self?.debugLog?.record(.pair, "The cube never acknowledged the reset command")
+                self?.finishReset(false)
             }
-            if let resetDeadline = self.resetDeadline { RunLoop.main.add(resetDeadline, forMode: .common) }
             let payload = Data([DeviceLoginRules.factoryReset])
             self.debugLog?.record(.pair, "Sending the factory reset command")
             self.write(payload, to: command, type: .withResponse)
@@ -480,7 +474,7 @@ final class DeviceLogin: NSObject {
 
     /// Ends the fetch that is out, with whatever it has.
     private func finishFetch(_ reason: String) {
-        historyDeadline?.invalidate()
+        historyDeadline?.cancel()
         historyDeadline = nil
         guard let outstanding = fetch else { return }
         fetch = nil
@@ -489,11 +483,10 @@ final class DeviceLogin: NSObject {
     }
 
     private func armHistoryDeadline() {
-        historyDeadline?.invalidate()
-        historyDeadline = Timer(timeInterval: Self.historyFrameSeconds, repeats: false) { [weak self] _ in
+        historyDeadline?.cancel()
+        historyDeadline = scheduler.wake(in: Self.historyFrameSeconds) { [weak self] in
             MainActor.assumeIsolated { self?.finishFetch("the cube stopped part way") }
         }
-        if let historyDeadline { RunLoop.main.add(historyDeadline, forMode: .common) }
     }
 
     /// A frame arrived on the history characteristic.
@@ -541,7 +534,7 @@ final class DeviceLogin: NSObject {
     private func finishReset(_ sent: Bool) {
         guard isFactoryResetRunning else { return }
         isFactoryResetRunning = false
-        resetDeadline?.invalidate()
+        resetDeadline?.cancel()
         resetDeadline = nil
         let reported = resetReported
         resetReported = nil
@@ -562,14 +555,11 @@ final class DeviceLogin: NSObject {
     /// on a service it does not need would spend round trips in front of the only answer anybody is waiting for.
     private func readDeviceInfo() {
         isReadingDeviceInfo = true
-        infoDeadline?.invalidate()
-        infoDeadline = Timer(timeInterval: Self.infoTimeoutSeconds, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.debugLog?.record(.info, "The cube stopped answering part way through saying what it is")
-                self?.reportDeviceInfo()
-            }
+        infoDeadline?.cancel()
+        infoDeadline = scheduler.wake(in: Self.infoTimeoutSeconds) { [weak self] in
+            self?.debugLog?.record(.info, "The cube stopped answering part way through saying what it is")
+            self?.reportDeviceInfo()
         }
-        if let infoDeadline { RunLoop.main.add(infoDeadline, forMode: .common) }
         debugLog?.record(.info, "Asking the cube what it is")
         discoverServices([TimeFlipUUIDs.deviceInformation])
     }
@@ -583,7 +573,7 @@ final class DeviceLogin: NSObject {
         guard isReadingDeviceInfo else { return }
         isReadingDeviceInfo = false
         awaitingInfo = []
-        infoDeadline?.invalidate()
+        infoDeadline?.cancel()
         infoDeadline = nil
         debugLog?.record(
             .info,
@@ -798,19 +788,16 @@ final class DeviceLogin: NSObject {
     private func beginAskingWhatMakesADoubleTap() {
         guard let command else { return }
         isReadingDoubleTap = true
-        tapDeadline?.invalidate()
-        tapDeadline = Timer(timeInterval: Self.infoTimeoutSeconds, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, self.isReadingDoubleTap else { return }
-                self.isReadingDoubleTap = false
-                self.debugLog?.record(.tap, "The cube never said what its double-tap registers are")
-                defer { self.commandChannel.startNextIfIdle() }
-                // Still asked. A cube that will not talk about its accelerometer may perfectly well answer about its
-                // lock, and this is the one question the dropdown cannot draw itself without.
-                self.askWhatStateItIsIn()
-            }
+        tapDeadline?.cancel()
+        tapDeadline = scheduler.wake(in: Self.infoTimeoutSeconds) { [weak self] in
+            guard let self, self.isReadingDoubleTap else { return }
+            self.isReadingDoubleTap = false
+            self.debugLog?.record(.tap, "The cube never said what its double-tap registers are")
+            defer { self.commandChannel.startNextIfIdle() }
+            // Still asked. A cube that will not talk about its accelerometer may perfectly well answer about its
+            // lock, and this is the one question the dropdown cannot draw itself without.
+            self.askWhatStateItIsIn()
         }
-        if let tapDeadline { RunLoop.main.add(tapDeadline, forMode: .common) }
         write(Data([DoubleTapRules.read]), to: command, type: .withResponse)
     }
 
@@ -847,7 +834,7 @@ final class DeviceLogin: NSObject {
             return
         }
         isReadingDoubleTap = false
-        tapDeadline?.invalidate()
+        tapDeadline?.cancel()
         tapDeadline = nil
         debugLog?.record(.tap, "The double tap on the cube is set to \(parameters.described)")
         tapsReported(parameters)

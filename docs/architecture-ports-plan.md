@@ -215,10 +215,43 @@ CoreBluetooth: the command channel, the read-back matrix, the queue.
 the cube, and is eight or more commits behind. Every hour it stays unmerged is an hour this section
 conflicts with.
 
-- [ ] Land `feature/commandChannel`.
-- [ ] Take the command channel, the read-back matching and the queue into the core.
-- [ ] Leave CoreBluetooth, the delegate methods and the UUID mapping in `FacetMac`.
-- [ ] Check `CubeRadio` still says what the core needs and no more.
+- [x] Land `feature/commandChannel`. Merged clean after thirty commits, nothing here having touched
+      `DeviceLogin`. Two gates fired on it and both were right: it built a `Timer` on `RunLoop.main`, and it
+      declared a `linkEnded()` nothing calls.
+- [x] Take the command channel, the read-back matching and the queue into the core. `CubeCommandChannel`,
+      375 lines, and 254 out of `DeviceLogin`.
+- [x] Every deadline in `DeviceLogin` onto `Scheduler`: five more hand-rolled `.common` timers, which the
+      clock port never reached because they sit in a platform target. That file now names no `Timer` and no
+      `RunLoop` outside its default argument.
+- [x] Check `CubeRadio` still says what the core needs and no more. **It does, and it is narrower than the
+      arm.** Six members, all of them `DeviceReconnector`'s, and nothing in it decides anything. It is the
+      reconnect loop's view of the radio rather than the radio port.
+
+### What the arm still needs, now that both sides have been read
+
+**The arm is not green yet and this is why.** The core reaches the radio in three different ways today: the
+`CubeRadio` protocol for reconnecting, bare closures for sending (`DeviceSettingsSync` takes
+`send: (Data, (Bool) -> Void) -> Void`), and not at all for the login itself. What the diagram says travels
+this arm is *connect, read, write, subscribe*, and no one thing in the core says that.
+
+**`FacetLinux` has already written the far side, and it is the shape to copy.** `BlueZRadio` is 228 lines of
+power, discovery, connect, disconnect and forget; `BlueZGatt` is 122 lines of `read`, `write`,
+`startNotifying`, `stopNotifying` and `nextValue`. Both are transport and neither decides anything. That is
+what a radio adapter is, and it is a tenth of what `FacetMac` spends on the same job.
+
+**The measurement that says the rest is worth doing.** `DeviceLogin` is 730 lines of code and
+`BluetoothRadio` 695, and between them **74 lines mention CoreBluetooth at all**. The rest is the login
+sequence, the history fetch, the factory reset, the double-tap read and the device-info gather: protocol
+reasoning, all of it decided identically on both platforms and all of it currently unable to run on one.
+
+- [ ] The GATT port: `read`, `write`, `subscribe`, addressed by UUID. The core already has `TimeFlipUUIDs`
+      with the 16-bit expansion BlueZ needs, so each adapter maps a UUID to its own handle: a
+      `CBCharacteristic` here, a D-Bus path there.
+- [ ] Move the state machine behind it, one exchange at a time, largest last: device info, the double-tap
+      read, the factory reset, the history fetch, then the login sequence itself.
+- [ ] Fold the send closures into the port once the state machine is on the other side of it, so the core
+      has one way to reach the radio rather than three.
+- [ ] `DeviceLogin`'s timeout constants are protocol decisions and travel with the state machine.
 
 ## 6. Windows and dialogs
 
