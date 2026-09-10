@@ -2,7 +2,7 @@
   <title>Facet architecture model: the core, its ports, and the platform adapters</title>
   <desc>FacetCore is the circle. Every platform capability leaves it through a named port. Each square is one
   capability's adapters, holding a slot per platform, of which the build selects one. What travels the arm is the
-  same whichever slot is built. Six squares: the east and north-west positions are deliberately empty, and the comments there say why.</desc>
+  same whichever slot is built. Six squares, evenly spaced at sixty degrees. Two capabilities were removed rather than drawn, and the comments say which and why.</desc>
 
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -102,7 +102,14 @@
   <text x="640" y="700" text-anchor="middle" font-size="10" fill="#94a3b8" font-style="italic">modules inside link to one another freely</text>
 
   <!-- ══════════ squares ══════════ -->
-  <!-- each: title, then a slot per platform. macOS filled, the others waiting. -->
+  <!-- each: title, then a slot per platform. macOS filled, the others waiting.
+
+       SIX, EVENLY SPACED, and the ring is an ellipse rather than a circle on purpose. The squares are 210 wide
+       and 112 tall, so a true circle of centres would either push the east and west pair off the canvas or
+       pull the north and south pair through the title. What is even here is the symmetry: the six sit in
+       three mirrored pairs, 427 either side of the centre line and 386 or 266 above and below it, which is
+       what reads as even. The angles come out 58 and 64 rather than 60 each, which is the ellipse and not a
+       mistake to correct. -->
 
   <!-- N: Radio -->
   <g>
@@ -136,8 +143,7 @@
   <text x="897" y="381" text-anchor="middle" font-size="9.5" fill="#065f46" font-weight="600">store, look up,</text>
   <text x="897" y="392" text-anchor="middle" font-size="9.5" fill="#065f46" font-weight="600">clear</text>
 
-  <!-- E: nothing, and the gap is on purpose.
-       `Storage` was drawn here and has been removed, because it was never a platform capability. It was the
+  <!-- E: nothing. `Storage` was drawn here and has been removed, because it was never a platform capability. It was the
        only square whose slots were not platforms: SQLite, an API, in memory. All four files that touch
        `sqlite3_` are already inside the circle, and `import SQLite3` is the same line on both platforms, an
        SDK module on macOS and a system-library target of that name on Linux. A different import is not a
@@ -195,24 +201,26 @@
   <text x="380" y="729" text-anchor="middle" font-size="9.5" fill="#065f46" font-weight="600">may I stop yet,</text>
   <text x="380" y="740" text-anchor="middle" font-size="9.5" fill="#065f46" font-weight="600">and now you may</text>
 
-  <!-- W: Clock -->
+  <!-- NW: Clock. Moved here from due west when the ring went from eight positions to six, so the six sit at
+       60 degrees to each other. It mirrors `Secrets` across the vertical and sits directly above
+       `Starting and stopping`, which is what makes the spacing read as even rather than nearly even. -->
   <g>
-    <rect x="48" y="504" width="210" height="112" rx="4" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
-    <text x="153" y="526" text-anchor="middle" font-size="13" font-weight="600" fill="#0f172a">The clock</text>
-    <rect x="60" y="536" width="186" height="22" rx="3" fill="#059669"/>
-    <text x="153" y="551" text-anchor="middle" font-size="10" fill="#ffffff">macOS: RunLoop.main</text>
-    <rect x="60" y="562" width="186" height="22" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
-    <text x="153" y="577" text-anchor="middle" font-size="10" fill="#94a3b8">Linux: g_timeout_add</text>
-    <rect x="60" y="588" width="186" height="22" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
-    <text x="153" y="603" text-anchor="middle" font-size="10" fill="#94a3b8">driven by hand, for tests</text>
+    <rect x="108" y="238" width="210" height="112" rx="4" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    <text x="213" y="260" text-anchor="middle" font-size="13" font-weight="600" fill="#0f172a">The clock</text>
+    <rect x="120" y="270" width="186" height="22" rx="3" fill="#059669"/>
+    <text x="213" y="285" text-anchor="middle" font-size="10" fill="#ffffff">macOS: RunLoop.main</text>
+    <rect x="120" y="296" width="186" height="22" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
+    <text x="213" y="311" text-anchor="middle" font-size="10" fill="#94a3b8">Linux: g_timeout_add</text>
+    <rect x="120" y="322" width="186" height="22" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
+    <text x="213" y="337" text-anchor="middle" font-size="10" fill="#94a3b8">driven by hand, for tests</text>
   </g>
-  <line x1="388" y1="560" x2="260" y2="560" stroke="#059669" stroke-width="2.5" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
-  <rect x="278" y="530" width="94" height="30" rx="4" fill="#ecfdf5" stroke="#6ee7b7"/>
-  <text x="325" y="543" text-anchor="middle" font-size="9.5" fill="#065f46" font-weight="600">wake me in</text>
-  <text x="325" y="554" text-anchor="middle" font-size="9.5" fill="#065f46" font-weight="600">N seconds</text>
+  <line x1="458" y1="440" x2="320" y2="336" stroke="#059669" stroke-width="2.5" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+  <rect x="335" y="368" width="94" height="30" rx="4" fill="#ecfdf5" stroke="#6ee7b7"/>
+  <text x="382" y="381" text-anchor="middle" font-size="9.5" fill="#065f46" font-weight="600">wake me in</text>
+  <text x="382" y="392" text-anchor="middle" font-size="9.5" fill="#065f46" font-weight="600">N seconds</text>
 
-  <!-- NW: nothing, and the gap is on purpose, as at east.
-       `Files and folders` was drawn here and has been removed for the reason `Storage` was: it is in the core
+  <!-- W: nothing. `The clock` was here and has moved to north-west so the six squares sit evenly.
+       `Files and folders` was drawn at north-west and has been removed for the reason `Storage` was: it is in the core
        and there is nothing to select. All four callers are in `FacetCore` with no platform conditional between
        them, and one Foundation call answers correctly on each platform, measured on real hardware 2026-09-08:
        `applicationSupportDirectory` gives Application Support on a Mac and the XDG data directory on Linux, and
