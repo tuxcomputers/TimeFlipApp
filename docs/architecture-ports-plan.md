@@ -312,6 +312,12 @@ reasoning, all of it decided identically on both platforms and all of it current
       CoreBluetooth's do not and `DeviceLogin` is written against a delegate that always answers later. And a
       refused subscription is **reported rather than logged**, a subscription that silently did not happen being
       a cube whose face turns never arrive. 22 tests against a fake transport, mutation-checked on both.
+- [x] **The scan-and-connect half, 2026-09-11.** `BlueZCubeRadio` conforms to `CubeRadio` and holds the reach: the
+      scan window, the queue of what answered, the PIN candidates on each device, and the wait for `ServicesResolved`.
+      It keeps the archive's rule the same way `BluetoothRadio` does -- a reach asks "does this one take our PIN",
+      never "is this the right identifier" -- and it says out loud that it has no factory reset, this platform having
+      no control that asks for one. 21 tests over a fake link handing out `InMemoryGatt`s, so a whole reach runs to
+      `.loggedIn` with nothing real in it.
 - [x] **The trace rows moved into the core with it.** All ten `ble-tx`/`ble-rx` wordings were in `FacetMac`
       keyed on `CBUUID`; they are read back by `Tests/Scripted` with `LIKE` and `GLOB`, which makes them
       interface, and a second radio would have been a second copy diverging one row at a time.

@@ -56,21 +56,11 @@ which items unblock the most, and where the milestone is.
 1. ~~**15** -- does the tree build and test here at all.~~ **Done 2026-09-11**; it did not, and does now.
 2. ~~**16, the clock.**~~ **Done 2026-09-11**: `GLibScheduler`, injected from `main.swift`.
 3. ~~**17, `CubeGatt`.**~~ **Done 2026-09-11**: `BlueZCubeGatt`, 22 tests, unverified on a cube.
-4. **18, `CubeRadio`.** Scanning and connecting, which 17 has nothing to talk to without.
+4. ~~**18, `CubeRadio`.**~~ **Done 2026-09-11**: `BlueZCubeRadio`, 21 tests, unverified on a cube.
 5. **19, compose the device half.** ⇐ **the milestone: a Linux Facet that pairs with the cube and records
    time.** No window, and it would already be doing the thing the app is for.
 6. **20, the menu bar onto the core modules**, then **21, the dialogues.** Both are drawing.
 7. **22 is not a task**, it is a warning about the one part of the Mac that is not ready for you.
-
-## 18. `BlueZRadio` and `CubeRadio`
-
-Scan, connect, disconnect, forget, and the answers back. It already does all of that; what it does not do is
-say so in the shape the port names, and it has no caller.
-
-**`DeviceScanRules` decides which advertisement is a cube, unchanged and shared**, which is the point: a
-renamed cube is found or lost identically on both platforms. That rule is more load-bearing than it looks --
-the advertised local name stays `TimeFlip v2.0` for ever and only the GAP name changes, so a filter matching
-one name loses a renamed cube. That is not hypothetical, it is what the previous app shipped.
 
 ## 19. Compose the device half in `main.swift`, and the app starts working
 
