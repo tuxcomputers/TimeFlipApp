@@ -40,7 +40,11 @@ package enum DeviceSettingWrite {
 
     /// What to say about an outcome, or `nil` where there is nothing to say.
     ///
-    /// - Parameter setting: how the setting is named to a person, mid-sentence: "the auto-pause delay".
+    /// - Parameter setting: how the setting is named to a person, mid-sentence and **carrying its own
+    ///   article**: "the auto-pause delay", "the LED brightness". Every message below drops it mid-sentence
+    ///   for that reason. The two helpers this replaced took two different noun forms, one bare and one
+    ///   with the article, and folding them onto one parameter while passing the article form produced
+    ///   "The the auto-pause delay was sent to the device" on every refusal.
     package static func notice(for outcome: Outcome, setting: String) -> Dialogue? {
         switch outcome {
         case .settled:
@@ -56,8 +60,8 @@ package enum DeviceSettingWrite {
             return Dialogue(
                 title: "The TimeFlip did not accept that",
                 message: """
-                The \(setting) was sent to the device and the device did not confirm it, so nothing has changed \
-                and the window has gone back to what is stored.
+                The device did not confirm \(setting), so nothing has changed and the window has gone back to \
+                what is stored.
 
                 This usually means the device is out of range or busy. Trying again is safe.
                 """

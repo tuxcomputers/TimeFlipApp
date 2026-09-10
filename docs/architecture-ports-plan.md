@@ -352,25 +352,19 @@ something it needs.
       tests failed. Those rows are read back with SQL `LIKE` patterns by `Tests/Scripted`, which is set
       aside and so cannot complain, and `label: verb value` is now a documented part of the interface.
 
-- [ ] The double-tap pair, `applyDoubleTapEnabled` and `applyDoubleTapValues`, are the same shape and have
-      not moved yet: both carry extra steps around the sequence (cancelling a pending write, sending four
-      registers with the flag) that want reading before they are folded in.
-
-      **The verb is the obstacle, and it is a decision rather than a chore.** `applyDoubleTapValues` already
-      writes exactly what `DeviceSettingWrite` would (`Double tap: sending <the four>`), so it folds in
-      cleanly. `applyDoubleTapEnabled` does not: it writes `Double tap: turning it off, sending <the four>`,
-      and `send` fixes the verb at `sending`. Three checks in `59-double-tap` read that row and all three
-      passed on the cube in run 179, so folding it plainly breaks green hardware-verified checks. Either
-      `DeviceSettingWrite` grows a way to carry the verb, which weakens the one property that makes it worth
-      having, or those rows change and the checks are updated with them. **Worth taking to the owner rather
-      than deciding on the way past**, since the second option spends a device run.
-
-      **And the verb turns out to be carrying information.** `59-double-tap` check 13 asserts *zero* rows
-      matching `Double tap: sending%`, which works only because the register path and the box path open with
-      different words. Collapsing both to `sending` would leave that check unable to tell a dead arrow that
-      sent nothing from a box that sent something. So the wording is not decoration here, and the honest
-      answer may be that `applyDoubleTapEnabled` should not fold at all: it is a different act from setting
-      a register, and the log has been saying so.
+- [ ] ~~`applyDoubleTapEnabled`.~~ **Struck: it does not fold** (owner agreed, 2026-09-10). It writes
+      `Double tap: turning it off, sending <the four>` where `send` fixes the verb at `sending`, and the
+      verb is carrying information rather than decorating: `59-double-tap` check 13 asserts *zero* rows
+      matching `Double tap: sending%`, which works only because the register path and the box path open
+      with different words. Collapsing them would leave that check unable to tell a dead arrow that sent
+      nothing from a box that sent something. Turning the gesture off is a different act from setting a
+      register, and the log has been saying so.
+- [ ] `applyDoubleTapValues` still folds, and cleanly: its send and refusal rows are already word for word
+      what `DeviceSettingWrite` writes. Three small things to carry across. Its `Double tap: the gesture is
+      off, so Window goes as 0 and <n> is what gets stored` row fires between the send row and the send, so
+      `send` needs somewhere to put it or the caller does. Its no-radio row changes wording, which is free,
+      nothing reading it. And its two failure paths name the setting two different ways where `notice` takes
+      one.
 - [ ] `renameDevice` / `sendRename` is the eighth, and the odd one: its read-back is functional rather than
       a command, so it does not fit `send` as it stands.
 - [ ] ~~The rest of the window is view construction and tab wiring.~~ **Struck: it is not work.** That is

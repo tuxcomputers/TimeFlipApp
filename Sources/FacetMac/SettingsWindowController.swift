@@ -513,7 +513,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // What the table holds, read now rather than remembered, for the reason every put-back on this tab reads
         // it: a write has just failed, so what is stored is precisely the question being asked.
         if outcome.putsTheRowBack { pane.showPauseOnLock(deviceSettings().pausesOnLock) }
-        if let notice = DeviceSettingWrite.notice(for: outcome, setting: "Pause the device when locking it") {
+        if let notice = DeviceSettingWrite.notice(for: outcome, setting: "the pause-on-lock setting") {
             dialogues.tell(notice)
         }
     }
@@ -542,7 +542,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             debugLog: debugLog
         )
         if outcome.putsTheRowBack { pane.showBatteryWarning(deviceSettings().batteryWarningPercent) }
-        if let notice = DeviceSettingWrite.notice(for: outcome, setting: "Battery warning at") {
+        if let notice = DeviceSettingWrite.notice(for: outcome, setting: "the battery warning level") {
             dialogues.tell(notice)
             return
         }

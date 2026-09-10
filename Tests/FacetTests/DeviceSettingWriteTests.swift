@@ -135,6 +135,27 @@ struct DeviceSettingWriteTests {
         #expect(unrecorded.choices.isEmpty)
     }
 
+    /// **One noun form, dropped mid-sentence, and every message has to take it.**
+    ///
+    /// The two helpers this replaced took two different shapes: the refusal wanted a bare noun, because it
+    /// supplied its own article ("The auto-pause setting was sent..."), and the others wanted the article
+    /// included ("The TimeFlip accepted the auto-pause delay..."). Folding them onto one parameter while
+    /// passing the article form gave every refusal "The the auto-pause delay was sent to the device", on the
+    /// two rows that can actually be refused. Nothing caught it: no unit test read the sentence, and the
+    /// scripted suite never arranges for the cube to refuse a command.
+    @Test func testEveryNoticeReadsAsASentenceWithTheArticleFormItIsGiven() throws {
+        for outcome in [
+            DeviceSettingWrite.Outcome.refusedByTheCube, .notRecorded, .nowhereToRecord,
+        ] {
+            let notice = try #require(DeviceSettingWrite.notice(for: outcome, setting: "the auto-pause delay"))
+            #expect(!notice.message.contains("The the"), "\(outcome): \(notice.message)")
+            #expect(
+                notice.message.contains("the auto-pause delay"),
+                "\(outcome) must name the setting: \(notice.message)"
+            )
+        }
+    }
+
     // MARK: - the rows a scripted check reads
 
     @Test func testTheRowsKeepTheWordingTheCheckersMatchOn() {
