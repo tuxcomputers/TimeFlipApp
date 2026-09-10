@@ -34,12 +34,12 @@ struct StatusItemMenuTests {
         }
     }
 
-    private func menu(_ world: World) -> StatusItemMenu {
+    private func menu(_ world: World, canOpenSettings: Bool = true) -> StatusItemMenu {
         StatusItemMenu(
             timing: { world.reading },
             cube: { world.cube },
             isLimitReached: { world.isLimitReached },
-            openSettings: { world.settingsOpened += 1 },
+            openSettings: canOpenSettings ? { world.settingsOpened += 1 } : nil,
             togglePause: { world.appPauses += 1 },
             toggleCubePause: { world.cubePauses += 1 },
             toggleCubeLock: { world.cubeLocks += 1 },
@@ -61,6 +61,18 @@ struct StatusItemMenuTests {
             items.map { $0.isSeparator ? "---" : $0.identifier }
                 == ["open-settings", "toggle-pause", "toggle-cube-lock", "---", "quit-app"],
             "Pause sits under Settings, Lock under Pause, and Quit stays behind a separator"
+        )
+    }
+
+    @Test func testAPlatformWithNoSettingsWindowIsOfferedNoSettingsLine() {
+        // **Absent rather than greyed**, which is the same judgement `choose: nil` makes one level down: a line
+        // that opens nothing is a control that looks live and does nothing. `FacetLinux` is that platform today,
+        // having no window at all, and the rest of the menu is the same menu.
+        let items = menu(World(), canOpenSettings: false).items()
+
+        #expect(
+            items.map { $0.isSeparator ? "---" : $0.identifier }
+                == ["toggle-pause", "toggle-cube-lock", "---", "quit-app"]
         )
     }
 

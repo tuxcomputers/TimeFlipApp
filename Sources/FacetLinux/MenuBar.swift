@@ -19,33 +19,29 @@ import Foundation
 /// somebody opens it, both from closures that go to the database -- which is `CLAUDE.md`'s first rule, and
 /// the reason the menu cannot come to disagree with the Faces tab about what is being timed.
 ///
+/// **It decides nothing, as of 2026-09-11.** What the line says is `StatusItemReadout`'s, which is the core module
+/// that also holds the first-reading latch, the tick decision and the two `debug_log` rows a change is worth; what
+/// is in the menu is `StatusItemMenu`'s. This file predated all of that and had been deciding its own version of
+/// both. The macOS side went from 679 lines to 518 making the same move, and what is left there is `NSStatusItem`
+/// and drawing; what is left here is `AppIndicator` and drawing.
+///
+/// **What it does still decide is how to draw a glyph**, and that is genuinely this platform's: `StatusItemTitle`
+/// answers in SF Symbol names, which mean nothing to a GTK panel, so `glyph(for:)` below is the rendering and not
+/// the decision. Colour is the other half of that and this platform has none: an `AppIndicator` label is plain
+/// text. The colours are still *decided* -- and still written to `debug_log` by the readout, which is the only way
+/// a scripted check ever sees them on either platform.
+///
 /// **`@MainActor`, and GTK is the reason rather than the compiler.** GTK3 is not thread-safe: every call
 /// has to come from the thread that called `gtk_init`, and `gtk_main` runs its loop on that same thread.
 /// So the isolation is not an accommodation made to satisfy `DebugLog` -- it is what was already true,
 /// written down where the compiler can hold us to it.
 @MainActor
 final class MenuBar {
-    /// One line of the menu: what it says, and what choosing it does. `nil` for a line that is only telling
-    /// you something, which comes out insensitive rather than as a control that looks live and is not.
-    struct Item {
-        let title: String
-        let choose: (@MainActor () -> Void)?
-
-        init(_ title: String, choose: (@MainActor () -> Void)? = nil) {
-            self.title = title
-            self.choose = choose
-        }
-
-        /// A dividing line. GTK draws it from its own widget, so the title is never read.
-        static let separator = Item("")
-        var isSeparator: Bool { title.isEmpty && choose == nil }
-    }
-
     /// What a menu item does when it is chosen. Boxed into a class so it survives as an
     /// `Unmanaged` pointer across the C boundary, which cannot carry a Swift closure directly.
     private final class Action {
-        let run: @MainActor () -> Void
-        init(_ run: @escaping @MainActor () -> Void) { self.run = run }
+        let run: () -> Void
+        init(_ run: @escaping () -> Void) { self.run = run }
     }
 
     private let indicator: UnsafeMutablePointer<AppIndicator>
@@ -61,10 +57,13 @@ final class MenuBar {
     /// is cancelled.
     private var repaint: ScheduledWake?
 
-    /// Asked every second for what the label should say, and asked again as the menu opens for what should
-    /// be in it. Closures rather than values, so this type reads and never remembers.
-    private let label: @MainActor () -> (text: String, guide: String)
-    private let items: @MainActor () -> [Item]
+    /// What the line should say, decided in the core and asked here once a second.
+    private let readout: StatusItemReadout
+
+    /// What is in the menu, asked again as it opens. **A closure rather than a `StatusItemMenu`**, because this
+    /// platform's composition root puts lines of its own around the shared ones: a list of today's totals, and the
+    /// pairing control that stands in for a Device tab. Those are `main.swift`'s to add and this file's to draw.
+    private let items: @MainActor () -> [StatusItemMenu.Item]
 
     /// The widgets and boxes making up the menu as it currently stands, destroyed and rebuilt together.
     /// **Not a copy of anything true** -- it is what GTK was handed, kept only so it can be taken back.
@@ -73,11 +72,11 @@ final class MenuBar {
 
     init(debugLog: DebugLog?,
          scheduler: Scheduler,
-         label: @escaping @MainActor () -> (text: String, guide: String),
-         items: @escaping @MainActor () -> [Item]) {
+         readout: StatusItemReadout,
+         items: @escaping @MainActor () -> [StatusItemMenu.Item]) {
         self.debugLog = debugLog
         self.scheduler = scheduler
-        self.label = label
+        self.readout = readout
         self.items = items
 
         // `nil, nil` rather than the real argv: GTK's own switches are not this app's, and passing them
@@ -165,9 +164,42 @@ final class MenuBar {
     }
 
     /// Puts the current reading beside the icon.
+    ///
+    /// **The guide is the widest the line gets**, which is what stops the panel shuffling as the digits change.
+    /// A literal rather than the current text: `app_indicator_set_label` sizes to it, so a guide that tracked the
+    /// answer would be no guide at all.
     private func refreshLabel() {
-        let (text, guide) = label()
-        app_indicator_set_label(indicator, text, guide)
+        app_indicator_set_label(indicator, Self.line(readout.read().title), "Category name 0:00:00")
+    }
+
+    /// One `StatusItemTitle` as a panel label.
+    ///
+    /// **Rendering, and every decision in it was made elsewhere.** The words, whether there is a figure at all,
+    /// whether the seconds are in it and whether the line says `Connecting…` are `StatusItemTitle`'s; what is
+    /// decided here is that a Mac's SF Symbol is a character on this platform, and that a category's icon is not
+    /// drawn at all, an `AppIndicator` label being text.
+    static func line(_ title: StatusItemTitle) -> String {
+        [
+            title.lockGlyphName.map { _ in "\u{1F512}" },   // a padlock, drawn in red on a Mac and plain here
+            glyph(for: title.glyphName),
+            title.text,
+            title.duration,
+        ]
+        .compactMap { $0 }
+        .joined(separator: " ")
+    }
+
+    /// The SF Symbol names `ManualTimerRules.symbolName` answers, as characters a panel font has.
+    ///
+    /// **Anything unrecognised draws nothing rather than its own name**, which is the same judgement the trace
+    /// makes the other way: a log row falls back to a bare UUID because a reader can look one up, and a menu bar
+    /// cannot show `play.fill` to somebody without it reading as a fault.
+    private static func glyph(for symbolName: String?) -> String? {
+        switch symbolName {
+        case "play.fill": return "\u{25B6}"
+        case "pause.fill": return "\u{23F8}"
+        default: return nil
+        }
     }
 
     /// Hands the menu to the indicator and does not return: `gtk_main` is the run loop from here.

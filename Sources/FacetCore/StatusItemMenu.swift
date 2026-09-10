@@ -69,7 +69,12 @@ package struct StatusItemMenu {
     private let timing: () -> TimingReadout.Reading
     private let cube: () -> CubeReading
     private let isLimitReached: () -> Bool
-    private let openSettings: () -> Void
+    /// **Optional, and `nil` means the line is not offered at all.** A platform with no Settings window would
+    /// otherwise draw a control that looks live and does nothing, which is the fault `choose: nil` exists to rule
+    /// out one level down. `FacetLinux` is that platform today; the Mac passes a closure and nothing changes for
+    /// it. This is the core saying "if nothing can open settings there is no line", rather than the core knowing
+    /// what platform it is on.
+    private let openSettings: (() -> Void)?
     private let togglePause: () -> Void
     private let toggleCubePause: () -> Void
     private let toggleCubeLock: () -> Void
@@ -82,7 +87,7 @@ package struct StatusItemMenu {
         timing: @escaping () -> TimingReadout.Reading,
         cube: @escaping () -> CubeReading,
         isLimitReached: @escaping () -> Bool,
-        openSettings: @escaping () -> Void,
+        openSettings: (() -> Void)?,
         togglePause: @escaping () -> Void,
         toggleCubePause: @escaping () -> Void,
         toggleCubeLock: @escaping () -> Void,
@@ -116,15 +121,16 @@ package struct StatusItemMenu {
             lockItem(cubeNow: cubeNow),
             .separator,
             quitItem(),
-        ]
+        ].compactMap { $0 }
     }
 
     /// **A trailing ellipsis, the platform's way of saying a choice opens something rather than doing something.**
     /// No keyboard shortcut on this or any line here: a shortcut belongs to the app-wide menu an accessory app
     /// does not have, and one declared on a dropdown would work only while the dropdown was already open, which
     /// is not a shortcut.
-    private func settingsItem() -> Item {
-        Item("Settings…", identifier: Identifier.settings) {
+    private func settingsItem() -> Item? {
+        guard let openSettings else { return nil }
+        return Item("Settings…", identifier: Identifier.settings) {
             debugLog?.record(.menu, "Menu item clicked: Settings")
             openSettings()
         }

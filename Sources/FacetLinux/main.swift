@@ -348,49 +348,106 @@ let forcedPause = ForcedPauseWatch(
     debugLog: debugLog
 )
 
+// What the cube is doing, asked at the moment somebody looks. **Both halves read together**, because a line
+// that mixed a fresh connection state with a stale lock would say something neither answer supports.
+let cubeReading = {
+    CubeReading(
+        isCubeConnected: radio?.connectedDevice != nil,
+        cubeLockState: CubeLockState(reported: radio?.cubeStatus?.isLocked),
+        cubePauseState: CubePauseState(reported: radio?.cubeStatus?.isPaused)
+    )
+}
+
+// What the line in the panel says, decided in the core. **The same module the macOS status item reads**, so the
+// two platforms cannot come to describe a session differently -- and it is what writes the `debug_log` rows a
+// scripted check reads the colours out of, this platform being unable to draw them at all.
+let statusReadout = StatusItemReadout(
+    appLabel: "Facet",
+    timing: { timingReadout.read() },
+    cube: cubeReading,
+    // `display_seconds`, read per draw like everything else, and defaulting to showing them: a menu bar clock
+    // without seconds looks stopped.
+    showingSeconds: { settings.flag("display_seconds", field: "enabled") ?? true },
+    isLimitReached: { dailyLimit.isLimitReached },
+    lowBattery: { lowBattery.alert },
+    isManualMode: isManualMode,
+    debugLog: debugLog
+)
+
+// The shared half of the dropdown: Pause, Lock and Quit, decided in the core.
+//
+// **No Settings line, because there is no Settings window** -- `openSettings` is `nil` and `StatusItemMenu` leaves
+// the line out rather than drawing one that opens nothing.
+let statusMenu = StatusItemMenu(
+    timing: { timingReadout.read() },
+    cube: cubeReading,
+    isLimitReached: { dailyLimit.isLimitReached },
+    openSettings: nil,
+    // **The app's own clock, and closing the open segment is the whole of what stopping it means here.** On the
+    // Mac this is the Faces tab's own control; this platform has none, so a segment on an app face can only have
+    // been inherited from a launch on the other machine.
+    togglePause: { deviceEvents.closeOpenSegment(at: Date()) },
+    toggleCubePause: {
+        cubeLock.togglePause { _ in
+            historyIngestor.refresh(because: "the cube was paused from the menu bar")
+        }
+    },
+    toggleCubeLock: {
+        if CubeLockState(reported: radio?.cubeStatus?.isLocked) == .locked {
+            cubeLock.resume { _ in
+                historyIngestor.refresh(because: "the cube was unlocked from the menu bar")
+            }
+        } else {
+            cubeLock.lock { _ in
+                historyIngestor.refresh(because: "the cube was locked from the menu bar")
+            }
+        }
+    },
+    // **Injected, which is the whole of why `StatusItemMenu` is core**: `NSApp.terminate` on a Mac and this
+    // sequence under GTK are the same intention performed two ways. The two halves are AppKit's order and its
+    // measured reason -- the pause and the lock are BLE writes and need a round trip, so the process has to still
+    // be here for them, and with nothing to send there is nothing to wait for.
+    quit: {
+        let started = quitSequence.pauseAndLockTheCube {
+            quitSequence.run(at: Date())
+            MenuBar.quit()
+        }
+        guard !started else { return }
+        quitSequence.run(at: Date())
+        MenuBar.quit()
+    },
+    debugLog: debugLog
+)
+
 // **The bar, built before the radio's callbacks are wired**, because several of them redraw it. From here on quit
 // is the only way out, exactly as the macOS launch says.
+//
+// **The lines this platform adds around the shared ones are its own until they are not.** A list of today's totals
+// stands in for a Report tab and a pairing line stands in for a Device tab, both of which the Mac has windows for.
+// Anything in here that turns out to be a decision worth sharing comes out into the core, which is the standing
+// instruction in item 22 of `docs/handover-linux.md`.
 let menuBar = MenuBar(
     debugLog: debugLog,
     scheduler: scheduler,
-    // **What is being timed, asked of the database every second.** `hoursMinutesSeconds` is the same
-    // formatter the other platform's status item uses, so the two read alike. The guide is the widest the
-    // figure gets, which is what stops the panel shuffling as the digits change.
-    label: {
-        let reading = timingReadout.read()
-        guard let category = reading.category else { return ("Facet", "00:00:00") }
-        let elapsed = DurationFormat.hoursMinutesSeconds(reading.seconds, rounding: .truncate, showingSeconds: true)
-        return ("\(category.name) \(elapsed)", "Category name 0:00:00")
-    },
-    // **Rebuilt from the tables as the menu opens.** Every category active *now*, with the total it has
-    // *now* -- so a category retired from the Mac while this menu sat closed is simply not in the list the
-    // next time it opens, which is the behaviour the read-at-the-point-of-use rule buys.
+    readout: statusReadout,
     items: {
-        var items: [MenuBar.Item] = []
-
-        let reading = timingReadout.read()
-        if let category = reading.category {
-            items.append(MenuBar.Item("Timing \(category.name)"))
-        } else {
-            items.append(MenuBar.Item("Not timing"))
-        }
-        items.append(.separator)
+        var items: [StatusItemMenu.Item] = []
 
         // **The cube, read now rather than remembered.** Whether one is paired is the table's answer and whether
         // one is connected is the radio's, and this is the one control this platform has for either.
         let isPaired = settings.flag("paired", field: "paired") == true
         if radio == nil {
-            items.append(MenuBar.Item("No Bluetooth"))
+            items.append(StatusItemMenu.Item("No Bluetooth", identifier: "cube-state"))
         } else if radio?.connectedDevice != nil {
             let name = settings.string("device_name", field: "name") ?? "the cube"
-            items.append(MenuBar.Item("Connected to \(name)"))
+            items.append(StatusItemMenu.Item("Connected to \(name)", identifier: "cube-state"))
         } else if isPaired {
-            items.append(MenuBar.Item("Looking for the cube"))
+            items.append(StatusItemMenu.Item("Looking for the cube", identifier: "cube-state"))
         } else {
             // **The only way into a pairing on this platform**, the Device tab being the Mac's and there being no
-            // window here. The PINs are `DeviceLoginRules`' pairing list, which puts the vendor default first: a
-            // cube being paired for the first time is probably factory-fresh.
-            items.append(MenuBar.Item("Pair a cube") {
+            // window here. The PINs are `DeviceLoginRules.candidates`, which puts the vendor default first: a cube
+            // being paired for the first time is probably factory-fresh.
+            items.append(StatusItemMenu.Item("Pair a cube", identifier: "pair-cube") {
                 debugLog?.record(.pair, "Pairing was chosen from the menu bar")
                 radio?.pair(
                     presenting: DeviceLoginRules.candidates(
@@ -413,30 +470,20 @@ let menuBar = MenuBar(
         let byCategory = Dictionary(totals.map { ($0.categoryID, $0.seconds) }, uniquingKeysWith: +)
         let today = categories.activeCategories()
         if today.isEmpty {
-            items.append(MenuBar.Item("No categories yet"))
+            items.append(StatusItemMenu.Item("No categories yet", identifier: "no-categories"))
         } else {
             for category in today {
                 let seconds = byCategory[category.id] ?? 0
                 let figure = DurationFormat.hoursMinutesSeconds(seconds, rounding: .truncate, showingSeconds: true)
-                items.append(MenuBar.Item("\(category.name)   \(figure)"))
+                items.append(
+                    StatusItemMenu.Item("\(category.name)   \(figure)", identifier: "category-\(category.id)")
+                )
             }
         }
-
         items.append(.separator)
-        items.append(MenuBar.Item("Quit Facet") {
-            debugLog?.record(.quit, "Quit was chosen from the menu bar")
-            // **The same two halves AppKit gets, in the same order and for the same measured reason.** The pause
-            // and the lock are BLE writes and need a round trip, so the process has to still be here for them:
-            // `pauseAndLockTheCube` answers whether anything went, and the rest of the sequence runs once it has
-            // either landed or timed out. With nothing to send there is nothing to wait for.
-            let started = quitSequence.pauseAndLockTheCube {
-                quitSequence.run(at: Date())
-                MenuBar.quit()
-            }
-            guard !started else { return }
-            quitSequence.run(at: Date())
-            MenuBar.quit()
-        })
+
+        // The shared half, last, so Quit stays at the bottom where the core puts it.
+        items.append(contentsOf: statusMenu.items())
         return items
     }
 )
