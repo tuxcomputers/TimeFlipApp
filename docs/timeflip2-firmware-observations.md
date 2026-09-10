@@ -70,7 +70,9 @@ So both are needed, for different jobs. `DeviceNameRules.matchesKnownDevice` che
 
 `CBPeripheral.name` is cached by macOS and refreshed only when CoreBluetooth next connects and re-reads GAP. Straight after a rename it still reports the previous name. Polling it 120 times over 30 seconds within the same connection never saw it change.
 
-The next connection does report it: `peripheralDidUpdateName(_:)` fires about two seconds in, on every rename tested. That callback is wired up and is what corrects the name a first pairing adopts from the stale cache.
+The next connection does report it: `peripheralDidUpdateName(_:)` fires on every rename tested. That callback is wired up and is what corrects the name a first pairing adopts from the stale cache.
+
+**How long it takes is not two seconds, and nothing should be built on that figure.** This used to read "about two seconds in". A rename measured on 2026-09-10 took **5.3 seconds** from the connection being established to the callback arriving (connected 21:56:58.595, name reported 21:57:03.873, the app's own `debug_log`), on the connection after a rename from Hazza to Cooty. Two seconds was not wrong so much as one end of a range nobody had measured the other end of, so treat it as seconds rather than as a number.
 
 **Consequence for this app:** a name the app has written and the device has confirmed beats a connect-time read, because the read is the stale one. `AppState.shouldAdoptReportedName` implements that, taking the reported name only on a first pairing.
 
@@ -125,7 +127,7 @@ A stale 20-byte response from an unrelated command matches neither branch and is
 
 ## 3. Every command is narrated on the events data characteristic
 
-Undocumented, and the only completion signal present for **all** commands, arriving 40-240 ms after the write. Plain ASCII on `F1196F51-71A4-11E6-BDF4-0800200C9A66`:
+Undocumented, and the only completion signal present for **all** commands, arriving 40-310 ms after the write. The upper end is from a `0x15` measured on 2026-09-10: written at 21:55:56.383, narrated `Neme set` at 21:55:56.694. The range was 40-240 ms before that, so this widened it rather than contradicting it. Plain ASCII on `F1196F51-71A4-11E6-BDF4-0800200C9A66`:
 
 | Bytes | ASCII |
 |---|---|
