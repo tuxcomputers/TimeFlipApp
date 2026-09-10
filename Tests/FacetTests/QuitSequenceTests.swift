@@ -1,64 +1,58 @@
 @testable import FacetCore
 import Foundation
-import XCTest
+import Testing
 
 /// Covers `QuitSequence`: what the app does to the segment still running when it ends.
 ///
 /// Driven by calling `run(at:)` rather than by terminating the test process. What that skips is AppKit
 /// delivering `applicationWillTerminate`, which is the part with no decisions in it -- and the part `main.swift`
 /// holds the delegate in a binding for, since `NSApplication.delegate` is weak.
-@MainActor
-final class QuitSequenceTests: XCTestCase, @unchecked Sendable {
-    private var database: TemporaryDatabase!
-    private var events: DeviceEventRecorder!
-    private var settings: SettingStore!
-    private var quit: QuitSequence!
-    /// Declared rather than initialised here: `HandDrivenScheduler` is `@MainActor` and this case is not, so it
-    /// is made inside the `assumeIsolated` below with everything else.
-    private var clock: HandDrivenScheduler!
+/// **A swift-testing suite rather than an `XCTestCase`, and that is not tidying.** An `@MainActor`
+/// `XCTestCase` aborts the whole test executable on Linux at load time -- corelibs-XCTest reflects a test
+/// method's type and an isolated one does not cast, so every other suite in the binary dies with it.
+/// `Package.swift` names that hazard beside the exclusion list; this file met it. The shape here is
+/// `CubeLockTests`', which is the same fixtures.
+@Suite @MainActor
+final class QuitSequenceTests {
+    private let database: TemporaryDatabase
+    private let events: DeviceEventRecorder
+    private let settings: SettingStore
+    private let quit: QuitSequence
+    private let clock = HandDrivenScheduler()
 
     private let moment = Date(timeIntervalSince1970: 1_786_600_000)
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
-        try MainActor.assumeIsolated {
-            clock = HandDrivenScheduler()
-            database = TemporaryDatabase()
-            try database.bootstrap()
-            let connection = database.connection()
-            // Segments here run on `ManualFace.first`, because that is the only kind of segment a quit closes: a face
-            // of the app's own, timed by the app's own clock. A cube's face is left alone -- see
-            // `testACubesOwnSegmentIsLeftForItsHistoryToClose` -- so a test that started one on face 8 would be asserting
-            // the very thing that must not happen.
-            events = DeviceEventRecorder(
+    init() throws {
+        database = TemporaryDatabase()
+        try database.bootstrap()
+        let connection = database.connection()
+        // Segments here run on `ManualFace.first`, because that is the only kind of segment a quit closes: a face
+        // of the app's own, timed by the app's own clock. A cube's face is left alone -- see
+        // `testACubesOwnSegmentIsLeftForItsHistoryToClose` -- so a test that started one on face 8 would be asserting
+        // the very thing that must not happen.
+        events = DeviceEventRecorder(
+            connection: connection,
+            timezones: TimezoneStore(connection: connection),
+            timeEntries: TimeEntryRecorder(
                 connection: connection,
-                timezones: TimezoneStore(connection: connection),
-                timeEntries: TimeEntryRecorder(
-                    connection: connection,
-                    settings: SettingStore(connection: connection),
-                    faces: FaceStore(connection: connection),
-                    debugLog: nil
-                ),
+                settings: SettingStore(connection: connection),
+                faces: FaceStore(connection: connection),
                 debugLog: nil
-            )
-            settings = SettingStore(connection: connection)
-            quit = QuitSequence(deviceEvents: events, debugLog: nil, scheduler: clock)
-        }
+            ),
+            debugLog: nil
+        )
+        settings = SettingStore(connection: connection)
+        quit = QuitSequence(deviceEvents: events, debugLog: nil, scheduler: clock)
     }
 
-    override func tearDown() {
-        MainActor.assumeIsolated {
-            quit = nil
-            clock = nil
-            settings = nil
-            events = nil
-            database.remove()
-        }
-        super.tearDown()
+    deinit {
+        // `CubeLockTests`' note applies here word for word: the instance is discarded whole, so removing the
+        // directory is all that is left to do by hand.
+        database.remove()
     }
 
     private func setPauseOnLock(_ enabled: Bool) {
-        XCTAssertTrue(
+        #expect(
             database.execute(
                 "UPDATE setting SET setting_value = '{\"enabled\":\(enabled)}' WHERE setting_name = 'pause_on_lock';"
             )
@@ -69,32 +63,32 @@ final class QuitSequenceTests: XCTestCase, @unchecked Sendable {
         database.string("SELECT \(name) FROM device_event WHERE device_event_id = \(rowID);")
     }
 
-    func testQuittingClosesTheSegmentStillRunning() throws {
-        let open = try XCTUnwrap(events.startSegment(face: ManualFace.first, at: moment))
+    @Test func testQuittingClosesTheSegmentStillRunning() throws {
+        let open = try #require(events.startSegment(face: ManualFace.first, at: moment))
 
         quit.run(at: moment.addingTimeInterval(300))
 
-        XCTAssertEqual(column("finalised", ofRow: open.deviceEventID), "1")
-        XCTAssertEqual(column("duration_seconds", ofRow: open.deviceEventID), "300.0", "it ran until the app ended")
+        #expect(column("finalised", ofRow: open.deviceEventID) == "1")
+        #expect(column("duration_seconds", ofRow: open.deviceEventID) == "300.0", "it ran until the app ended")
     }
 
-    func testTheClosedSegmentBecomesTrackedTime() throws {
+    @Test func testTheClosedSegmentBecomesTrackedTime() throws {
         // Closing is what raises the entry question, so quitting is the last chance a session has to be counted.
-        let open = try XCTUnwrap(events.startSegment(face: ManualFace.first, at: moment))
+        let open = try #require(events.startSegment(face: ManualFace.first, at: moment))
 
         quit.run(at: moment.addingTimeInterval(900))
 
-        XCTAssertEqual(
-            database.string("SELECT duration_seconds FROM time_entry WHERE device_event_id = \(open.deviceEventID);"),
-            "900.0"
+        #expect(
+            database.string("SELECT duration_seconds FROM time_entry WHERE device_event_id = \(open.deviceEventID);")
+                == "900.0"
         )
     }
 
-    func testACubesOwnSegmentIsLeftForItsHistoryToClose() throws {
+    @Test func testACubesOwnSegmentIsLeftForItsHistoryToClose() throws {
         // **The cube keeps timing after this process has gone**, so the stretch it is on has not ended and its length
         // is not this app's to write. Closing it here measured from its start to the quit, filed that guess as
         // tracked time, and left the next launch to fetch the very same event back from the cube.
-        let open = try XCTUnwrap(
+        let open = try #require(
             events.record(
                 DeviceEventSegment(
                     eventNumber: 40,
@@ -105,28 +99,28 @@ final class QuitSequenceTests: XCTestCase, @unchecked Sendable {
                 )
             )
         )
-        XCTAssertTrue(open.isOpen, "precondition: the cube is timing")
+        #expect(open.isOpen, "precondition: the cube is timing")
 
         quit.run(at: moment.addingTimeInterval(300))
 
-        XCTAssertEqual(column("finalised", ofRow: open.deviceEventID), "0", "still open")
-        XCTAssertEqual(
-            column("duration_seconds", ofRow: open.deviceEventID), "60.0",
+        #expect(column("finalised", ofRow: open.deviceEventID) == "0", "still open")
+        #expect(
+            column("duration_seconds", ofRow: open.deviceEventID) == "60.0",
             "and still the length the cube reported, not the length the quit would have measured"
         )
-        XCTAssertEqual(database.string("SELECT COUNT(*) FROM time_entry;"), "0", "nothing has finished, so nothing counts")
+        #expect(database.string("SELECT COUNT(*) FROM time_entry;") == "0", "nothing has finished, so nothing counts")
     }
 
-    func testQuittingWithNothingBeingTimedChangesNothing() {
+    @Test func testQuittingWithNothingBeingTimedChangesNothing() {
         quit.run(at: moment)
 
-        XCTAssertEqual(database.string("SELECT COUNT(*) FROM device_event;"), "0")
-        XCTAssertEqual(database.string("SELECT COUNT(*) FROM time_entry;"), "0")
+        #expect(database.string("SELECT COUNT(*) FROM device_event;") == "0")
+        #expect(database.string("SELECT COUNT(*) FROM time_entry;") == "0")
     }
 
     // MARK: - letting go of the device
 
-    func testQuittingGivesTheDeviceBack() {
+    @Test func testQuittingGivesTheDeviceBack() {
         // The connection outlives the Settings window now, so the app is what ends it. Nothing else would: the
         // process simply stops, and the last thing written would say the cube is connected.
         var letGo = 0
@@ -134,15 +128,15 @@ final class QuitSequenceTests: XCTestCase, @unchecked Sendable {
 
         quit.run(at: moment)
 
-        XCTAssertEqual(letGo, 1)
+        #expect(letGo == 1)
     }
 
-    func testTheSegmentIsClosedBeforeTheDeviceIsLetGo() throws {
+    @Test func testTheSegmentIsClosedBeforeTheDeviceIsLetGo() throws {
         // The entry is made from the app's own rows rather than from anything the cube says, so this is about order
         // being decided rather than the second step depending on the first.
-        let open = try XCTUnwrap(events.startSegment(face: ManualFace.first, at: moment))
+        let open = try #require(events.startSegment(face: ManualFace.first, at: moment))
         var finalisedWhenLetGo: String?
-        let database = self.database!
+        let database = self.database
         quit.letGoOfTheDevice = {
             finalisedWhenLetGo = database.string(
                 "SELECT finalised FROM device_event WHERE device_event_id = \(open.deviceEventID);"
@@ -152,21 +146,21 @@ final class QuitSequenceTests: XCTestCase, @unchecked Sendable {
 
         quit.run(at: moment.addingTimeInterval(60))
 
-        XCTAssertEqual(finalisedWhenLetGo, "1")
+        #expect(finalisedWhenLetGo == "1")
     }
 
-    func testAQuitWithNoDeviceStillRunsTheRestOfTheSequence() throws {
+    @Test func testAQuitWithNoDeviceStillRunsTheRestOfTheSequence() throws {
         // A build that has never scanned has no radio at all, which is the ordinary case and must not stop the
         // segment being closed.
-        let open = try XCTUnwrap(events.startSegment(face: ManualFace.first, at: moment))
+        let open = try #require(events.startSegment(face: ManualFace.first, at: moment))
         quit.letGoOfTheDevice = nil
 
         quit.run(at: moment.addingTimeInterval(60))
 
-        XCTAssertEqual(column("finalised", ofRow: open.deviceEventID), "1")
+        #expect(column("finalised", ofRow: open.deviceEventID) == "1")
     }
 
-    func testNothingIsLeftOpenForTheNextLaunchToFind() throws {
+    @Test func testNothingIsLeftOpenForTheNextLaunchToFind() throws {
         // The defect this exists for. A row left open is closed by the next launch's first click, measuring every
         // second since -- including the hours the app was not running -- and that is an entry, not just a
         // duration: a session of a few minutes came back as 39.
@@ -174,12 +168,12 @@ final class QuitSequenceTests: XCTestCase, @unchecked Sendable {
 
         quit.run(at: moment.addingTimeInterval(120))
 
-        XCTAssertEqual(database.string("SELECT COUNT(*) FROM device_event WHERE finalised = 0;"), "0")
+        #expect(database.string("SELECT COUNT(*) FROM device_event WHERE finalised = 0;") == "0")
 
         // A launch a day later: there is nothing for its first click to close, so nothing can be measured from
         // yesterday's start to now.
-        XCTAssertNil(events.closeOpenSegment(at: moment.addingTimeInterval(86_400)))
-        XCTAssertEqual(database.string("SELECT SUM(duration_seconds) FROM time_entry;"), "120.0")
+        #expect(events.closeOpenSegment(at: moment.addingTimeInterval(86_400)) == nil)
+        #expect(database.string("SELECT SUM(duration_seconds) FROM time_entry;") == "120.0")
     }
 
     // MARK: - stopping the cube on the way out
@@ -204,21 +198,21 @@ final class QuitSequenceTests: XCTestCase, @unchecked Sendable {
         CubeLock(settings: settings, isCubeConnected: { true }, send: { _, _ in }, debugLog: nil)
     }
 
-    func testTheCubeIsStoppedBeforeTheAppGoes() {
+    @Test func testTheCubeIsStoppedBeforeTheAppGoes() {
         setPauseOnLock(true)
         let sent = NSMutableArray()
         quit.cubeLock = cubeLock(into: sent)
         var finished = false
 
-        XCTAssertTrue(quit.pauseAndLockTheCube { finished = true })
+        #expect(quit.pauseAndLockTheCube { finished = true })
 
-        XCTAssertTrue(finished)
-        XCTAssertEqual(sent.count, 2)
-        XCTAssertEqual(sent[0] as? Data, DeviceCommandRules.pause(true))
-        XCTAssertEqual(sent[1] as? Data, DeviceCommandRules.lock(true))
+        #expect(finished)
+        #expect(sent.count == 2)
+        #expect(sent[0] as? Data == DeviceCommandRules.pause(true))
+        #expect(sent[1] as? Data == DeviceCommandRules.lock(true))
     }
 
-    func testACubeThatNeverAnswersDoesNotHoldTheQuitOpen() throws {
+    @Test func testACubeThatNeverAnswersDoesNotHoldTheQuitOpen() throws {
         // The deadline, which is the quit's own contribution: the app must not sit in the menu bar waiting for a
         // cube that has gone.
         //
@@ -230,18 +224,17 @@ final class QuitSequenceTests: XCTestCase, @unchecked Sendable {
         setPauseOnLock(true)
         quit.cubeLock = silentCubeLock()
         var finished = false
-        try MainActor.assumeIsolated {
-            XCTAssertTrue(quit.pauseAndLockTheCube { finished = true })
-            XCTAssertFalse(finished, "precondition: nothing has answered yet")
-            XCTAssertEqual(clock.wakes.first?.seconds, QuitSequence.deviceSeconds, "armed for the deadline")
 
-            try clock.tick()
+        #expect(quit.pauseAndLockTheCube { finished = true })
+        #expect(finished == false, "precondition: nothing has answered yet")
+        #expect(clock.wakes.first?.seconds == QuitSequence.deviceSeconds, "armed for the deadline")
 
-            XCTAssertTrue(finished)
-        }
+        try clock.tick()
+
+        #expect(finished)
     }
 
-    func testTheQuitIsNotFinishedTwice() {
+    @Test func testTheQuitIsNotFinishedTwice() {
         // The deadline and the sequence race for it. Two replies to one quit is the sort of thing that works until it
         // does not.
         setPauseOnLock(true)
@@ -251,10 +244,10 @@ final class QuitSequenceTests: XCTestCase, @unchecked Sendable {
 
         quit.pauseAndLockTheCube { finishes += 1 }
 
-        XCTAssertEqual(finishes, 1)
+        #expect(finishes == 1)
     }
 
-    func testWithNothingToSendToTheQuitJustProceeds() {
+    @Test func testWithNothingToSendToTheQuitJustProceeds() {
         // A build that never scanned, or a cube that went away before the quit. Reported by the return value rather
         // than by calling back, because a completion run here would reply to a termination the delegate has not asked
         // to delay yet.
@@ -262,12 +255,12 @@ final class QuitSequenceTests: XCTestCase, @unchecked Sendable {
         quit.cubeLock = nil
         var finished = false
 
-        XCTAssertFalse(quit.pauseAndLockTheCube { finished = true })
+        #expect(quit.pauseAndLockTheCube { finished = true } == false)
 
-        XCTAssertFalse(finished)
+        #expect(finished == false)
     }
 
-    func testQuittingWithPauseOnLockOffStillLocksAndIsStillWaitedFor() {
+    @Test func testQuittingWithPauseOnLockOffStillLocksAndIsStillWaitedFor() {
         // **Quit is the second of the two places that lock**, so it moved with the first. The setting decides whether
         // a pause goes in front of the lock, not whether quitting locks at all, and the quit has to be deferred for
         // the one command exactly as it is for the two -- a lock nobody waits for is a lock that races the process
@@ -277,10 +270,10 @@ final class QuitSequenceTests: XCTestCase, @unchecked Sendable {
         quit.cubeLock = cubeLock(into: sent)
         var finished = false
 
-        XCTAssertTrue(quit.pauseAndLockTheCube { finished = true })
+        #expect(quit.pauseAndLockTheCube { finished = true })
 
-        XCTAssertEqual(sent.count, 1, "the lock, and no pause in front of it")
-        XCTAssertEqual(sent[0] as? Data, DeviceCommandRules.lock(true))
-        XCTAssertTrue(finished)
+        #expect(sent.count == 1, "the lock, and no pause in front of it")
+        #expect(sent[0] as? Data == DeviceCommandRules.lock(true))
+        #expect(finished)
     }
 }

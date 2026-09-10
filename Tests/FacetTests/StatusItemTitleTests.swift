@@ -7,7 +7,12 @@ import XCTest
 /// Worth testing because this is the one line the app shows all day with no window open, and every piece of it is
 /// conditional: an icon a category may not have, a glyph that depends on the clock, a figure whose format is a
 /// setting, and a spoken label that has to say all of it in words.
-@MainActor
+///
+/// **Not `@MainActor`, and that had to go rather than being harmless.** It was carried from the days when
+/// `StatusItemTitle` sat in `FacetMac` and went through `NSColor`; the subject is a plain core value now and
+/// touches no actor. An `@MainActor` `XCTestCase` aborts the whole test executable on Linux at load time --
+/// corelibs-XCTest reflects a test method's type and an isolated one does not cast -- so the attribute was
+/// taking every other suite in the binary down with it.
 final class StatusItemTitleTests: XCTestCase {
     private let appLabel = "Facet"
 

@@ -81,8 +81,11 @@ final class CubeNotFoundOfferTests: XCTestCase {
     }
 
     // MARK: - one dialog, whatever the reason
+    //
+    // **These three used to be `@MainActor` and are not any more.** `CubeNotFoundQuestion.dialogue` is a plain
+    // `static let` on a core enum, so the attribute was left over from asserting against an `NSAlert`; on Linux an
+    // isolated `XCTestCase` method aborts the whole test executable at load time, which made it expensive.
 
-    @MainActor
     func testTheOfferSaysTheSameThingWhateverTheReason() {
         // **The situation a person is in is the same in every case**: their cube is not usable, and they have to
         // decide whether to keep waiting for it. The distinctions the app can draw are about the radio.
@@ -93,7 +96,6 @@ final class CubeNotFoundOfferTests: XCTestCase {
         XCTAssertTrue(CubeNotFoundQuestion.dialogue.message.hasPrefix("No TimeFlip answered:"))
     }
 
-    @MainActor
     func testTheOfferNamesWhatEachAnswerCommitsTo() {
         // **Timing by hand is a button again, so the text names what pressing it does rather than a route to it.**
         // The two facts somebody needs before choosing are that the device stays paired, which makes the choice free
@@ -109,7 +111,6 @@ final class CubeNotFoundOfferTests: XCTestCase {
         )
     }
 
-    @MainActor
     func testTheOfferDoesNotClaimTheCubeItFoundWasYours() {
         // **A cube that answers and refuses this app's PIN is very often not the user's at all** -- a colleague's on
         // the next desk, found because it is a TimeFlip in range, on the morning theirs was left at home. "Your
