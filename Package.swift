@@ -42,7 +42,7 @@ let testDependencies: [Target.Dependency] = ["FacetMac", "FacetCore"]
 // behaves. A file that cannot run has to be absent from the build rather than inert within it.
 
 // **Needs AppKit, CoreBluetooth or a `FacetMac` type**, so it waits on items 9, 10 and 11 of
-// `docs/linux-port.md`: the OAuth listener, the BlueZ radio, and a UI. 36 files, counted rather than carried.
+// `docs/linux-port.md`: the OAuth listener, the BlueZ radio, and a UI. 35 files, counted rather than carried.
 //
 // **It said 48 until 2026-09-09, and ten of those needed none of the three.** Each carried a
 // `@testable import FacetMac` it never used a type from, which is enough on its own to keep a file out of
@@ -81,7 +81,6 @@ let platformBoundTests = [
     "MenuBarControllerTests.swift",
     "OffscreenWindow.swift",
     "PairingIsWhatTheAppFollowsTests.swift",
-    "QuitSequenceTests.swift",
     "RenamingTheCubeReachesItFirstTests.swift",
     "ReportCalendarTests.swift",
     "ReportCategoryGroupTests.swift",

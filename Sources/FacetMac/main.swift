@@ -214,7 +214,11 @@ timingReadout.cubeSaysPaused = { radio.cubeStatus?.isPaused }
 // `NSApplication.delegate` is a **weak** reference: a quit sequence nobody retains is deallocated
 // immediately and the app then ends without running any of it, silently.
 let quitSequence = QuitSequence(deviceEvents: deviceEvents, debugLog: debugLog)
-app.delegate = quitSequence
+// The sequence is the core's; what AppKit needs is a delegate, and `QuitDelegate` is the six lines that were
+// ever AppKit about it. Both are held: the delegate reference is weak, and the sequence is what everything
+// else below talks to.
+let quitDelegate = QuitDelegate(sequence: quitSequence)
+app.delegate = quitDelegate
 
 // The low-battery warning, which two things draw and one thing decides.
 //

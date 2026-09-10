@@ -1,4 +1,3 @@
-@testable import FacetMac
 @testable import FacetCore
 import Foundation
 import XCTest

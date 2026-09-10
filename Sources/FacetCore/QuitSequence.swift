@@ -1,4 +1,4 @@
-import AppKit
+import Foundation
 import FacetCore
 
 /// What the app does on its way out.
@@ -29,7 +29,7 @@ import FacetCore
 ///
 /// Each step reads what it needs at the step that needs it, not at launch.
 @MainActor
-final class QuitSequence: NSObject, NSApplicationDelegate {
+package final class QuitSequence {
     /// How long the cube gets to be paused and locked before the app quits anyway.
     ///
     /// **Shorter than the two writes' own deadlines put together, deliberately.** `DeviceLogin.send` gives each write
@@ -46,12 +46,12 @@ final class QuitSequence: NSObject, NSApplicationDelegate {
     /// **A closure rather than the radio itself**, because the radio is made on the first scan and lives behind the
     /// Settings window controller: this runs at a moment when there may never have been one. It is set after that
     /// controller exists (see `main.swift`), which is also why it is a variable rather than an initialiser argument.
-    var letGoOfTheDevice: (() -> Bool)?
+    package var letGoOfTheDevice: (() -> Bool)?
 
     /// Stopping the cube on the way out. Set after the radio exists, for the same reason `letGoOfTheDevice` is a
     /// closure: this object is built before it and outlives every window. `nil` in a build that never had a radio,
     /// which quits without touching anything.
-    var cubeLock: CubeLock?
+    package var cubeLock: CubeLock?
 
     /// Stops the app being held open for ever by a cube that went quiet part way through.
     private var deviceDeadline: Timer?
@@ -60,10 +60,9 @@ final class QuitSequence: NSObject, NSApplicationDelegate {
     /// called, which is what makes the deadline and the last acknowledgement safe to race.
     private var quitFinished: (() -> Void)?
 
-    init(deviceEvents: DeviceEventRecorder, debugLog: DebugLog?) {
+    package init(deviceEvents: DeviceEventRecorder, debugLog: DebugLog?) {
         self.deviceEvents = deviceEvents
         self.debugLog = debugLog
-        super.init()
     }
 
     /// Pauses and locks the cube, then lets the quit proceed.
@@ -84,10 +83,6 @@ final class QuitSequence: NSObject, NSApplicationDelegate {
     /// separately. Two expressions of "is there anything to send" is the sort of pair that comes to disagree, and the
     /// disagreement here is the worst kind available: `.terminateLater` with nothing running behind it is an app that
     /// never quits, and a reply sent before this method returns is one that quits twice.
-    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let started = pauseAndLockTheCube { NSApp.reply(toApplicationShouldTerminate: true) }
-        return started ? .terminateLater : .terminateNow
-    }
 
     /// Pauses the cube, locks it, and reports when there is nothing left to wait for.
     ///
@@ -105,7 +100,7 @@ final class QuitSequence: NSObject, NSApplicationDelegate {
     /// pause has to be confirmed before the lock is sent. What is this method's is the deadline: quitting is the only
     /// caller that cannot afford to wait.
     @discardableResult
-    func pauseAndLockTheCube(then finished: @escaping () -> Void) -> Bool {
+    package func pauseAndLockTheCube(then finished: @escaping () -> Void) -> Bool {
         guard let cubeLock else {
             debugLog?.record(.quit, "Quit: nothing to send to, so the cube is left as it is")
             return false
@@ -153,16 +148,13 @@ final class QuitSequence: NSObject, NSApplicationDelegate {
         finished?()
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
-        run(at: Date())
-    }
 
     /// The sequence itself, with the moment passed in so it can be asserted without terminating anything.
     ///
     /// Reported either way. A quit that found nothing open and a quit whose steps never ran leave the same
     /// table behind, and telling those apart later is the difference between "there was nothing to do" and
     /// "this never fired".
-    func run(at moment: Date) {
+    package func run(at moment: Date) {
         // **The app's own segments, and only those.** A cube's open row is refused by the recorder and left as it
         // is, because the cube keeps timing after this process has gone and its own history is what will say how
         // long that stretch ran -- see `DeviceEventRecorder.closeOpenSegment`. So the second line covers both
