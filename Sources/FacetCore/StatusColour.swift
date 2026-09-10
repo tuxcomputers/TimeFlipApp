@@ -12,8 +12,8 @@
 /// at all, so a row saying what was drawn is the only evidence there is. So the word was the answer all along and
 /// the `NSColor` was a detour, which is why moving this into the core deletes code rather than relocating it.
 ///
-/// The Mac's mapping is `StatusColour+AppKit.swift` in `FacetMac`, beside `ColourDrawing`, which does the same job
-/// for the category colours.
+/// The Mac's mapping is `StatusColourDrawing.swift` in `FacetMac`, beside `ColourDrawing`, which does the same
+/// job for the category colours.
 package enum StatusColour: String, Equatable, CaseIterable {
     /// A session this app is timing itself.
     ///

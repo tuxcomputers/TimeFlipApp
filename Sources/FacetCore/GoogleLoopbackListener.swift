@@ -16,8 +16,9 @@ import Glibc
 // **The Darwin half is moved across unchanged**, deliberately: it is the path a real sign-in has used,
 // and there is nothing to gain on that platform by rewriting it in sockets for the sake of having one
 // implementation. What made this file portable enough to live in the core was taking it *out* of
-// `GoogleOAuthClient`, whose remaining tie to AppKit is one default argument -- `NSWorkspace.shared.open`
-// -- for putting a URL in front of a browser.
+// `GoogleOAuthClient`, which has since followed it in: that file's one tie to AppKit was a default argument
+// handing the sign-in URL to a browser, and removing the default is what moved it. The browser is now
+// supplied by whoever starts a sign-in, so both halves of the flow are core and only the opening is not.
 
 #if canImport(Network)
 /// Listens on a loopback port for the one redirect Google sends back.

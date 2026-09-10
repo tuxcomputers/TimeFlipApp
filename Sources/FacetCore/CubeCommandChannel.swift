@@ -39,8 +39,6 @@ package final class CubeCommandChannel {
     private let status: (DeviceCommandRules.Status) -> Void
     /// Whether a double-tap read or a factory reset is occupying this channel. See the type's last paragraph.
     private let isOtherExchangeInFlight: () -> Bool
-    /// How a payload is described in a log row. Injected because `BLETrace` is AppKit-side and does not move.
-    private let describe: (Data) -> String
     private let debugLog: DebugLog?
 
     /// The command that has been written and not yet settled, and what to tell about it.
@@ -88,7 +86,6 @@ package final class CubeCommandChannel {
         readResult: @escaping () -> Void,
         status: @escaping (DeviceCommandRules.Status) -> Void = { _ in },
         isOtherExchangeInFlight: @escaping () -> Bool = { false },
-        describe: @escaping (Data) -> String = { _ in "the command" },
         debugLog: DebugLog? = nil
     ) {
         self.scheduler = scheduler
@@ -96,7 +93,6 @@ package final class CubeCommandChannel {
         self.readResult = readResult
         self.status = status
         self.isOtherExchangeInFlight = isOtherExchangeInFlight
-        self.describe = describe
         self.debugLog = debugLog
     }
 
@@ -133,7 +129,7 @@ package final class CubeCommandChannel {
     /// defined and the write itself is all the evidence there is. It is never called from the write landing alone
     /// for a command that can be asked about.
     package func send(_ payload: Data, then reported: @escaping (Bool) -> Void) {
-        enqueue("the command \(describe(payload))") { [weak self] in
+        enqueue("the command \(CubeBytes.describe(payload))") { [weak self] in
             guard let self else {
                 reported(false)
                 return
@@ -144,7 +140,7 @@ package final class CubeCommandChannel {
             self.armDeadline()
             // The bytes themselves go into the trace as `ble-tx` by the transport, so what this row adds is why
             // they went.
-            self.debugLog?.record(.command, "Sending \(self.describe(payload))")
+            self.debugLog?.record(.command, "Sending \(CubeBytes.describe(payload))")
             self.transmit(payload)
         }
     }
@@ -293,7 +289,7 @@ package final class CubeCommandChannel {
         }
         isReadingBack = true
         armDeadline()
-        debugLog?.record(.command, "Asking whether it took: \(describe(readBack.request))")
+        debugLog?.record(.command, "Asking whether it took: \(CubeBytes.describe(readBack.request))")
         transmit(readBack.request)
     }
 

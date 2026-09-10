@@ -214,7 +214,6 @@ package final class DeviceLogin: NSObject {
             guard let self else { return false }
             return self.isReadingDoubleTap || self.isFactoryResetRunning
         },
-        describe: { CubeBytes.describe($0) },
         debugLog: debugLog
     )
 

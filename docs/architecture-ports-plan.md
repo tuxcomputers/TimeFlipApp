@@ -168,9 +168,24 @@ and says why: "Injected rather than calling `NSApp` here".
 - [x] `QuitSequence` in the core, `QuitDelegate` in `FacetMac`, `app.run()` in the composition root where a
       platform-specific launch belongs.
 - [x] `QuitSequence`'s deadline moved with item 1.
-- [ ] Prose only: `QuitSequence`'s doc comments still explain themselves in terms of `NSApp` and
-      `applicationShouldTerminate`. The reasoning is measured and worth keeping; some of it now describes
-      `QuitDelegate` and should sit there. Tidy when item 6 is in that area anyway.
+- [x] The prose. `QuitSequence` named `NSApp`, `applicationWillTerminate` and `applicationShouldTerminate`
+      five times and now names none: it says what the sequence needs (one half may answer late, the other
+      must happen whether or not anybody waited) and points at `FacetMac.QuitDelegate` for which platform
+      call each hangs off. **Both AppKit passages were already on `QuitDelegate` word for word**, so this
+      deleted a duplicate rather than moving one, which is the two-copies hazard in prose form.
+- [x] It also still carried `import FacetCore`, in a file that is now part of `FacetCore`.
+
+**Three stale references the remodel itself created, found by sweeping the core for what it names:**
+
+- `CubeCommandChannel` took a `describe` closure "because `BLETrace` is AppKit-side and does not move". It
+  moved: `CubeBytes` is core, the injection was ceremony with one caller passing the only implementation,
+  and both are gone.
+- `CategoryRenameRules` said `SettingsWindowController.rename` sets the key equivalents. It does not; the
+  whole point of `Dialogue.wayOut` is that one file does, for all nineteen.
+- `StatusColour` pointed at `StatusColour+AppKit.swift`, which is called `StatusColourDrawing.swift`, and
+  `GoogleLoopbackListener` still described `GoogleOAuthClient` as tied to AppKit by a default argument that
+  is gone. `StatusItemTitle` cited `MenuBarController.statusIndicatorImage`, which is the *archive's*
+  member and now reads as this tree's, so it says which.
 
 ## 4. Menu bar
 

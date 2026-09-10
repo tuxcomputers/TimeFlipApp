@@ -94,7 +94,9 @@ package struct StatusItemTitle: Equatable {
     /// figure -- and which says something about neither: it reports whether a clock is going.
     ///
     /// **The menu bar's own text colour, which is what the archive drew it in.** Its indicator was a template image
-    /// handed to AppKit untinted (`MenuBarController.statusIndicatorImage`), so it came out in
+    /// handed to AppKit untinted (the archive's own `MenuBarController.statusIndicatorImage`, which this app has
+    /// no equivalent of: naming it unqualified read as a member of the `MenuBarController` in this tree), so it
+    /// came out in
     /// whatever the strip draws text in -- white on a dark menu bar, black on a light one -- rather than in the
     /// line's green. Naming `.ordinary` here is that behaviour spelled out rather than inherited, since this app
     /// tints its own attachments and would otherwise have to pick something.

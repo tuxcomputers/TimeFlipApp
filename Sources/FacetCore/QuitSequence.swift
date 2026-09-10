@@ -1,5 +1,4 @@
 import Foundation
-import FacetCore
 
 /// What the app does on its way out.
 ///
@@ -8,9 +7,9 @@ import FacetCore
 /// the app was not running. That is not a stale duration in a row, it is a wrong entry in somebody's tracked
 /// time, because closing a segment is what creates the entry.
 ///
-/// **`applicationWillTerminate` rather than the Quit menu item**, so it covers every graceful end rather than
-/// the one the app itself offers: an Apple Events quit, a logout, a restart. The menu item goes through
-/// `NSApp.terminate` and so through here as well.
+/// **Run on the way out however the app was asked to stop**, rather than off the Quit item in its own menu: a
+/// logout, a restart, or the desktop telling it to go are all graceful ends and all have to close the segment.
+/// The Quit item is one caller of this among several, not the reason it exists.
 ///
 /// **Two steps now**: the open segment is closed, and the cube is let go of.
 ///
@@ -22,10 +21,12 @@ import FacetCore
 /// **Three steps now**, and the first of them happens before the other two: the cube is paused and then locked while
 /// the link is still up, and only then is the segment closed and the link given back.
 ///
-/// That split is why this is two delegate methods rather than one. Pausing and locking are BLE writes, and a write
-/// needs a round trip the process will not be alive for if it is started from `applicationWillTerminate` -- so they run
-/// in `applicationShouldTerminate`, which is allowed to say "not yet" and answer later. The archive reached the same
-/// arrangement for the same reason.
+/// **That split is why stopping is two questions rather than one**, and it is what the two methods below are.
+/// `pauseAndLockTheCube` needs the link and a round trip, so it has to run while the platform is still asking
+/// whether it may stop, and it answers late; `run(at:)` is the part that must happen even if nobody waited.
+/// Which platform call each hangs off is the adapter's business (`FacetMac.QuitDelegate` says which, and why
+/// the ordering is measured rather than stylistic). The archive reached the same arrangement for the same
+/// reason.
 ///
 /// Each step reads what it needs at the step that needs it, not at launch.
 @MainActor
@@ -77,19 +78,21 @@ package final class QuitSequence {
     /// **The lock always goes; `pause_on_lock` only decides whether a pause goes first**, which `CubeLock` reads at
     /// the step that needs it.
     ///
-    /// **`applicationShouldTerminate` rather than `applicationWillTerminate`**, because these are BLE writes: the
-    /// process does not outlive `willTerminate` long enough for a round trip, so a pause started there would be a
-    /// command that never left. This method may answer late, which is exactly what that needs.
+    /// **Called while the platform is still asking whether it may stop, and it may answer late.** These are BLE
+    /// writes and the process does not outlive the final notification long enough for a round trip, so a pause
+    /// started at the very end would be a command that never left. `FacetMac.QuitDelegate` carries which AppKit
+    /// call that is and the measurement behind it; what matters here is only that this one is allowed to take
+    /// its time and the other is not.
     ///
     /// **The answer is derived from what the step actually did**, rather than decided here and then acted on
     /// separately. Two expressions of "is there anything to send" is the sort of pair that comes to disagree, and the
-    /// disagreement here is the worst kind available: `.terminateLater` with nothing running behind it is an app that
-    /// never quits, and a reply sent before this method returns is one that quits twice.
+    /// disagreement is the worst kind available: an app that says "wait" with nothing running behind it never
+    /// quits, and one that answers before this returns quits twice.
 
     /// Pauses the cube, locks it, and reports when there is nothing left to wait for.
     ///
     /// Returns whether anything was sent. `false` means `finished` will **not** be called and there is nothing to
-    /// wait for -- which is what lets the delegate above answer `.terminateNow` from the same fact rather than from a
+    /// wait for -- which is what lets an adapter answer "stop now" from the same fact rather than from a
     /// second opinion about it. `true` means `finished` is called exactly once: by the sequence finishing, or by the
     /// deadline, whichever gets there first.
     ///
