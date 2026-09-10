@@ -8,6 +8,12 @@ the two into the code.
 **moved but not altered**, and the Linux port resumes once the Mac matches the model. `swift test` is the
 only suite running; the scripted suite is set aside.
 
+**The Linux half started on 2026-09-11**, which is what that scope said would happen next, and it is tracked
+in `docs/handover-linux.md` rather than here: this file is the list of *arms*, and every arm the Linux work
+needs is already green. What the Linux box adds is **slots**, so what changes here is the tick beside a
+square rather than a new section -- and `architecture-model.svg` is where it shows. Each section below says
+what its Linux slot is worth when it lands.
+
 ## How an item is finished
 
 The diagram's three greens are the definition of done, and they are three different moments:
@@ -29,7 +35,7 @@ The cheap and the blocking come first, the large and the discretionary last.
 | # | Arm | State | Why here |
 |---|-----|-------|----------|
 | 0 | Housekeeping | **done** | Corrections that cost nothing and were noise in every scan. |
-| 1 | The clock | **done** | Six core modules on `RunLoop.main`, which `FacetLinux` never runs. A live latent fault. |
+| 1 | The clock | **done, and the square is green** | Six core modules on `RunLoop.main`, which `FacetLinux` never runs. A live latent fault. The Linux slot landed 2026-09-11. |
 | 3 | Starting and stopping | **done** | Landed with `QuitSequence`. Turned out to need no protocol at all: see its section. |
 | 2 | Files and folders | **not an arm** | Off the diagram on 2026-09-10, like storage: it is in the core and there is nothing to select. |
 | 4 | Menu bar | **done** | The **second adapter already exists** and is the right shape. A real seam with one outlier, not a hypothetical one. |
@@ -106,6 +112,22 @@ already separated from the thing that schedules it. Three modules do not have it
       second check, `theCoreUsesItsPorts`, scanning non-comment lines against a list of banned spellings.
       `Timer.scheduledTimer` is on it beside `RunLoop`, because it adds to a run loop **without naming one** and
       would have walked straight past a check that only looked for the first.
+- [x] **The Linux slot, 2026-09-11, and with it the first green square on the figure.** `GLibScheduler` is 110
+      lines of `g_timeout_add_full` on the default main context -- the one `gtk_main` runs -- with the wake boxed
+      across the C boundary and released by GLib's own destroy notify. `mayGroup` buys `g_timeout_add_seconds`,
+      which is a different *source* rather than a tolerance, so the two slots spend the same permission on
+      different mechanisms and neither is wrong. `main.swift` hands it to `MenuBar`, whose one-second repaint was
+      the last hand-rolled `g_timeout_add_seconds` in that target, exactly as the same tick was the last
+      hand-rolled `.common` timer on the Mac.
+- [x] **`GLibSchedulerTests` drives the loop itself** with `g_main_context_iteration`, so nine tests run in under
+      two seconds and none of them sleeps. Mutation-checked both ways that matter: a `cancel` that does nothing
+      fails two, and a one-shot answering `G_SOURCE_CONTINUE` fails two others. It is `.serialized`, being the one
+      suite in the package that has to be -- there is a single default main context per process, and in parallel
+      each test dispatches whichever sources are ready and waits on a context another thread holds.
+- [x] **The square is green**, which no square has been before. It draws three slots and no Windows one, what it
+      needs from a platform being a timeout source rather than a toolkit; all three are filled and each is handed
+      over by its own composition root. The hand-driven slot had been drawn dashed since the port landed and was
+      simply wrong -- `HandDrivenScheduler` is what every core module's tests wake through.
 
 ## 2. Files and folders
 

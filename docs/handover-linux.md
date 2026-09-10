@@ -54,35 +54,13 @@ at the top of this file still holds, and an item can be taken out of turn. What 
 which items unblock the most, and where the milestone is.
 
 1. ~~**15** -- does the tree build and test here at all.~~ **Done 2026-09-11**; it did not, and does now.
-2. **16, the clock.** Small, needs no cube, and everything in 19 refuses to be built without it.
+2. ~~**16, the clock.**~~ **Done 2026-09-11**: `GLibScheduler`, injected from `main.swift`.
 3. **17, `CubeGatt`.** The largest amount of behaviour bought for the least code anywhere in this port.
 4. **18, `CubeRadio`.** Scanning and connecting, which 17 has nothing to talk to without.
 5. **19, compose the device half.** ⇐ **the milestone: a Linux Facet that pairs with the cube and records
    time.** No window, and it would already be doing the thing the app is for.
 6. **20, the menu bar onto the core modules**, then **21, the dialogues.** Both are drawing.
 7. **22 is not a task**, it is a warning about the one part of the Mac that is not ready for you.
-
-## 16. The clock is a port, and there is no Linux slot in it
-
-**`RunLoop` and `Timer.scheduledTimer` are banned spellings in the core now**, checked by
-`PlatformBlindCoreTests.bannedSpellings`. Six core modules used to schedule on `RunLoop.main`, which this
-target never runs -- a live latent fault that would have bitten the moment the device half was composed here,
-and silently: no error, just timers that never fire.
-
-`Scheduler` and `ScheduledWake` in `Sources/FacetCore/Scheduler.swift` are the port. One method:
-
-    func wake(in seconds: TimeInterval, repeating: Bool, mayGroup: Bool,
-              _ tick: @escaping @MainActor () -> Void) -> ScheduledWake
-
-**`mayGroup` is permission, not a number.** It says this wake does not care about precision, and leaves the
-slot to decide what to do with that. `RunLoopScheduler` spends it on `timer.tolerance`; a GLib slot may well
-ignore it, and ignoring it is a correct implementation.
-
-`Sources/FacetMac/RunLoopScheduler.swift` is 49 lines and is the whole of the macOS slot.
-`Tests/FacetTests/HandDrivenScheduler.swift` is the test slot, 122 lines, and is worth reading first: it is
-what the port looks like when nothing real is behind it, so it shows the contract with no platform in the way.
-
-**What to build**: whatever GLib gives you, injected from `main.swift`. Nothing above it will know.
 
 ## 17. `BlueZGatt` has something to conform to now: `CubeGatt`
 

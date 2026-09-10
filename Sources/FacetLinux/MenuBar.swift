@@ -52,6 +52,15 @@ final class MenuBar {
     private let menu: UnsafeMutablePointer<GtkWidget>
     private let debugLog: DebugLog?
 
+    /// **Injected rather than reached for**, which is what makes the tick above the same one the macOS status
+    /// item uses. `MenuBarController` went the same way when the clock became a port: the last hand-rolled
+    /// timer in that target went with it.
+    private let scheduler: Scheduler
+    /// Held so the repaint can be stopped, which nothing does yet -- the tick lives as long as the process.
+    /// Dropping it would not stop it either way, `ScheduledWake` being explicit that a repeat runs until it
+    /// is cancelled.
+    private var repaint: ScheduledWake?
+
     /// Asked every second for what the label should say, and asked again as the menu opens for what should
     /// be in it. Closures rather than values, so this type reads and never remembers.
     private let label: @MainActor () -> (text: String, guide: String)
@@ -63,9 +72,11 @@ final class MenuBar {
     private var actions: [Action] = []
 
     init(debugLog: DebugLog?,
+         scheduler: Scheduler,
          label: @escaping @MainActor () -> (text: String, guide: String),
          items: @escaping @MainActor () -> [Item]) {
         self.debugLog = debugLog
+        self.scheduler = scheduler
         self.label = label
         self.items = items
 
@@ -170,13 +181,15 @@ final class MenuBar {
         // than at a point of use, which `CLAUDE.md` names as a case that has to say so: the label shows a
         // running total, and there is no event to hang it on -- the seconds simply pass. The read itself
         // still goes to the database every time; what the timer decides is only how often to ask.
-        g_timeout_add_seconds(1, { data in
-            guard let data else { return 0 }
-            MainActor.assumeIsolated {
-                Unmanaged<MenuBar>.fromOpaque(data).takeUnretainedValue().refreshLabel()
-            }
-            return 1  // G_SOURCE_CONTINUE
-        }, Unmanaged.passUnretained(self).toOpaque())
+        //
+        // **Through the port rather than through `g_timeout_add_seconds` directly**, which is what this line
+        // used to be. Nothing about the tick changed -- `GLibScheduler` arranges the same GLib source -- but
+        // the last place in this target that reached for a clock of its own is gone, and the wake is now the
+        // same call the six core modules make. `mayGroup` is deliberately not given: a figure showing seconds
+        // that settles alongside some other wake is a figure that visibly skips one.
+        repaint = scheduler.wake(in: 1, repeating: true) { [weak self] in
+            self?.refreshLabel()
+        }
 
         debugLog?.record(.launch, "The menu bar item is up")
         gtk_main()

@@ -25,7 +25,11 @@ let coreDependencies: [Target.Dependency] = ["SQLite3", "CDBus"]
 // `FacetLinux` among them since 2026-09-10: the BlueZ transport moved out of the core into that target, so
 // the suites covering it have to reach the module they now live beside. Testing an executable target is what
 // the macOS half already does with `FacetMac`.
-let testDependencies: [Target.Dependency] = ["FacetCore", "FacetLinux", "SQLite3", "CDBus"]
+//
+// `CGtk` since 2026-09-11, for the same reason `CDBus` is here: `GLibSchedulerTests` drives the wakes it
+// arranges by turning the default main context itself, which is `g_main_context_iteration`. A scheduler
+// nothing can turn the loop of is a scheduler that can only be checked by running the app.
+let testDependencies: [Target.Dependency] = ["FacetCore", "FacetLinux", "SQLite3", "CDBus", "CGtk"]
 #else
 let coreDependencies: [Target.Dependency] = []
 let testDependencies: [Target.Dependency] = ["FacetMac", "FacetCore"]

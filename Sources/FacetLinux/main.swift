@@ -85,11 +85,18 @@ let dayTotal = DayTotal(settings: settings, entries: entries, events: deviceEven
 let timingReadout = TimingReadout(categories: categories, faces: faces, events: deviceEvents, dayTotal: dayTotal)
 timingReadout.isCubePaired = { settings.flag("paired", field: "paired") == true }
 
+// **The clock, handed over rather than reached for.** One instance, because there is one main context, which
+// is the same reason the Mac makes one `RunLoopScheduler`. Nothing above this line knows which of the two it
+// has: `HistoryTimer`, `LowBatteryWatch`, `DailyLimitWatch`, `DeviceReconnector`, `WriteDebounce` and
+// `QuitSequence` all take a `Scheduler`, and the menu bar's own repaint tick takes this one.
+let scheduler = GLibScheduler()
+
 // **The bar, and then the run loop.** From here on quit is the only way out, exactly as the macOS launch
 // says: `gtk_main` does not return until something calls `gtk_main_quit`, and the only thing that does is
 // the menu item below.
 let menuBar = MenuBar(
     debugLog: debugLog,
+    scheduler: scheduler,
     // **What is being timed, asked of the database every second.** `hoursMinutesSeconds` is the same
     // formatter the other platform's status item uses, so the two read alike. The guide is the widest the
     // figure gets, which is what stops the panel shuffling as the digits change.

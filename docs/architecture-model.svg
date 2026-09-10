@@ -203,15 +203,22 @@
   <!-- NW: Clock. Moved here from due west when the ring went from eight positions to six, so the six sit at
        60 degrees to each other. It mirrors `Secrets` across the vertical and sits directly above
        `Starting and stopping`, which is what makes the spacing read as even rather than nearly even. -->
+  <!-- THE FIRST GREEN SQUARE, 2026-09-11. Every slot this one draws is filled: `RunLoopScheduler` in FacetMac,
+       `GLibScheduler` in FacetLinux, and `HandDrivenScheduler` in the tests, each handed over by its own
+       composition root. It has no Windows slot to wait on, unlike the five others, because what it needs from a
+       platform is a timeout source rather than a toolkit and the three that exist are the three there are.
+
+       The hand-driven slot was drawn dashed until now and should not have been: `HandDrivenScheduler` has
+       existed since the port landed and is what every core module's tests wake through. -->
   <g>
-    <rect x="108" y="238" width="210" height="112" rx="4" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
-    <text x="213" y="260" text-anchor="middle" font-size="13" font-weight="600" fill="#0f172a">The clock</text>
+    <rect x="108" y="238" width="210" height="112" rx="4" fill="#f0fdf4" stroke="#059669" stroke-width="2"/>
+    <text x="213" y="260" text-anchor="middle" font-size="13" font-weight="600" fill="#065f46">The clock</text>
     <rect x="120" y="270" width="186" height="22" rx="3" fill="#059669"/>
     <text x="213" y="285" text-anchor="middle" font-size="10" fill="#ffffff">macOS: RunLoop.main</text>
-    <rect x="120" y="296" width="186" height="22" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
-    <text x="213" y="311" text-anchor="middle" font-size="10" fill="#94a3b8">Linux: g_timeout_add</text>
-    <rect x="120" y="322" width="186" height="22" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
-    <text x="213" y="337" text-anchor="middle" font-size="10" fill="#94a3b8">driven by hand, for tests</text>
+    <rect x="120" y="296" width="186" height="22" rx="3" fill="#059669"/>
+    <text x="213" y="311" text-anchor="middle" font-size="10" fill="#ffffff">Linux: g_timeout_add</text>
+    <rect x="120" y="322" width="186" height="22" rx="3" fill="#059669"/>
+    <text x="213" y="337" text-anchor="middle" font-size="10" fill="#ffffff">driven by hand, for tests</text>
   </g>
   <line x1="458" y1="440" x2="320" y2="336" stroke="#059669" stroke-width="2.5" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
   <rect x="335" y="368" width="94" height="30" rx="4" fill="#ecfdf5" stroke="#6ee7b7"/>
