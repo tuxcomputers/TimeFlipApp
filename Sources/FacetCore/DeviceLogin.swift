@@ -32,21 +32,21 @@ import Foundation
 /// method the app remembers to call after connecting -- setting the PIN is part of reaching a cube, so it is two more
 /// steps of this exchange rather than a second one that could be skipped.
 @MainActor
-final class DeviceLogin: NSObject {
+package final class DeviceLogin: NSObject {
     /// How long the whole exchange gets, from a live connection to a verdict, including setting a new PIN.
     ///
     /// One deadline rather than one per step, because a cube that stops answering stops answering: which step it was
     /// on is a thing for the log to say, not a thing to give its own budget to. Generous against the archive's
     /// measurements, where the whole of connect-and-link never exceeded 5.4 seconds and setting a PIN and confirming
     /// it added 236-266ms on top (n=6, `MockTimeFlipDevice.swift`).
-    static let timeoutSeconds: TimeInterval = 15
+    package static let timeoutSeconds: TimeInterval = 15
 
     /// How long the Device Information reads get, once the login is over.
     ///
     /// **Its own deadline rather than a share of the login's**, because it starts after the login's has been put
     /// down. Shorter than the login's, too: these are four plain reads on an established link with no command channel
     /// and no password in the way, so a cube that has not answered in ten seconds is not going to.
-    static let infoTimeoutSeconds: TimeInterval = 10
+    package static let infoTimeoutSeconds: TimeInterval = 10
 
     /// Where the exchange has got to, and so what an arriving value is the answer to.
     ///
@@ -214,7 +214,7 @@ final class DeviceLogin: NSObject {
             guard let self else { return false }
             return self.isReadingDoubleTap || self.isFactoryResetRunning
         },
-        describe: { BLETrace.describe($0) },
+        describe: { CubeBytes.describe($0) },
         debugLog: debugLog
     )
 
@@ -258,15 +258,14 @@ final class DeviceLogin: NSObject {
     ///   - status: called whenever the cube says what state it is in -- once on connecting, and again every time a
     ///     command is read back. Unlike the two above, the cube never volunteers this: nothing is pushed when a
     ///     double tap pauses it, so what arrives here is only ever an answer to a question this app asked.
-    init(
+    package init(
         gatt: CubeGatt,
         pin: String,
         rotatingTo: String?,
         debugLog: DebugLog?,
-        // **Defaulted for the same reason the window's is**, and it reaches `CubeCommandChannel`, which is core
-        // and takes no default: a login is built per connection, deep inside the radio, and threading one
-        // through every construction to say "the run loop" at each would be ceremony for one answer.
-        scheduler: Scheduler = RunLoopScheduler(),
+        // **No default, now that this is core.** A default here would be the core naming a platform, which is
+        // the one thing the rule forbids: `BluetoothRadio` supplies it with the peripheral.
+        scheduler: Scheduler,
         staysWithTheCube: Bool = true,
         rotated: @escaping (String) -> Void,
         accepted: @escaping (String) -> Void = { _ in },
@@ -303,7 +302,7 @@ final class DeviceLogin: NSObject {
     }
 
     /// Starts the exchange on a peripheral that is already connected.
-    func begin() {
+    package func begin() {
         gatt.events = self
         deadline?.cancel()
         deadline = scheduler.wake(in: Self.timeoutSeconds) { [weak self] in
@@ -355,7 +354,7 @@ final class DeviceLogin: NSObject {
     /// **Queued like every other command**, and it earns its place there rather than being tidied into it: this is
     /// reachable from the Device tab the moment a cube is connected, so it can be asked for while a run of face
     /// colours is going out. Written straight to the characteristic it would land in the middle of one.
-    func factoryReset(_ reported: @escaping (Bool) -> Void) {
+    package func factoryReset(_ reported: @escaping (Bool) -> Void) {
         guard command != nil else {
             debugLog?.record(.pair, "This cube has no command characteristic, so it cannot be reset")
             reported(false)
@@ -398,7 +397,7 @@ final class DeviceLogin: NSObject {
     /// for its own, both arriving on the same characteristic with nothing to tell them apart -- and the read-back
     /// makes that worse, since a `0x10` answer carries no echoed command byte either. The refusal is reported rather
     /// than queued: what to do about a busy cube is the caller's question.
-    func send(_ payload: Data, then reported: @escaping (Bool) -> Void) {
+    package func send(_ payload: Data, then reported: @escaping (Bool) -> Void) {
         guard command != nil else {
             debugLog?.record(.command, "This cube has no command characteristic, so there is nothing to send to")
             reported(false)
@@ -415,7 +414,7 @@ final class DeviceLogin: NSObject {
     /// frequently holds the previous command's reply, so a value read at any other moment is somebody else's.
     ///
     /// `nil` for a cube that would not answer, which is a different thing from a cube that answered "unlocked".
-    func askStatus(then answered: @escaping (DeviceCommandRules.Status?) -> Void) {
+    package func askStatus(then answered: @escaping (DeviceCommandRules.Status?) -> Void) {
         guard command != nil else {
             debugLog?.record(.command, "This cube has no command characteristic, so there is nothing to ask")
             answered(nil)
@@ -432,14 +431,14 @@ final class DeviceLogin: NSObject {
     ///
     /// **The answer arrives as a read, not as a notification**, unlike the stream. See `didWriteValueFor`, which is
     /// where the read is issued and where the archive's measurement behind it is written out.
-    func readLastEvent(then answered: @escaping (DeviceEventSegment?) -> Void) {
+    package func readLastEvent(then answered: @escaping (DeviceEventSegment?) -> Void) {
         request(DeviceHistoryRules.readEvent(), isSingleFrameRequest: true, describing: "which event it is on") { frames in
             answered(frames.first)
         }
     }
 
     /// Asks the cube for everything from `eventNumber` onwards, as a stream ending in a sentinel.
-    func fetchHistory(from eventNumber: Int, then answered: @escaping ([DeviceEventSegment]) -> Void) {
+    package func fetchHistory(from eventNumber: Int, then answered: @escaping ([DeviceEventSegment]) -> Void) {
         request(
             DeviceHistoryRules.readHistory(from: eventNumber),
             isSingleFrameRequest: false,
@@ -966,7 +965,7 @@ extension DeviceLogin {
 /// became a port, and none of them was ever about CoreBluetooth: what is here is which phase an answer belongs
 /// to and what to do about it.
 extension DeviceLogin: CubeGattEvents {
-    func servicesDiscovered(_ uuids: [String], failed: String?) {
+    package func servicesDiscovered(_ uuids: [String], failed: String?) {
         services = Set(uuids)
         // The login's discovery, the Device Information one and the battery one land in the same callback, and which
         // is which is not in the arguments: the answer accumulates, so by the third call it holds all
@@ -1026,7 +1025,7 @@ extension DeviceLogin: CubeGattEvents {
         services.contains { TimeFlipUUIDs.match($0, service) }
     }
 
-    func characteristicsDiscovered(
+    package func characteristicsDiscovered(
         _ found: [DiscoveredCharacteristic],
         ofService service: String,
         failed: String?
@@ -1115,7 +1114,7 @@ extension DeviceLogin: CubeGattEvents {
 
     /// The verdict on the new PIN, which is what makes it the cube's PIN as far as this app is concerned.
 
-    func writeAcknowledged(to characteristic: String, failed: String?) {
+    package func writeAcknowledged(to characteristic: String, failed: String?) {
         // Both of these run long after the login, when `step` is nil, so they are asked before the guard below that
         // would otherwise discard the acknowledgement they are waiting on.
         if isReadingDoubleTap, TimeFlipUUIDs.match(characteristic, TimeFlipUUIDs.commandString), let commandResult {
@@ -1173,7 +1172,7 @@ extension DeviceLogin: CubeGattEvents {
         read(commandResult)
     }
 
-    func valueArrived(_ value: Data?, from characteristic: String, failed: String?) {
+    package func valueArrived(_ value: Data?, from characteristic: String, failed: String?) {
         // **Logged before anything is made of it, and logged whatever it is.** This is the single point every
         // inbound byte passes through, so a value this app has no handler for is recorded here rather than dropped
         // silently a few lines down -- which is the archive's reasoning at its own version of this line, and half of
@@ -1297,7 +1296,7 @@ extension DeviceLogin: CubeGattEvents {
     /// `nameReported`. A name that has not changed still arrives here, and is written down all the same: the recorder
     /// moves `previous_name` only when the name really moves (`DevicePairingRules.previousName`), so a connection that
     /// reports what was already stored costs a write that changes nothing rather than needing a guard here.
-    func nameArrived(_ name: String) {
+    package func nameArrived(_ name: String) {
         debugLog?.record(.login, "The cube now reports its name as \(name)")
         nameReported(name)
     }

@@ -34,12 +34,18 @@
        A black slot means the code for that platform exists but is not yet through a port. A dashed slot means
        it has not been written.
 
-       A GREEN ARM INTO A BLACK SLOT is the ordinary middle of this, not a mistake, and `Windows and dialogs`
-       is the first place it shows. The arm carries `what to show, and which answer came back`, and it does:
-       all nineteen dialogues are `Dialogue` values decided in the core, and `AlertPresenter` renders them.
-       The slot stands for the whole AppKit adapter, and the other half of it, the Settings window and its
-       five tabs, is still written directly rather than behind a port. So the arm is green, the slot is not,
-       and both are true at once.
+       A GREEN ARM INTO A BLACK SLOT is the ordinary middle of this, not a mistake, and two squares are in it.
+
+       `Windows and dialogs`: the arm carries `what to show, and which answer came back`, and it does, all
+       nineteen dialogues being `Dialogue` values decided in the core and rendered by `AlertPresenter`. The
+       slot stands for the whole AppKit adapter, and its other half, the Settings window and its five tabs,
+       is still written directly rather than behind a port.
+
+       `Radio`: the arm carries all four of `connect, read, write, subscribe`, the last three through
+       `CubeGatt` and the first through `CubeRadio`. `DeviceLogin` is 1,303 lines in the core now and holds
+       the whole login sequence, the history fetch, the factory reset and the device-info gather with no
+       CoreBluetooth in any of it. The slot is black because `BluetoothRadio` is not: 696 lines of central
+       manager, scanning and attempt state, of which the core sees six members.
 
        GREY is the fourth state and the only one that is not about progress: a capability that turned out not
        to need a port at all, because one implementation already answers it correctly on every platform. It is
@@ -110,10 +116,10 @@
     <rect x="547" y="202" width="186" height="22" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
     <text x="640" y="217" text-anchor="middle" font-size="10" fill="#94a3b8">Windows</text>
   </g>
-  <line x1="640" y1="308" x2="640" y2="234" stroke="#b45309" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowMissing)" marker-start="url(#arrowMissing)"/>
-  <rect x="576" y="256" width="128" height="30" rx="4" fill="#fffbeb" stroke="#fcd34d"/>
-  <text x="640" y="269" text-anchor="middle" font-size="9.5" fill="#78350f" font-weight="600">connect, read,</text>
-  <text x="640" y="280" text-anchor="middle" font-size="9.5" fill="#78350f" font-weight="600">write, subscribe</text>
+  <line x1="640" y1="308" x2="640" y2="234" stroke="#059669" stroke-width="2.5" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+  <rect x="576" y="256" width="128" height="30" rx="4" fill="#ecfdf5" stroke="#6ee7b7"/>
+  <text x="640" y="269" text-anchor="middle" font-size="9.5" fill="#065f46" font-weight="600">connect, read,</text>
+  <text x="640" y="280" text-anchor="middle" font-size="9.5" fill="#065f46" font-weight="600">write, subscribe</text>
 
   <!-- NE: Secrets -->
   <g>

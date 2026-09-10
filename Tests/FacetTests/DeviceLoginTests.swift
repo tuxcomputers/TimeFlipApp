@@ -1,5 +1,4 @@
 @testable import FacetCore
-@testable import FacetMac
 import Foundation
 import Testing
 

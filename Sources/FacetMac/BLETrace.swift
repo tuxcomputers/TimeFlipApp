@@ -127,17 +127,9 @@ enum BLETrace {
     /// runs straight on from the hex, and every debug message is plain text now -- no apostrophes, no quotation marks
     /// -- because they are read back out with SQL `LIKE` patterns and both need escaping on the way (see `CLAUDE.md`).
     /// Brackets need escaping nowhere and the app already writes `(category_id 4)` in the same breath.
-    static func describe(_ data: Data) -> String {
-        let hex = data.map { String(format: "%02X", $0) }.joined(separator: " ")
-        guard let text = printable(data) else { return hex }
-        return "\(hex) (\(text))"
-    }
+    static func describe(_ data: Data) -> String { CubeBytes.describe(data) }
 
     /// The bytes as text, when every one of them is printable ASCII. All of them, not most: a frame that is half
     /// readable is a binary frame that happens to contain letters, and rendering it as a string invites reading
     /// meaning into a coincidence.
-    private static func printable(_ data: Data) -> String? {
-        guard !data.isEmpty, data.allSatisfy({ $0 >= 0x20 && $0 < 0x7F }) else { return nil }
-        return String(decoding: data, as: UTF8.self)
-    }
 }

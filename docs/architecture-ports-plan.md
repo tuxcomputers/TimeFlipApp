@@ -33,8 +33,8 @@ The cheap and the blocking come first, the large and the discretionary last.
 | 3 | Starting and stopping | **done** | Landed with `QuitSequence`. Turned out to need no protocol at all: see its section. |
 | 2 | Files and folders | **not a port** | Reordered down on 2026-09-10. Corelibs already answers it per platform, measured on Linux hardware. See its section. |
 | 4 | Menu bar | **done** | The **second adapter already exists** and is the right shape. A real seam with one outlier, not a hypothetical one. |
-| 5 | Radio | after | The biggest port with a protocol already standing. Wants `feature/commandChannel` landed first. |
-| 6 | Windows and dialogs | after | 3,536 lines and the least mechanical work in the app. Everything above teaches something it needs. |
+| 5 | Radio | arm green, slot black | The biggest port with a protocol already standing. Wants `feature/commandChannel` landed first. |
+| 6 | Windows and dialogs | arm green, slot black | 3,536 lines and the least mechanical work in the app. Everything above teaches something it needs. |
 | 7 | Storage | deferred | One adapter, and the decision behind it is unsettled. |
 
 Reorder this table as the work teaches something. An item that turns out to block another moves above it,
@@ -244,14 +244,35 @@ what a radio adapter is, and it is a tenth of what `FacetMac` spends on the same
 sequence, the history fetch, the factory reset, the double-tap read and the device-info gather: protocol
 reasoning, all of it decided identically on both platforms and all of it currently unable to run on one.
 
-- [ ] The GATT port: `read`, `write`, `subscribe`, addressed by UUID. The core already has `TimeFlipUUIDs`
-      with the 16-bit expansion BlueZ needs, so each adapter maps a UUID to its own handle: a
-      `CBCharacteristic` here, a D-Bus path there.
-- [ ] Move the state machine behind it, one exchange at a time, largest last: device info, the double-tap
-      read, the factory reset, the history fetch, then the login sequence itself.
-- [ ] Fold the send closures into the port once the state machine is on the other side of it, so the core
-      has one way to reach the radio rather than three.
-- [ ] `DeviceLogin`'s timeout constants are protocol decisions and travel with the state machine.
+- [x] The GATT port. `CubeGatt` is five methods, which is the whole of what the login ever did to a
+      peripheral, and `CubeGattEvents` is what comes back. Addressed by UUID throughout.
+      `CoreBluetoothGatt` owns the peripheral, is its delegate, keeps the UUID-to-characteristic table and
+      does all the wire tracing. It decides nothing.
+- [x] Move the state machine behind it. It went in one piece rather than one exchange at a time, because
+      the five outbound calls were already a funnel: `DeviceLogin` is 1,303 lines in `FacetCore` now, with
+      the login sequence, the history fetch, the factory reset, the double-tap read and the device-info
+      gather, and no platform in any of it. Its timeout constants went with it. `CubeBytes` followed, being
+      hex and ASCII and nothing to do with CoreBluetooth.
+- [x] **`DeviceLogin` gets its first tests**, and they are what found the third of three bugs the move
+      introduced. It never had any: it held a `CBPeripheral`, so exercising it needed a cube.
+      `DeviceLoginTests` needs neither platform target and runs on both.
+
+**The three bugs were all one bug, and the compiler was happy with every one of them.** A real adapter
+answers in the canonical spelling, lowercase with the vendor's 16-bit shorthand expanded, so a comparison
+against a constant as written is false: `2A29` is not `00002a29-0000-1000-8000-00805f9b34fb`. Eleven `==`
+comparisons, one `switch` over the four Device Information UUIDs, and one hiding behind a local called
+`awaited`. Left in, the login would have found its characteristics, presented no PIN and reported nothing.
+`InMemoryGatt` answers in the spelling a real adapter answers in for exactly this reason: a double that
+echoed back whatever it was handed would have agreed with the broken code.
+
+- [ ] `BluetoothRadio` is what is left, 696 lines of code: the central manager, scanning, connecting, the
+      attempt state. The core reaches it through `CubeRadio`, which is six members and only
+      `DeviceReconnector`'s, so the connect half of this arm is served by a much narrower port than the
+      transport half.
+- [ ] Fold the send closures into the port. `CubeLock`, `DeviceSettingsSync` and `FaceColourSync` each take
+      a bare `send:` closure, so the core still has three ways to reach the radio rather than one.
+- [ ] **Hardware.** None of this is confirmed on a cube. It is the change on this list that most needs to
+      be, and it wants one device run.
 
 ## 6. Windows and dialogs
 

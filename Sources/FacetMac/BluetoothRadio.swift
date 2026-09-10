@@ -1290,6 +1290,9 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
             pin: attempt.presenting,
             rotatingTo: attempt.rotatingTo,
             debugLog: debugLog,
+            // Both halves of what a login needs from this platform, handed over here because this is the one
+            // place that knows it is a Mac: the GATT table above, and the clock.
+            scheduler: RunLoopScheduler(),
             // A reset confirmation asks nothing about the cube: it is proving a wipe and letting go.
             staysWithTheCube: resetConfirmation == nil,
             rotated: { [weak self] pin in self?.onPINChanged?(pin) },
