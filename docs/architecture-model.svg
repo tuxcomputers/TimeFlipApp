@@ -110,14 +110,17 @@
        what reads as even. The angles come out 58 and 64 rather than 60 each, which is the ellipse and not a
        mistake to correct. -->
 
-  <!-- N: Radio -->
+  <!-- N: Radio. The Linux slot went from dashed to black on 2026-09-11, and the distinction between those two
+       is the point of having both. `BlueZCubeGatt` is written and is behind `CubeGatt`, so the code is no longer
+       absent; but `BlueZRadio` is not behind `CubeRadio`, no composition root constructs either, and a slot goes
+       green only when the adapter is handed over. Item 19 of docs/handover-linux.md is what turns it green. -->
   <g>
     <rect x="535" y="118" width="210" height="112" rx="4" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
     <text x="640" y="140" text-anchor="middle" font-size="13" font-weight="600" fill="#0f172a">Radio</text>
     <rect x="547" y="150" width="186" height="22" rx="3" fill="#059669"/>
     <text x="640" y="165" text-anchor="middle" font-size="10" fill="#ffffff">macOS: CoreBluetooth</text>
-    <rect x="547" y="176" width="186" height="22" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
-    <text x="640" y="191" text-anchor="middle" font-size="10" fill="#94a3b8">Linux: BlueZ</text>
+    <rect x="547" y="176" width="186" height="22" rx="3" fill="#0f172a"/>
+    <text x="640" y="191" text-anchor="middle" font-size="10" fill="#ffffff">Linux: BlueZ</text>
     <rect x="547" y="202" width="186" height="22" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
     <text x="640" y="217" text-anchor="middle" font-size="10" fill="#94a3b8">Windows</text>
   </g>

@@ -55,40 +55,12 @@ which items unblock the most, and where the milestone is.
 
 1. ~~**15** -- does the tree build and test here at all.~~ **Done 2026-09-11**; it did not, and does now.
 2. ~~**16, the clock.**~~ **Done 2026-09-11**: `GLibScheduler`, injected from `main.swift`.
-3. **17, `CubeGatt`.** The largest amount of behaviour bought for the least code anywhere in this port.
+3. ~~**17, `CubeGatt`.**~~ **Done 2026-09-11**: `BlueZCubeGatt`, 22 tests, unverified on a cube.
 4. **18, `CubeRadio`.** Scanning and connecting, which 17 has nothing to talk to without.
 5. **19, compose the device half.** ⇐ **the milestone: a Linux Facet that pairs with the cube and records
    time.** No window, and it would already be doing the thing the app is for.
 6. **20, the menu bar onto the core modules**, then **21, the dialogues.** Both are drawing.
 7. **22 is not a task**, it is a warning about the one part of the Mac that is not ready for you.
-
-## 17. `BlueZGatt` has something to conform to now: `CubeGatt`
-
-**This is the item that buys the most.** `DeviceLogin` -- the whole 1,300-line login sequence, the PIN
-rotation, the read-back discipline, the deadlines, the Device Information reads -- moved into `FacetCore` on
-2026-09-10 and now talks to a `CubeGatt` rather than to a `CBPeripheral`. The command channel, the queue and
-the read-back matrix were already there. **So this slot owes transport and nothing else**: discover, read,
-write, subscribe, and the answers handed back.
-
-`Sources/FacetCore/CubeGatt.swift` is the port. Three things to read beside it:
-
-- **`Sources/FacetMac/CoreBluetoothGatt.swift`, 153 lines**, is the reference: a `CBPeripheral`, a table of
-  characteristics keyed by canonical UUID, and every call a translation. It decides nothing.
-- **`Tests/FacetTests/InMemoryGatt.swift`, 87 lines**, is the second adapter and shows the contract with no
-  radio at all.
-- **`Tests/FacetTests/DeviceLoginTests.swift`** drives the login through that double, which means the
-  sequence you are about to feed is already tested and will be tested on this platform too.
-
-**Answer in `TimeFlipUUIDs.canonical` spelling.** This is the one trap and it is invisible: on the Mac it cost
-three bugs that all compiled, and one of them was found only because a test existed. It should be *easier*
-here, because BlueZ already reports the expanded lowercase form natively and `canonical` was written against
-what this machine prints -- but the port's contract is the canonical spelling either way, so canonicalise
-rather than assuming BlueZ has done it.
-
-**One more thing landed on 2026-09-10 that you will see**: there is now one table of characteristic names,
-`TimeFlipUUIDs.named`, and the spellings in it (`commandResult`, `timeFlipService`) are interface -- the
-scripted suite reads them back out of `debug_log` with `LIKE` and `GLOB`. There used to be two tables
-disagreeing.
 
 ## 18. `BlueZRadio` and `CubeRadio`
 

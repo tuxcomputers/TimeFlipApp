@@ -39,7 +39,7 @@ The cheap and the blocking come first, the large and the discretionary last.
 | 3 | Starting and stopping | **done** | Landed with `QuitSequence`. Turned out to need no protocol at all: see its section. |
 | 2 | Files and folders | **not an arm** | Off the diagram on 2026-09-10, like storage: it is in the core and there is nothing to select. |
 | 4 | Menu bar | **done** | The **second adapter already exists** and is the right shape. A real seam with one outlier, not a hypothetical one. |
-| 5 | Radio | **done** |  The biggest port with a protocol already standing. Wants `feature/commandChannel` landed first. |
+| 5 | Radio | **arm done; the Linux slot is half built** |  The biggest port with a protocol already standing. Wanted `feature/commandChannel` landed first. `CubeGatt` has a BlueZ adapter as of 2026-09-11; `CubeRadio` does not, and nothing composes either. |
 | 6 | Windows and dialogs | arm green, two rows left | 3,487 lines and the least mechanical work in the app. Everything above teaches something it needs. |
 | 7 | Storage | **not an arm** | Off the diagram on 2026-09-10. It is in the core and was never a platform capability. |
 
@@ -304,6 +304,19 @@ reasoning, all of it decided identically on both platforms and all of it current
 - [x] **`DeviceLogin` gets its first tests**, and they are what found the third of three bugs the move
       introduced. It never had any: it held a `CBPeripheral`, so exercising it needed a cube.
       `DeviceLoginTests` needs neither platform target and runs on both.
+- [x] **The GATT half of the Linux slot, 2026-09-11.** `BlueZCubeGatt` is BlueZ's object tree behind `CubeGatt`,
+      and three things differ from `CoreBluetoothGatt` -- each of them BlueZ rather than a choice. It keeps **no
+      characteristic table**, a BlueZ characteristic being an object path the tree can be asked for again, which
+      says something about the Mac's: that table is CoreBluetooth's design showing through rather than something
+      an adapter needs. Every answer is **deferred by a wake of zero seconds**, because BlueZ's calls block where
+      CoreBluetooth's do not and `DeviceLogin` is written against a delegate that always answers later. And a
+      refused subscription is **reported rather than logged**, a subscription that silently did not happen being
+      a cube whose face turns never arrive. 22 tests against a fake transport, mutation-checked on both.
+- [x] **The trace rows moved into the core with it.** All ten `ble-tx`/`ble-rx` wordings were in `FacetMac`
+      keyed on `CBUUID`; they are read back by `Tests/Scripted` with `LIKE` and `GLOB`, which makes them
+      interface, and a second radio would have been a second copy diverging one row at a time.
+      `FacetMac/BLETrace.swift` is now the `CBUUID` spellings and no wording of its own, and `BLETraceTests`
+      came off the Linux exclusion list (33 files to 32).
 
 **The three bugs were all one bug, and the compiler was happy with every one of them.** A real adapter
 answers in the canonical spelling, lowercase with the vendor's 16-bit shorthand expanded, so a comparison
