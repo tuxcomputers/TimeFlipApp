@@ -383,30 +383,38 @@ final class BlueZCubeRadio: CubeRadio {
             connectToTheAttempt()
             return
         }
-        if outcome == .wrongPIN { reaching?.anyRefused = true }
         giveUpOnThisDevice(outcome)
     }
 
     /// This device is not the one, so let the link go and try the next.
+    ///
+    /// **Nothing is reported here, and that is `BluetoothRadio`'s rule rather than an omission.** A reach is not
+    /// over because one candidate refused: the PIN is what identifies this app's cube, so a refusal answers "is
+    /// this one mine?" with no. Telling the reconnect loop about each one would have it offer manual mode on the
+    /// first colleague's cube that answered. Only `endReach` reports, and only once.
     private func giveUpOnThisDevice(_ outcome: DeviceLoginOutcome) {
         guard let attempt else { return }
         let id = attempt.id
         self.attempt = nil
+        if outcome == .wrongPIN { reaching?.anyRefused = true }
         letGoOfTheLink(id, because: "the device was not this app's cube")
-        // **Reported per device, not per reach.** `DeviceReconnector.noteOutcome` counts attempts, and a room of
-        // three cubes is three answers to the question of whether this app's cube is in it.
-        onLoginEnded?(id, outcome)
         guard reaching != nil else { return }
         tryNextCandidate()
     }
 
+    /// The reach is over, one way or the other, and this is the one place it is reported.
+    ///
+    /// **A reach with no remembered identifier still reports**, which is why the fallback is a fresh `UUID` rather
+    /// than silence: pairing is a reach for a cube this app has never met, and whatever asked for it is waiting to
+    /// hear. `BluetoothRadio` does the same and for the same reason. Nothing downstream reads the identifier when
+    /// the outcome is not `loggedIn`.
     private func endReach(reporting outcome: DeviceLoginOutcome, because reason: String) {
-        let id = reaching?.preferred
+        let id = reaching?.preferred ?? UUID()
         debugLog?.record(.login, "The reach ended: \(reason)")
         closeTheScan()
         reaching = nil
         attempt = nil
-        if let id { onLoginEnded?(id, outcome) }
+        onLoginEnded?(id, outcome)
     }
 
     private func letGoOfTheLink(_ id: UUID, because reason: String) {

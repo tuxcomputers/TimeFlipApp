@@ -184,7 +184,7 @@ final class BlueZCubeRadioTests {
         clock.tickAll(after: BlueZCubeRadio.resolveSeconds)
 
         #expect(link.gatts.isEmpty)
-        #expect(outcomes.map(\.outcome) == [.unreachable, .unreachable], "this device, and then the reach")
+        #expect(outcomes.map(\.outcome) == [.unreachable], "the reach reports once, not once per device")
         #expect(link.disconnects == [ours], "and the link it was holding is let go of")
     }
 
@@ -195,7 +195,7 @@ final class BlueZCubeRadioTests {
 
         closeTheWindow()
 
-        #expect(outcomes.map(\.outcome) == [.unreachable, .unreachable])
+        #expect(outcomes.map(\.outcome) == [.unreachable])
     }
 
     // MARK: - the PIN is the answer
@@ -240,7 +240,9 @@ final class BlueZCubeRadioTests {
 
         try answerThePIN(accepted: false)
 
-        #expect(outcomes.map(\.outcome) == [.wrongPIN])
+        // Not reported, either: telling the reconnect loop about one refusal would have it offer manual mode on
+        // the first colleague's cube that answered.
+        #expect(outcomes.isEmpty)
         #expect(link.connects == [ours, theirs], "the queue moves on to the other one")
     }
 
@@ -254,8 +256,8 @@ final class BlueZCubeRadioTests {
         try answerThePIN(accepted: false)
 
         #expect(
-            outcomes.map(\.outcome) == [.wrongPIN, .wrongPIN],
-            "the device refused, and then the reach ended having had something refuse it"
+            outcomes.map(\.outcome) == [.wrongPIN],
+            "reported once, by the reach ending having had something refuse it"
         )
     }
 
@@ -271,7 +273,10 @@ final class BlueZCubeRadioTests {
 
         gatt.answerServices(["180F"])
 
-        #expect(outcomes.map(\.outcome) == [.notATimeFlip, .unreachable])
+        #expect(
+            outcomes.map(\.outcome) == [.unreachable],
+            "nothing refused a PIN, so what ended is a reach that found no cube rather than one that was refused"
+        )
     }
 
     // MARK: - the link, once there is one
