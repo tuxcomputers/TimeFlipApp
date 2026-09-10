@@ -656,7 +656,7 @@ they get in the way. The window is one fixed width as a first consequence, and t
 
 | | Candidate | State |
 | --- | --- | --- |
-| 1 | Radio seam below the sequencing | **one cluster of five done**, `feature/commandChannel`, confirmed on the cube |
+| 1 | Radio seam below the sequencing | **two clusters of five done**, and the seam itself exists: `CubeGatt` |
 | 2 | `CubeRadio` is a hypothetical seam | **done**, `InMemoryCubeRadio` is the second adapter |
 | 3 | One secret store | **done** |
 | 4 | The daily limit asked five ways | **done** |
@@ -666,8 +666,18 @@ they get in the way. The window is one fixed width as a first consequence, and t
 | 8 | `SettingsWindowController` | open, and a direction to agree before it is scheduled |
 | 9 | Portable decisions behind AppKit types | open |
 
-Candidate 1's four remaining clusters are the reach and candidate order, the reset proof, the history fetch and
-the PIN rotation machine.
+**The seam landed on 2026-09-10** and is `CubeGatt`: `DeviceLogin` moved into `FacetCore` whole, 1,301 lines,
+and talks to a UUID-keyed transport rather than to a `CBPeripheral`. `CoreBluetoothGatt` is the macOS slot at
+153 lines and decides nothing; `InMemoryGatt` is the second adapter, which is what makes the sequencing
+testable at all. `DeviceLoginTests` is the first test that file has ever had, and it earned its place
+immediately by catching a canonical-UUID bug that compiled perfectly.
+
+That took the PIN rotation machine with it, `rotatingTo` and `rotated` being `DeviceLogin`'s now. **Candidate
+1's three remaining clusters are the reach and candidate order, the reset proof and the history fetch**, all
+still in `BluetoothRadio` (1,411 lines) behind a `CBCentralManager`, and so all still untestable.
+
+**The exclusion list is what this bought, and it is less than it looks, exactly as predicted.**
+`handover-mac.md` item 15 worked out in advance that only `BLETraceTests` would come off, and only one did.
 
 ### The scripted suite is set aside until the Linux port is finished
 
