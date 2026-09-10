@@ -226,6 +226,27 @@ What follows, and it is all precedent rather than new ground:
   four files that touch `sqlite3_` are already in `FacetCore`, and `import SQLite3` is the same line on both
   platforms.
 
+**What crosses the wire is times and categories, and nothing else (settled 2026-09-11).** The server exists so a
+team leader can look at reports, and a report is made of recorded time filed under categories. That is the whole
+of the payload.
+
+**So nothing about the device syncs, and that is a rule rather than an omission.** Nobody reading a report cares
+which cube produced the hours, or on what machine. Every device row stays local: `device_uuid`, `device_name`,
+`device_info`, `paired`, `connection`, the double-tap registers, the LED settings, the auto-pause delay, the
+battery warning level.
+
+**`device_uuid` is the one that would have been actively wrong to sync**, and it is worth naming because it looks
+like an identifier that would travel. It is not: on macOS it is the identifier CoreBluetooth assigned *this Mac*,
+and on Linux it is the cube's real Bluetooth address packed into a UUID behind a marker (`BlueZAddress`). Neither
+means anything on the other machine, and `database/011_setting.sql` already says so. Syncing it would put a
+number naming nothing into a row the reconnect path reads. The marker check refuses a foreign one on Linux; on
+macOS it would simply never match and the scan would fall back to name matching, which is a silent wrong answer
+rather than a loud one.
+
+**A settings row is not sync material just because it is in the `setting` table.** That table holds the device's
+state, the app's preferences and the Google connection alongside anything a report needs, and the split is by
+what the row is *about* rather than by where it lives.
+
 ## The previous implementation is in the git history, not in the tree
 
 The app was rebuilt from the ground up, and the previous implementation used to sit in `Archive/`. It was
