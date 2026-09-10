@@ -161,17 +161,18 @@ final class DevicePane: NSView {
             // face happens to be up is the thing locking it was meant to stop.
             pausesOnLock: true,
             batteryWarningPercent: BatteryRules.defaultWarningPercent,
-            autoPauseMinutes: 0,
-            ledBrightnessPercent: 50,
-            ledBlinkSeconds: 15,
-            // **Off, matching `database/011_setting.sql`.** The gesture pauses the cube on any knock hard enough,
-            // which includes one through the desk it is sitting on, so a cube nobody has asked for it should not be
-            // stopping the clock.
-            isDoubleTapEnabled: false,
-            doubleTapThreshold: 90,
-            doubleTapLimit: 20,
-            doubleTapLatency: 50,
-            doubleTapWindow: 50
+            // **The five device settings come from the core**, where `DeviceSettingsSync.Stored.seeded` holds the
+            // DDL's own seeds. They were written out here until 2026-09-11, and a second composition root needing
+            // the same fallbacks is what moved them: two copies of a seed diverge the next time the DDL moves one,
+            // and nothing fails when they do.
+            autoPauseMinutes: DeviceSettingsSync.Stored.seeded.autoPauseMinutes,
+            ledBrightnessPercent: DeviceSettingsSync.Stored.seeded.ledBrightnessPercent,
+            ledBlinkSeconds: DeviceSettingsSync.Stored.seeded.ledBlinkSeconds,
+            isDoubleTapEnabled: DeviceSettingsSync.Stored.seeded.isDoubleTapEnabled,
+            doubleTapThreshold: Int(DeviceSettingsSync.Stored.seeded.doubleTap.threshold),
+            doubleTapLimit: Int(DeviceSettingsSync.Stored.seeded.doubleTap.limit),
+            doubleTapLatency: Int(DeviceSettingsSync.Stored.seeded.doubleTap.latency),
+            doubleTapWindow: Int(DeviceSettingsSync.Stored.seeded.doubleTap.window)
         )
     }
 

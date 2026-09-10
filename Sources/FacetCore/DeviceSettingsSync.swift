@@ -41,11 +41,13 @@ package final class DeviceSettingsSync {
 
     /// What the tables say the cube should be set to, read at the moment a command is built and never held.
     package struct Stored: Equatable {
-        var autoPauseMinutes: Int
-        var ledBrightnessPercent: Int
-        var ledBlinkSeconds: Int
-        var doubleTap: DoubleTapParameters
-        var isDoubleTapEnabled: Bool
+        // **`package` rather than internal**, so a composition root can read `seeded` field by field. `DevicePane`
+        // is the caller that needs it: its own seeded values come from here now.
+        package var autoPauseMinutes: Int
+        package var ledBrightnessPercent: Int
+        package var ledBlinkSeconds: Int
+        package var doubleTap: DoubleTapParameters
+        package var isDoubleTapEnabled: Bool
 
         /// Memberwise, spelled out because Swift does not widen a synthesised one with its type.
         package init(
@@ -68,6 +70,25 @@ package final class DeviceSettingsSync {
         var doubleTapAsSent: DoubleTapParameters {
             DoubleTapRules.asSent(doubleTap, isEnabled: isDoubleTapEnabled)
         }
+
+        /// What a database missing every one of these rows holds. **`database/011_setting.sql`'s own seeds**, so a
+        /// composition root reading a fresh database sends the cube what a fresh database says rather than zeroes
+        /// that mean nothing.
+        ///
+        /// **In the core since 2026-09-11, and it is the two-copies rule rather than tidying.** These five numbers
+        /// were `DevicePane.Values.seeded`'s, in an AppKit view: a second composition root needing the same
+        /// fallbacks would have written them out again, and two copies of a seed diverge the next time the DDL
+        /// moves one. `DevicePane.Values.seeded` reads them from here now.
+        ///
+        /// **Off, matching the DDL.** The gesture pauses the cube on any knock hard enough, which includes one
+        /// through the desk it is sitting on, so a cube nobody has asked for it should not be stopping the clock.
+        package static let seeded = Stored(
+            autoPauseMinutes: 0,
+            ledBrightnessPercent: 50,
+            ledBlinkSeconds: 15,
+            doubleTap: DoubleTapParameters(threshold: 90, limit: 20, latency: 50, window: 50),
+            isDoubleTapEnabled: false
+        )
     }
 
     /// Sends one command and reports whether the cube took it. Handed in rather than held, so the whole sequence can

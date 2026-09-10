@@ -155,6 +155,15 @@ final class MenuBar {
         }
     }
 
+    /// Draws the item again now, rather than waiting for the next tick.
+    ///
+    /// **What it is for is the states the tick does not cover.** The label is refreshed once a second, which is
+    /// right for a running clock and wrong for everything else: a cube connecting, a pairing being written, a link
+    /// dropping. Each of those changes what the item says with nothing else about to redraw it.
+    func redraw() {
+        refreshLabel()
+    }
+
     /// Puts the current reading beside the icon.
     private func refreshLabel() {
         let (text, guide) = label()

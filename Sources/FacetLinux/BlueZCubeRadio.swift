@@ -97,6 +97,27 @@ final class BlueZCubeRadio: CubeRadio {
     /// change can be published, and `forgetWhatWasFound` empties it.
     private var found: [ScannedDevice] = []
 
+    /// The charge the connected cube last reported, or `nil` when there is no live reading.
+    ///
+    /// **What is held is the *shown* figure, not the last byte received**, which is `BluetoothRadio`'s arrangement
+    /// and its reason: `BatteryRules.shown` needs the figure on show to judge the next reading against, this
+    /// hardware reporting a charge that wavers across one percent all day. It lives for as long as the connection
+    /// that reported it, which is why it is not a table value.
+    private(set) var batteryPercent: Int?
+
+    /// The face the connected cube is resting on, or `nil` when there is no live reading. **Not a table value for
+    /// the charge's reason**: which way up a cube is lying is a fact about this minute.
+    private(set) var cubeFace: Int?
+
+    /// What the cube last said about being locked, being paused, and its auto-pause delay.
+    ///
+    /// **Held rather than asked for on demand, and that is forced rather than chosen.** Asking is a round trip and
+    /// the thing that needs the answer is a menu item's title at the instant the menu opens, so it is read when the
+    /// link comes up and refreshed by the read-back of every command the app sends. What it cannot cover is the
+    /// cube being changed by something else -- a double tap, auto-pause, the vendor's app -- which is why nothing
+    /// draws its `isPaused`.
+    private(set) var cubeStatus: DeviceCommandRules.Status?
+
     private var reaching: Reach?
     private var attempt: Attempt?
 
@@ -148,22 +169,46 @@ final class BlueZCubeRadio: CubeRadio {
         remembered: String?,
         previouslyKnown: String?
     ) {
+        guard connectedDevice != id else { return }
+        begin(
+            reaching: Reach(
+                preferred: id,
+                candidates: candidates,
+                rotatingTo: rotatingTo,
+                remembered: remembered,
+                previouslyKnown: previouslyKnown
+            ),
+            because: "Reaching for the paired cube: scanning, and every device with the name will be tried"
+        )
+    }
+
+    /// Looks for any cube at all and stops at the first that takes one of these PINs.
+    ///
+    /// **The same reach with no preferred identifier**, which is what pairing is: this app has never met the cube,
+    /// so there is nothing to prefer and the PIN is the whole of the test. On the Mac this is the Device tab's
+    /// press; here it is the menu bar's *Pair a cube*, there being no window.
+    func pair(presenting candidates: [String], rotatingTo: String?) {
+        begin(
+            reaching: Reach(
+                preferred: nil,
+                candidates: candidates,
+                rotatingTo: rotatingTo,
+                // **No remembered name**, deliberately: an unpaired app has none, and `DeviceScanRules` still
+                // matches anything carrying the vendor's name, which is what a factory-fresh cube advertises.
+                remembered: nil,
+                previouslyKnown: nil
+            ),
+            because: "Looking for a cube to pair with: every device with the name will be tried"
+        )
+    }
+
+    private func begin(reaching: Reach, because reason: String) {
         guard !isReachingForCube else {
-            debugLog?.record(.login, "Already busy with a device; not reaching for \(id.uuidString)")
+            debugLog?.record(.login, "Already busy with a device; not looking again")
             return
         }
-        guard connectedDevice != id else { return }
-        debugLog?.record(
-            .login,
-            "Reaching for the paired cube: scanning, and every device with the name will be tried"
-        )
-        reaching = Reach(
-            preferred: id,
-            candidates: candidates,
-            rotatingTo: rotatingTo,
-            remembered: remembered,
-            previouslyKnown: previouslyKnown
-        )
+        debugLog?.record(.login, reason)
+        self.reaching = reaching
         beginScan()
     }
 
@@ -350,10 +395,10 @@ final class BlueZCubeRadio: CubeRadio {
             accepted: { [weak self] pin in self?.onPINAccepted?(id, pin) },
             tapsReported: { [weak self] parameters in self?.onDoubleTapParameters?(id, parameters) },
             reported: { [weak self] info in self?.onDeviceInfo?(id, info) },
-            battery: { [weak self] percent in self?.onBatteryLevel?(id, percent) },
-            face: { [weak self] face in self?.onFace?(id, face) },
+            battery: { [weak self] percent in self?.received(batteryLevel: percent, from: id) },
+            face: { [weak self] face in self?.received(face: face, from: id) },
             nameReported: { [weak self] name in self?.onDeviceName?(id, name) },
-            status: { [weak self] status in self?.onCubeStatus?(id, status) },
+            status: { [weak self] status in self?.received(status: status, from: id) },
             systemState: { [weak self] state in self?.onSystemState?(id, state) },
             ready: { [weak self] in self?.onCubeReady?(id) },
             settled: { [weak self] in self?.onCubeSettled?(id) },
@@ -446,6 +491,12 @@ final class BlueZCubeRadio: CubeRadio {
         linkPoll = nil
         connectedDevice = nil
         login = nil
+        // **The three live readings go with the link**, which is what makes them not-table-values in practice
+        // rather than only in the comment: a face, a charge and a lock state are claims about a cube that is
+        // answering, and holding them past the link would have the menu bar drawing a cube nobody can hear.
+        cubeFace = nil
+        batteryPercent = nil
+        cubeStatus = nil
         debugLog?.record(.status, "The link went: \(reason)")
         onLinkEnded?(id)
         onConnectionDropped?(id)
@@ -506,6 +557,52 @@ final class BlueZCubeRadio: CubeRadio {
                 advertisedName: nil,
                 advertisesTimeFlipService: false
             )
+    }
+
+    // MARK: - filing what the cube reports
+
+    /// Files one reading off the cube, and says so only if it changed what is being shown.
+    ///
+    /// The judgement is `BatteryRules.shown`'s: this hardware reports a charge that wavers across one percent all
+    /// day, so the figure follows the lower of the two until a reading genuinely climbs past it. Every reading,
+    /// absorbed or not, is already in the trace as `ble-rx`; a `battery` row means the answer moved.
+    private func received(batteryLevel raw: Int, from id: UUID) {
+        let shown = BatteryRules.shown(batteryPercent, reading: raw)
+        guard shown != batteryPercent else { return }
+        batteryPercent = shown
+        debugLog?.record(
+            .battery,
+            "Charge \(shown.map(String.init) ?? "?")%"
+                + (raw == shown ? "" : " (the cube said \(raw)%)")
+        )
+        onBatteryLevel?(id, shown)
+    }
+
+    /// Files the face the cube is resting on, and says so only if it moved.
+    ///
+    /// No rule absorbing anything, unlike the charge beside it: a face is one of twelve discrete answers rather
+    /// than a noisy measurement. What this does guard against is the read taken when a link comes up naming the
+    /// face already on show, which is the ordinary case for a cube nobody has touched since the last connection.
+    private func received(face: Int, from id: UUID) {
+        guard face != cubeFace else { return }
+        cubeFace = face
+        debugLog?.record(.face, "Face \(face) is up")
+        onFace?(id, face)
+    }
+
+    /// Files what the cube says about its own condition.
+    private func received(status: DeviceCommandRules.Status, from id: UUID) {
+        guard status != cubeStatus else { return }
+        cubeStatus = status
+        debugLog?.record(
+            .command,
+            "The cube is \(status.isLocked ? "locked" : "unlocked") and \(status.isPaused ? "paused" : "running")"
+                // Said only when it is set: `0x10` carries the delay on every answer, and a cube told to stop
+                // itself after five minutes looks exactly like one that has not been until it stops. A delay of
+                // zero is the ordinary state and would be noise on every status.
+                + (status.autoPauseMinutes > 0 ? ", pausing itself after \(status.autoPauseMinutes)m" : "")
+        )
+        onCubeStatus?(id, status)
     }
 
     private static func describe(_ error: any Error) -> String {
