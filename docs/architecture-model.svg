@@ -18,6 +18,14 @@
 
   <rect width="1280" height="1200" fill="#f6f6f4"/>
 
+  <!-- THE CONVENTION, so each finished adapter is marked the same way.
+       A capability is done when its port exists and the macOS adapter sits in its own square, handed over by the
+       composition root. When that happens, three things change together:
+         1. the arm goes solid green (#059669) from dashed amber
+         2. the macOS slot goes green (#059669) from black
+         3. the square goes green-bordered on a pale green ground (#059669 on #f0fdf4) from black on white
+       A black slot means the code exists but is not yet through a port. A dashed slot means it is not written. -->
+
   <!-- ══════════ title ══════════ -->
   <text x="48" y="52" font-size="26" font-weight="600" fill="#0f172a" font-family="Newsreader,Georgia,serif">The shape Facet is being moved into</text>
   <text x="48" y="76" font-size="13.5" fill="#475569">Inside the circle is the core. It knows nothing about the platform it runs on. Every platform capability leaves through a named port.</text>
@@ -85,12 +93,10 @@
 
   <!-- NE: Secrets -->
   <g>
-    <rect x="962" y="238" width="210" height="112" rx="4" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
-    <text x="1067" y="260" text-anchor="middle" font-size="13" font-weight="600" fill="#0f172a">Secrets</text>
-    <rect x="974" y="270" width="186" height="22" rx="3" fill="#0f172a"/>
+    <rect x="962" y="238" width="210" height="112" rx="4" fill="#f0fdf4" stroke="#059669" stroke-width="2.5"/>
+    <text x="1067" y="260" text-anchor="middle" font-size="13" font-weight="600" fill="#065f46">Secrets</text>
+    <rect x="974" y="270" width="186" height="22" rx="3" fill="#059669"/>
     <text x="1067" y="285" text-anchor="middle" font-size="10" fill="#ffffff">macOS: Keychain</text>
-    <circle cx="1150" cy="252" r="7" fill="#059669"/>
-    <text x="1150" y="256" text-anchor="middle" font-size="9" font-weight="700" fill="#ffffff">1</text>
     <rect x="974" y="296" width="186" height="22" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
     <text x="1067" y="311" text-anchor="middle" font-size="10" fill="#94a3b8">Linux: secret-tool</text>
     <rect x="974" y="322" width="186" height="22" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
@@ -201,26 +207,23 @@
   <line x1="48" y1="1046" x2="1232" y2="1046" stroke="#e2e8f0" stroke-width="1"/>
 
   <g font-size="11.5" fill="#334155">
-    <!-- solid arm -->
-    <line x1="52" y1="1080" x2="102" y2="1080" stroke="#059669" stroke-width="2.5" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
-    <text x="112" y="1084">The port exists. Today that is <tspan font-weight="600">one of eight</tspan>: SecretStore.</text>
+    <!-- done: green arm, green macOS slot, green square -->
+    <line x1="52" y1="1074" x2="102" y2="1074" stroke="#059669" stroke-width="2.5" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+    <rect x="112" y="1065" width="44" height="17" rx="3" fill="#f0fdf4" stroke="#059669" stroke-width="2"/>
+    <rect x="118" y="1069" width="32" height="9" rx="2" fill="#059669"/>
+    <text x="170" y="1078"><tspan font-weight="600" fill="#065f46">Done.</tspan> The port exists, the macOS adapter is in its square, and the composition root hands it over.</text>
 
-    <!-- dashed arm -->
-    <line x1="52" y1="1108" x2="102" y2="1108" stroke="#b45309" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowMissing)" marker-start="url(#arrowMissing)"/>
-    <text x="112" y="1112">No port yet. The core reaches the platform directly, or the code sits on the wrong side.</text>
+    <!-- not yet: dashed amber arm, black macOS slot, black square -->
+    <line x1="52" y1="1104" x2="102" y2="1104" stroke="#b45309" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowMissing)" marker-start="url(#arrowMissing)"/>
+    <rect x="112" y="1095" width="44" height="17" rx="3" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    <rect x="118" y="1099" width="32" height="9" rx="2" fill="#0f172a"/>
+    <text x="170" y="1108"><tspan font-weight="600">Not yet.</tspan> The macOS code exists and is written, but it is not behind a port: the core reaches it directly, or it sits on the wrong side of the line.</text>
 
-    <!-- filled slot -->
-    <rect x="640" y="1071" width="52" height="17" rx="3" fill="#0f172a"/>
-    <text x="702" y="1084">Built today.</text>
-
-    <!-- empty slot -->
-    <rect x="640" y="1099" width="52" height="17" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
-    <text x="702" y="1112">A slot waiting. The build picks one slot per square; the core cannot tell which.</text>
-    <circle cx="52" cy="1136" r="7" fill="#059669"/>
-    <text x="52" y="1140" text-anchor="middle" font-size="9" font-weight="700" fill="#ffffff">1</text>
-    <text x="112" y="1140">Done: the adapter is in the square and the composition root hands it over.</text>
+    <!-- a slot nobody has written -->
+    <rect x="112" y="1125" width="44" height="17" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-dasharray="3 2"/>
+    <text x="170" y="1138">A slot waiting to be written. The build selects one slot per square, and the core cannot tell which it got.</text>
   </g>
 
-  <text x="48" y="1170" font-size="12" fill="#64748b" font-style="italic">Drawn 2026-09-10. The rule this draws is in CLAUDE.md, under "The core is platform-blind, and every platform capability is a port".</text>
-  <text x="48" y="1190" font-size="12" fill="#b45309">Where it stands: one square of eight is finished. 29 per cent of Sources/FacetMac is genuinely square-code; the other 66 per cent has not moved inside yet.</text>
+  <text x="48" y="1172" font-size="12" fill="#64748b" font-style="italic">Drawn 2026-09-10, and updated as each square is finished. The rule this draws is in CLAUDE.md, under "The core is platform-blind, and every platform capability is a port".</text>
+  <text x="48" y="1191" font-size="12" fill="#065f46"><tspan font-weight="600">1 of 8 squares finished.</tspan> <tspan fill="#b45309">29 per cent of Sources/FacetMac is genuinely square-code; the other 66 per cent is circle-code that has not moved inside yet.</tspan></text>
 </svg>
