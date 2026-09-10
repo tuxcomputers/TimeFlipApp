@@ -35,7 +35,7 @@ The cheap and the blocking come first, the large and the discretionary last.
 | 4 | Menu bar | **done** | The **second adapter already exists** and is the right shape. A real seam with one outlier, not a hypothetical one. |
 | 5 | Radio | arm green, slot black | The biggest port with a protocol already standing. Wants `feature/commandChannel` landed first. |
 | 6 | Windows and dialogs | arm green, slot black | 3,536 lines and the least mechanical work in the app. Everything above teaches something it needs. |
-| 7 | Storage | deferred | One adapter, and the decision behind it is unsettled. |
+| 7 | Storage | **not an arm** | Off the diagram on 2026-09-10. It is in the core and was never a platform capability. |
 
 Reorder this table as the work teaches something. An item that turns out to block another moves above it,
 and the move gets a line saying what was discovered.
@@ -300,24 +300,29 @@ something it needs.
 
 ## 7. Storage
 
-**Deferred, and this is the reasoning rather than a delay.**
+**Removed from the diagram on 2026-09-10, and this is the argument.**
 
-The owner has settled that storage is SQLite on all three platforms, and that a remote server, when it
-comes, is an adapter. So today there is **one adapter and no second**, which by the codebase-design rule is
-a hypothetical seam rather than a real one. The stores already sit in the core and `sqlite3` is the same
-library everywhere: a different import at worst, not a different implementation.
+**It is already in the core and it is not a platform capability.** All four files that touch `sqlite3_` are in
+`FacetCore`: `DatabaseConnection`, `DatabaseBootstrap`, `DebugLog` and `DebugTraceFile`. The thirteen stores are
+concrete types beside them with no protocol in between.
 
-There is also an open decision in the way, recorded in `CLAUDE.md`: the first design rule says read from
-the database every time a value is needed, which is right for a local file and is a network round trip per
-question over an API. That has to be settled before a non-SQLite adapter is written, and settled in
-`CLAUDE.md` rather than inside whoever writes it.
+**The decisive detail is the import.** `import SQLite3` is the same line on both platforms: macOS gets the SDK
+module and `Sources/SQLite3/module.modulemap` is a system-library target named after it so Linux gets one too.
+Nothing in `Sources/` or `Tests/` branches on which one it got. A different import is not a different
+implementation, which is the test `CLAUDE.md` sets, and it lands on shim.
 
-- [x] ~~Nothing, until either the remote adapter is real or an in-memory test adapter earns its keep.~~
+**The square was the tell.** It was the only one on the figure whose slots were not platforms: SQLite, an API,
+in memory for tests. Every other square reads macOS, Linux, Windows. What it was really drawing was the
+intention that a remote backend would arrive as an adapter one day, and that is a deployment choice rather
+than a platform one.
 
-**Struck through, because it is not work and should not sit on a list of work.** A line waiting on something
-nobody has scheduled reads as a job somebody forgot. If a remote adapter is ever written, the tension with the
-first design rule gets settled in `CLAUDE.md` first and this section is reopened then; until that day there is
-one adapter and nothing to do.
+**That intention is still real and is recorded here rather than on the picture.** If a remote adapter is ever
+written, the tension `CLAUDE.md` names has to be settled first: the first design rule says read from the
+database every time a value is needed, which is right for a local file and is a network round trip per question
+over an API. Settling it is a decision for `CLAUDE.md`, not something to discover inside whoever writes the
+adapter.
+
+- [x] Establish whether this is an arm at all. **It is not**, on the evidence above, and the square is gone.
 
 ---
 
