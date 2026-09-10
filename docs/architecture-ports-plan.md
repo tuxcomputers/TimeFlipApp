@@ -31,7 +31,7 @@ The cheap and the blocking come first, the large and the discretionary last.
 | 0 | Housekeeping | **done** | Corrections that cost nothing and were noise in every scan. |
 | 1 | The clock | **done** | Six core modules on `RunLoop.main`, which `FacetLinux` never runs. A live latent fault. |
 | 3 | Starting and stopping | **done** | Landed with `QuitSequence`. Turned out to need no protocol at all: see its section. |
-| 2 | Files and folders | **not a port** | Reordered down on 2026-09-10. Corelibs already answers it per platform, measured on Linux hardware. See its section. |
+| 2 | Files and folders | **not an arm** | Off the diagram on 2026-09-10, like storage: it is in the core and there is nothing to select. |
 | 4 | Menu bar | **done** | The **second adapter already exists** and is the right shape. A real seam with one outlier, not a hypothetical one. |
 | 5 | Radio | arm green, slot black | The biggest port with a protocol already standing. Wants `feature/commandChannel` landed first. |
 | 6 | Windows and dialogs | arm green, slot black | 3,536 lines and the least mechanical work in the app. Everything above teaches something it needs. |
@@ -133,7 +133,13 @@ second answers, so a third platform needs no new implementation. The one thing w
 `GoogleTokenStore` both fall back to the same literal service name, and the keying that stops a developer build
 and a release build fighting over one keyring item does not separate them there.
 
-- [x] Establish whether this is a port at all. **It is not**, on the evidence above.
+- [x] Establish whether this is a port at all. **It is not**, on the evidence above, and the square has been
+      removed from the diagram for the same reason storage was: a capability that is simply in the core is not
+      a square, whatever colour it is painted. That retired the grey state, which existed only for this one.
+- [x] The one thing that would bring it back, recorded so nobody has to work it out again: **Windows, and only
+      half of it.** `flock` does not exist there and the equivalent is a named mutex or `LockFileEx`, which is
+      a different implementation and so an arm by this model's own test. The directory half needs nothing even
+      then, Foundation mapping it to AppData. Windows is not in scope, and one file is not a square.
 - [x] ~~The bundle-identifier degradation on Linux: a real gap, but it belongs to whoever writes the Linux
       keyring adapter, and it is a value the composition root should supply rather than a port.~~
 - [x] ~~`Facet_FacetCore.resources` must ship beside the executable or a Linux binary dies with a `fatalError`
