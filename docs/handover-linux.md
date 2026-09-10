@@ -59,7 +59,7 @@ which items unblock the most, and where the milestone is.
 4. ~~**18, `CubeRadio`.**~~ **Done 2026-09-11**: `BlueZCubeRadio`, 21 tests, unverified on a cube.
 5. **19, compose the device half.** ⇐ **the milestone: a Linux Facet that pairs with the cube and records
    time.** No window, and it would already be doing the thing the app is for.
-6. ~~**20, the menu bar onto the core modules**~~ **done 2026-09-11**, then **21, the dialogues.**
+6. ~~**20, the menu bar onto the core modules**, then **21, the dialogues.**~~ Both done 2026-09-11.
 7. **22 is not a task**, it is a warning about the one part of the Mac that is not ready for you.
 
 ## 19. Compose the device half in `main.swift`, and the app starts working
@@ -74,20 +74,6 @@ yet, which is why the clock port has not broken this target despite `Scheduler` 
 
 **This is the milestone worth aiming at.** At the end of it there is a Linux Facet with no window that pairs
 with a cube, logs in, follows face turns and writes time entries. Everything after it is drawing.
-
-## 21. A GTK slot in the dialogue square
-
-`DialoguePresenter` and `Dialogue` are in `Sources/FacetCore/Dialogue.swift`. A `Dialogue` carries a title, a
-message, its choices, **which choice is the way out** and whether it is a warning; the presenter shows it and
-answers with an index. All nineteen alerts in the app go through it.
-
-`Sources/FacetMac/AlertPresenter.swift` is 77 lines: a sheet where there is a window and app-modal where there
-is not, and every keyboard-shortcut decision lives in it rather than at the call sites.
-`Tests/FacetTests/RecordingDialogues.swift` is 34 lines and is the second adapter.
-
-**`wayOut` is the part not to skip.** AppKit relocates a button titled Cancel, which took Return off it and
-put it on the destructive answer; the port names the way out explicitly so no platform has to infer it from
-button order. Whatever GTK does about default buttons, honour that field.
 
 ## 22. Not a task: what is not ready for you yet
 

@@ -166,6 +166,24 @@ timingReadout.cubeSaysPaused = { radio?.cubeStatus?.isPaused }
 // What happens on the way out. **Held for the life of the process**, because the menu bar's Quit item is what runs
 // it and there is nothing else keeping it alive.
 let quitSequence = QuitSequence(deviceEvents: deviceEvents, debugLog: debugLog, scheduler: scheduler)
+
+/// The one way out of this process, and every path that ends the app goes through it.
+///
+/// **Both halves, in AppKit's order and for its measured reason.** The pause and the lock are BLE writes and need a
+/// round trip, so the process has to still be here for them: `pauseAndLockTheCube` answers whether anything went,
+/// and the rest of the sequence runs once it has either landed or timed out. With nothing to send there is nothing
+/// to wait for. Written once because there are three ways in -- the menu bar's Quit, the cube-not-found offer's,
+/// and anything that comes later -- and three copies of an ordering is how one of them comes to be missing a half.
+let endTheApp = {
+    let started = quitSequence.pauseAndLockTheCube {
+        quitSequence.run(at: Date())
+        MenuBar.quit()
+    }
+    guard !started else { return }
+    quitSequence.run(at: Date())
+    MenuBar.quit()
+}
+
 quitSequence.letGoOfTheDevice = {
     guard let radio, radio.connectedDevice != nil else { return false }
     radio.disconnect(because: "the app is quitting")
@@ -257,10 +275,6 @@ let deviceSettings = DeviceSettingsSync(
 
 // What keeps a paired app's cube reachable: it looks for it now, and goes on looking whenever the link goes.
 //
-// **`onCubeNotFound` is deliberately not set**, and `DeviceReconnector.ask` has a path for that: with no presenter
-// it schedules the next attempt instead of standing down. That is the honest behaviour until this platform has a
-// dialogue slot (item 21 of `docs/handover-linux.md`) -- a cube out of range comes back, and quietly timing by hand
-// without having asked would be the app deciding something the user was never offered.
 let reconnector: DeviceReconnector? = radio.map { radio in
     DeviceReconnector(
         radio: radio,
@@ -272,6 +286,25 @@ let reconnector: DeviceReconnector? = radio.map { radio in
     )
 }
 hasGivenUpOnCube = { reconnector?.hasGivenUpOnCube ?? false }
+
+// What happens when a paired app cannot find its cube at startup: it stops and asks, rather than retrying behind a
+// menu bar that says nothing.
+//
+// **The wording and the three answers are `CubeNotFoundQuestion`'s**, in the core, so this platform asks the
+// identical question -- which is the whole of why the dialogue is a port. What is left here is that it is shown
+// with no window behind it, which is every dialogue's case on this platform and the nineteenth's on the Mac.
+//
+// **A dismissal that is none of the three answers is a quit**, matching `CubeNotFoundAlert`: closing the window is
+// not one of the answers, and the alternative is a question nobody can get out of.
+let dialogues = GtkDialoguePresenter(debugLog: debugLog)
+reconnector?.onCubeNotFound = { _, answer in
+    dialogues.ask(CubeNotFoundQuestion.dialogue, offering: CubeNotFoundQuestion.answers) { chosen in
+        answer(chosen ?? .quit)
+    }
+}
+// **Quit goes out the same door as the menu bar's Quit**, so the quit sequence runs exactly as it does from there
+// rather than this being a second way to end the process.
+reconnector?.onQuitRequested = endTheApp
 
 // The cube's own record of what it has been doing, on its way into `device_event`, and the timer whose tick asks
 // for it. **Built before the timer**, because the timer's tick is what asks it.
@@ -403,19 +436,9 @@ let statusMenu = StatusItemMenu(
             }
         }
     },
-    // **Injected, which is the whole of why `StatusItemMenu` is core**: `NSApp.terminate` on a Mac and this
-    // sequence under GTK are the same intention performed two ways. The two halves are AppKit's order and its
-    // measured reason -- the pause and the lock are BLE writes and need a round trip, so the process has to still
-    // be here for them, and with nothing to send there is nothing to wait for.
-    quit: {
-        let started = quitSequence.pauseAndLockTheCube {
-            quitSequence.run(at: Date())
-            MenuBar.quit()
-        }
-        guard !started else { return }
-        quitSequence.run(at: Date())
-        MenuBar.quit()
-    },
+    // **Injected, which is the whole of why `StatusItemMenu` is core**: `NSApp.terminate` on a Mac and
+    // `endTheApp` under GTK are the same intention performed two ways.
+    quit: endTheApp,
     debugLog: debugLog
 )
 
@@ -487,6 +510,11 @@ let menuBar = MenuBar(
         return items
     }
 )
+
+// **What the app is doing has changed and nothing else would say so.** The label is refreshed once a second, but
+// the words come from `isManualMode`, and answering the offer with Time by Hand is the one moment that moves with
+// no session running and no cube to report anything.
+reconnector?.onGaveUpOnCube = { menuBar.redraw() }
 
 // Recorded time changed, so everything drawn from it is stale.
 historyIngestor.onChanged = {

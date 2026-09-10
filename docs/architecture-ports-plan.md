@@ -40,7 +40,7 @@ The cheap and the blocking come first, the large and the discretionary last.
 | 2 | Files and folders | **not an arm** | Off the diagram on 2026-09-10, like storage: it is in the core and there is nothing to select. |
 | 4 | Menu bar | **done** | The **second adapter already exists** and is the right shape. A real seam with one outlier, not a hypothetical one. |
 | 5 | Radio | **arm done; the Linux slot is half built** |  The biggest port with a protocol already standing. Wanted `feature/commandChannel` landed first. `CubeGatt` has a BlueZ adapter as of 2026-09-11; `CubeRadio` does not, and nothing composes either. |
-| 6 | Windows and dialogs | arm green, two rows left | 3,487 lines and the least mechanical work in the app. Everything above teaches something it needs. |
+| 6 | Windows and dialogs | arm green, one row left; the dialogue half has both slots | 3,487 lines and the least mechanical work in the app. Everything above teaches something it needs. The GTK dialogue slot landed 2026-09-11; the window half is not behind a port at all. |
 | 7 | Storage | **not an arm** | Off the diagram on 2026-09-10. It is in the core and was never a platform capability. |
 
 Reorder this table as the work teaches something. An item that turns out to block another moves above it,
@@ -377,6 +377,17 @@ something it needs.
       different ways.
 - [x] `CubeNotFoundQuestion` into the core with the rest, so `CubeNotFoundOfferTests` comes off
       `platformBoundTests` (35 files to 34) and the wording is checked on both platforms.
+- [x] **The Linux slot, 2026-09-11.** `GtkDialoguePresenter` is a `GtkMessageDialog`, modal on a nested main loop
+      the way `NSAlert.runModal` is, with no parent window -- which is this platform's ordinary case and the Mac's
+      nineteenth. **`wayOut` is simply honoured here**, where AppKit has to be worked around: GTK does not relocate
+      a button by its title, so `gtk_dialog_set_default_response` puts Return on the answer the core named. The port
+      carrying a *position* rather than a title is what makes that a one-line adapter on one platform and a measured
+      trap on the other. The cube-not-found offer is its first caller, so a Linux launch that cannot find its cube
+      now asks rather than retrying quietly.
+- [x] **Two more variadic C functions wrapped in `Sources/CGtk/shim.h`.** `gtk_message_dialog_new` and
+      `gtk_message_dialog_format_secondary_text` both take a printf format, which Swift cannot call -- the same wall
+      `CDBus` met with `dbus_message_append_args`. `"%s"` is passed in C and the string travels as an argument, which
+      is also the only safe way: a heading containing a `%` would otherwise be read as a conversion.
 ### The panes
 
 - [x] **The settings-write sequence, which was the biggest cluster in the window.** Eight rows on the Device
