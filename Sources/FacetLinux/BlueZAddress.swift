@@ -1,3 +1,4 @@
+import FacetCore
 import Foundation
 
 /// The address BlueZ names a cube by, as the `UUID` the rest of this app is written around.

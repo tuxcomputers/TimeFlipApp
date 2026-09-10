@@ -1,4 +1,5 @@
 #if canImport(CDBus)
+import FacetCore
 import Foundation
 
 /// Reading, writing and listening to a connected cube's characteristics.

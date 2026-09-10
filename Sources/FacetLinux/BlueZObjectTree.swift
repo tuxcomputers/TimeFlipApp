@@ -1,3 +1,4 @@
+import FacetCore
 import Foundation
 
 /// What BlueZ's object tree says, read as records rather than as nested dictionaries.

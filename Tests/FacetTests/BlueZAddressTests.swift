@@ -1,3 +1,8 @@
+// **Guarded because what it tests is in `FacetLinux` now**, moved there on 2026-09-10 so the core holds no
+// adapter (`CLAUDE.md`, *The core is platform-blind*). `CDBus` is only in the package on Linux, so on macOS this
+// file compiles to nothing, which is the same answer it always gave: there is no D-Bus here to test against.
+#if canImport(CDBus)
+import FacetLinux
 import Foundation
 import Testing
 @testable import FacetCore
@@ -57,3 +62,4 @@ struct BlueZAddressTests {
         #expect(BlueZAddress.devicePath(adapter: "/org/bluez/hci0", address: "rubbish") == nil)
     }
 }
+#endif

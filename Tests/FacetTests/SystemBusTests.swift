@@ -1,4 +1,5 @@
 #if canImport(CDBus)
+import FacetLinux
 import Foundation
 import Testing
 @testable import FacetCore

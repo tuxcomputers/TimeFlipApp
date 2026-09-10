@@ -22,7 +22,10 @@ let coreDependencies: [Target.Dependency] = ["SQLite3", "CDBus"]
 // Four test files open a database with the C API directly, and a Swift module is not re-exported by
 // whatever depends on it -- so importing `FacetCore` does not hand them `SQLite3`, and they need it in
 // their own right.
-let testDependencies: [Target.Dependency] = ["FacetCore", "SQLite3", "CDBus"]
+// `FacetLinux` among them since 2026-09-10: the BlueZ transport moved out of the core into that target, so
+// the suites covering it have to reach the module they now live beside. Testing an executable target is what
+// the macOS half already does with `FacetMac`.
+let testDependencies: [Target.Dependency] = ["FacetCore", "FacetLinux", "SQLite3", "CDBus"]
 #else
 let coreDependencies: [Target.Dependency] = []
 let testDependencies: [Target.Dependency] = ["FacetMac", "FacetCore"]

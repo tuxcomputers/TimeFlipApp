@@ -1,4 +1,5 @@
 #if canImport(CDBus)
+import FacetCore
 import Foundation
 
 /// The radio, over BlueZ. **Discovery and the link**; the GATT half comes with the characteristics.

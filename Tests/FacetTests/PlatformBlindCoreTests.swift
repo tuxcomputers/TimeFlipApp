@@ -63,10 +63,15 @@ struct PlatformBlindCoreTests {
     /// **This list is the debt and it is meant to empty**, file by file, as each moves to `FacetMac` or
     /// `FacetLinux` and the composition root injects it instead.
     ///
-    /// - `BlueZRadio`, `BlueZGatt`, `SystemBus`: the Linux radio transport, belonging in `FacetLinux`. Waiting
-    ///   on the radio port, which does not exist yet: candidate 1 of `docs/architecture-review-2026-09.md`.
     /// - `GoogleLoopbackListener`: two implementations in one file, `Network.framework` and raw sockets. A port
-    ///   wearing an `#if`.
+    ///   wearing an `#if`. **The last one**, and the only kind left: everything else here has moved to the target
+    ///   it belongs to, and this cannot until it is split in two.
+    ///
+    /// **The BlueZ transport came off on 2026-09-10**, six files to `FacetLinux`: `SystemBus`, `BlueZRadio`,
+    /// `BlueZGatt`, `DBusValue`, `BlueZObjectTree` and `BlueZAddress`. They were moved and not altered, which was
+    /// the instruction, the only change being the `import FacetCore` four of them need to see types they use from
+    /// outside it now. The allowlist said this was blocked on the radio port existing. It was not: the port is
+    /// what a *second* adapter needs, and putting an adapter in its own target needs nothing but the move.
     ///
     /// **Three came off on 2026-09-10 and the reason is worth keeping.** `KeychainSecretStore` and
     /// `SecretToolStore` moved to `FacetMac` and `FacetLinux`, and `SecretStore` lost the `SecretStores.platform`
@@ -77,9 +82,6 @@ struct PlatformBlindCoreTests {
     /// `SecretToolStore` is also the one this check found that the hand survey before it had missed, because that
     /// grep matched `#if canImport` and the file opened `#if !canImport`.
     private static let adaptersStillInTheCore: Set<String> = [
-        "BlueZRadio",
-        "BlueZGatt",
-        "SystemBus",
         "GoogleLoopbackListener",
     ]
 

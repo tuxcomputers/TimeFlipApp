@@ -1,3 +1,4 @@
+#if !canImport(Security)
 import FacetCore
 import Foundation
 
@@ -124,3 +125,4 @@ package struct SecretToolStore: SecretStore {
         )
     }
 }
+#endif

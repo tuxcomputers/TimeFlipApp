@@ -46,3 +46,39 @@ whose answer is a fact belongs there; a task belongs here.
 **Not the to-do list in `linux-port.md`.** That is what the port needs doing, in dependency order, by
 whichever machine gets to it. This is what the *other* machine is being asked for, which is a much
 shorter list and one that empties.
+## 15. Your BlueZ files moved out of the core, unaltered, and the manifest moved with them
+
+**The Mac is being brought into the model in `CLAUDE.md` under *The core is platform-blind, and every platform
+capability is a port*, and the instruction was to move any Linux code out of the core without altering it.** Six
+files went from `Sources/FacetCore` to `Sources/FacetLinux`: `SystemBus`, `BlueZRadio`, `BlueZGatt`, `DBusValue`,
+`BlueZObjectTree` and `BlueZAddress`.
+
+**The only edit to any of them is one line.** Four now say `import FacetCore`, because they use `ScannedDevice`,
+`DeviceScanRules`, `TimeFlipUUIDs` or `CubeRadio` and those are outside their module now. Nothing else was
+touched: no logic, no comments, no guards. `SecretToolStore` moved the same way and got the same one line, and
+its `#if !canImport(Security)` was briefly removed and then put back, because removing it was an alteration and
+the instruction said not to.
+
+**`TimeFlipUUIDs` deliberately stayed in the core.** Both platforms use it and its CoreBluetooth half is already
+split off into `FacetMac`, so it is not Linux code.
+
+**Two things changed that you will meet.**
+
+- **`Package.swift`: the Linux test target now depends on `FacetLinux`.** It has to, since the suites covering
+  those six reach a module that is no longer `FacetCore`. Testing an executable target is what the macOS half
+  already does with `FacetMac`, so this should be ordinary, but it is a manifest change on your side of the fence
+  and worth knowing about before you pull.
+- **`BlueZAddressTests` and `BlueZObjectTreeTests` are now wrapped in `#if canImport(CDBus)`** and import
+  `FacetLinux`. `SystemBusTests` was already wrapped and only gained the import. On macOS those 15 tests compile
+  to nothing, which is not a loss: they test code that is not built there. **On Linux they should run exactly as
+  before, and that is the thing to check.**
+
+**None of this is verified on Linux and cannot be from here.** `FacetLinux` is not in the package on macOS, so
+those six files were not compiled by anything after the move. `swift build && swift test` on your side is what
+says the four added imports are right and the manifest change works. **If it does not build, the fix is yours to
+make and this item stays put with a line saying what broke** rather than being worked around here.
+
+**What this does not touch**: the radio port still does not exist, so `BlueZRadio` conforms to nothing and has no
+caller, exactly as before. It has simply stopped being in the circle. Candidate 1 of
+`docs/architecture-review-2026-09.md` is still the piece that gives it something to conform to.
+
