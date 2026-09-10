@@ -347,8 +347,12 @@ final class MenuBarController: NSObject {
         // apart -- the name flashes while the cube is flat and the figure beside it does not, the figure turns red
         // on a spent limit and the name does not, and the glyph stays the menu bar's own text colour throughout,
         // being a report on the clock rather than on either.
-        let plain: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: parts.colour]
-        let named: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: parts.nameColour]
+        // **`.appKitColour` on both, and the compiler will not tell you if it is missing.** The dictionary's value
+        // type is `Any`, so a `StatusColour` put here compiles perfectly and AppKit then ignores it, drawing the
+        // text in the default colour with nothing said. Caught that way on 2026-09-10, during the move that made
+        // these an enum rather than an `NSColor`.
+        let plain: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: parts.colour.appKitColour]
+        let named: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: parts.nameColour.appKitColour]
         let title = NSMutableAttributedString()
         let size = max(Layout.minimumAttachmentSize, font.capHeight * Layout.attachmentScale)
         // Both images take the colour of the text beside them, which is the previous app's rule: whatever is legible
@@ -361,7 +365,7 @@ final class MenuBarController: NSObject {
         // against a dark menu bar and Peach `#ffdab9` against a light one. The `white_lines` column exists because
         // half of these colours cannot be read against an arbitrary background.
         if let iconName = parts.iconName, let icon = ActivityIcon.image(named: iconName, pointSize: size) {
-            title.append(attachment(of: icon, colour: parts.nameColour, size: size, font: font))
+            title.append(attachment(of: icon, colour: parts.nameColour.appKitColour, size: size, font: font))
             title.append(NSAttributedString(string: " ", attributes: plain))
         }
         title.append(NSAttributedString(string: parts.text, attributes: named))
@@ -377,7 +381,7 @@ final class MenuBarController: NSObject {
         // the words beside it were green. See `StatusItemTitle.glyphColour`.
         if let glyphName = parts.glyphName, let glyph = symbol(named: glyphName, size: size) {
             title.append(NSAttributedString(string: " ", attributes: plain))
-            title.append(attachment(of: glyph, colour: parts.glyphColour, size: size, font: font))
+            title.append(attachment(of: glyph, colour: parts.glyphColour.appKitColour, size: size, font: font))
         }
         if let duration = parts.duration {
             title.append(NSAttributedString(string: " \(duration)", attributes: plain))

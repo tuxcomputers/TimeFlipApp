@@ -1,6 +1,4 @@
-@testable import FacetMac
 @testable import FacetCore
-import AppKit
 import XCTest
 
 /// Covers what the status item says, which is decided apart from the drawing so it can be asserted without a
@@ -46,13 +44,13 @@ final class StatusItemTitleTests: XCTestCase {
     // MARK: - a category over its daily limit
 
     func testTheFigureTurnsRedWhenTheLimitIsSpent() {
-        // The archive's colour and its meaning: `MenuBarStatusStyle` drew `overLimit ? .systemRed : .systemGreen`.
+        // The archive's colour and its meaning: `MenuBarStatusStyle` drew `overLimit ? .spent : .cube`.
         // The session colour is a claim that time is being recorded normally, and a limit that stopped the clock
         // ends that claim.
         let reading = TimingReadout.Reading(category: category(), timingState: .paused, seconds: 3600)
 
-        XCTAssertEqual(title(reading, isLimitReached: true).colour, .systemRed)
-        XCTAssertEqual(title(reading, isLimitReached: false).colour, .systemCyan)
+        XCTAssertEqual(title(reading, isLimitReached: true).colour, .spent)
+        XCTAssertEqual(title(reading, isLimitReached: false).colour, .byHand)
     }
 
     func testTheNameStaysCyanWhenTheLimitIsSpent() {
@@ -60,8 +58,8 @@ final class StatusItemTitleTests: XCTestCase {
         // reached the number; the name is only which category it belongs to, and that has not changed.
         let reading = TimingReadout.Reading(category: category(), timingState: .paused, seconds: 3600)
 
-        XCTAssertEqual(title(reading, isLimitReached: true).nameColour, .systemCyan)
-        XCTAssertEqual(title(reading, isLimitReached: true).glyphColour, .labelColor)
+        XCTAssertEqual(title(reading, isLimitReached: true).nameColour, .byHand)
+        XCTAssertEqual(title(reading, isLimitReached: true).glyphColour, .ordinary)
     }
 
     func testTheLimitIsSaidAloudAndNotOnlyColoured() {
@@ -76,7 +74,7 @@ final class StatusItemTitleTests: XCTestCase {
     func testTheLimitDoesNotColourAnIdleItem() {
         // Nothing being timed keeps the app's name in the ordinary colour. There is no reading for red to be a claim
         // about, which is the same reason idle is not green.
-        XCTAssertEqual(title(.idle, isLimitReached: true).colour, .labelColor)
+        XCTAssertEqual(title(.idle, isLimitReached: true).colour, .ordinary)
         XCTAssertFalse(title(.idle, isLimitReached: true).spoken.contains("daily limit reached"))
     }
 
@@ -157,8 +155,8 @@ final class StatusItemTitleTests: XCTestCase {
         // The name and the figure both, which is what makes the line read as one thing. The previous app spent this
         // colour on saying the reading was live; here it says which of the two pictures is on show, a cube's face
         // being the other one.
-        XCTAssertEqual(title.colour, .systemCyan)
-        XCTAssertEqual(title.nameColour, .systemCyan)
+        XCTAssertEqual(title.colour, .byHand)
+        XCTAssertEqual(title.nameColour, .byHand)
     }
 
     func testAStoppedClockIsStillCyan() {
@@ -166,25 +164,25 @@ final class StatusItemTitleTests: XCTestCase {
         // the one that measured it -- what changed is the glyph.
         let title = title(TimingReadout.Reading(category: category(), timingState: .paused, seconds: 60))
 
-        XCTAssertEqual(title.colour, .systemCyan)
-        XCTAssertEqual(title.nameColour, .systemCyan)
+        XCTAssertEqual(title.colour, .byHand)
+        XCTAssertEqual(title.nameColour, .byHand)
     }
 
     func testTheGlyphIsTheMenuBarsOwnTextColour() {
         // Not the line's cyan, and not literal white: the archive handed AppKit an untinted template image, so the
-        // strip drew the indicator in whatever it draws text in. `.labelColor` is that spelled out, and it is the
+        // strip drew the indicator in whatever it draws text in. `.ordinary` is that spelled out, and it is the
         // one that survives a light menu bar -- which is what white would not, the strip tinting from the wallpaper
         // rather than from the appearance setting.
         for timingState in [TimingState.running, .paused] {
             let reading = TimingReadout.Reading(category: category(), timingState: timingState, seconds: 60)
 
-            XCTAssertEqual(title(reading).glyphColour, .labelColor, "\(timingState)")
+            XCTAssertEqual(title(reading).glyphColour, .ordinary, "\(timingState)")
         }
     }
 
     func testWithNothingBeingTimedItIsTheOrdinaryTextColour() {
         // A session colour is a claim about a reading, and there is none to make it about.
-        XCTAssertEqual(title(.idle).colour, .labelColor)
+        XCTAssertEqual(title(.idle).colour, .ordinary)
     }
 
     // MARK: - what the log says the colours were
@@ -258,8 +256,8 @@ final class StatusItemTitleTests: XCTestCase {
         // that flashes.
         let reading = TimingReadout.Reading(category: category(), timingState: .running, seconds: 60)
 
-        XCTAssertEqual(title(reading, lowBattery: flashOn).nameColour, .systemRed)
-        XCTAssertEqual(title(reading, lowBattery: flashOff).nameColour, .labelColor)
+        XCTAssertEqual(title(reading, lowBattery: flashOn).nameColour, .spent)
+        XCTAssertEqual(title(reading, lowBattery: flashOff).nameColour, .ordinary)
     }
 
     func testTheFigureBesideItDoesNotFlash() {
@@ -268,7 +266,7 @@ final class StatusItemTitleTests: XCTestCase {
         let reading = TimingReadout.Reading(category: category(), timingState: .running, seconds: 60)
 
         for phase in [flashOn, flashOff] {
-            XCTAssertEqual(title(reading, lowBattery: phase).colour, .systemCyan)
+            XCTAssertEqual(title(reading, lowBattery: phase).colour, .byHand)
         }
     }
 
@@ -283,15 +281,15 @@ final class StatusItemTitleTests: XCTestCase {
         // and the name it alternates on has not.
         let reading = TimingReadout.Reading(category: category(), timingState: .paused, seconds: 3600)
 
-        XCTAssertEqual(title(reading, isLimitReached: true, lowBattery: flashOn).nameColour, .systemRed)
-        XCTAssertEqual(title(reading, isLimitReached: true, lowBattery: flashOff).nameColour, .labelColor)
+        XCTAssertEqual(title(reading, isLimitReached: true, lowBattery: flashOn).nameColour, .spent)
+        XCTAssertEqual(title(reading, isLimitReached: true, lowBattery: flashOff).nameColour, .ordinary)
     }
 
     func testTheWarningFlashesOnTheAppNameWhileNothingIsTimed() {
         // A flat cube is a fact about the device rather than about the session, and the moment somebody is most
         // likely to miss it is the moment nothing is running.
-        XCTAssertEqual(title(.idle, lowBattery: flashOn).nameColour, .systemRed)
-        XCTAssertEqual(title(.idle, lowBattery: flashOff).nameColour, .labelColor)
+        XCTAssertEqual(title(.idle, lowBattery: flashOn).nameColour, .spent)
+        XCTAssertEqual(title(.idle, lowBattery: flashOff).nameColour, .ordinary)
     }
 
     func testEachPhaseIsADifferentTitle() {
@@ -410,8 +408,8 @@ final class StatusItemTitleTests: XCTestCase {
         // this app is the one recording, and here the cube is.
         let title = title(onCube(category: category(), cubePauseState: .paused))
 
-        XCTAssertEqual(title.colour, .systemGreen)
-        XCTAssertEqual(title.nameColour, .systemGreen)
+        XCTAssertEqual(title.colour, .cube)
+        XCTAssertEqual(title.nameColour, .cube)
     }
 
     func testTheGlyphIsTheSameColourInBothPictures() {
@@ -420,8 +418,8 @@ final class StatusItemTitleTests: XCTestCase {
         let onACube = title(onCube(category: category(), cubePauseState: .paused))
         let byHand = title(TimingReadout.Reading(category: category(), timingState: .running, seconds: 60))
 
-        XCTAssertEqual(onACube.glyphColour, .labelColor)
-        XCTAssertEqual(byHand.glyphColour, .labelColor)
+        XCTAssertEqual(onACube.glyphColour, .ordinary)
+        XCTAssertEqual(byHand.glyphColour, .ordinary)
     }
 
     func testACubesFigureTurnsRedWhenTheLimitIsSpent() {
@@ -429,8 +427,8 @@ final class StatusItemTitleTests: XCTestCase {
         // so the colour that goes with the pause has to reach this half of the line too.
         let reading = onCube(category: category(), cubePauseState: .paused)
 
-        XCTAssertEqual(title(reading, isLimitReached: true).colour, .systemRed)
-        XCTAssertEqual(title(reading, isLimitReached: true).nameColour, .systemGreen)
+        XCTAssertEqual(title(reading, isLimitReached: true).colour, .spent)
+        XCTAssertEqual(title(reading, isLimitReached: true).nameColour, .cube)
     }
 
     func testACubeThatCannotBeHeardTurnsTheLineYellow() {
@@ -438,9 +436,9 @@ final class StatusItemTitleTests: XCTestCase {
         // any more. The glyph is untouched, being the one colour that is the same in every timingState.
         let title = title(onCube(category: category(), cubePauseState: .paused, isReachable: false))
 
-        XCTAssertEqual(title.colour, .systemYellow)
-        XCTAssertEqual(title.nameColour, .systemYellow)
-        XCTAssertEqual(title.glyphColour, .labelColor)
+        XCTAssertEqual(title.colour, .unreachable)
+        XCTAssertEqual(title.nameColour, .unreachable)
+        XCTAssertEqual(title.glyphColour, .ordinary)
     }
 
     func testYellowIsNotSharedWithTheLimitOrTheFlash() {
@@ -448,9 +446,9 @@ final class StatusItemTitleTests: XCTestCase {
         // of those are claims about a reading that has stopped being confirmable, so neither draws over it.
         let reading = onCube(category: category(), cubePauseState: .paused, isReachable: false)
 
-        XCTAssertEqual(title(reading, isLimitReached: true).colour, .systemYellow)
-        XCTAssertEqual(title(reading, lowBattery: flashOn).nameColour, .systemYellow)
-        XCTAssertEqual(title(reading, lowBattery: flashOff).nameColour, .systemYellow)
+        XCTAssertEqual(title(reading, isLimitReached: true).colour, .unreachable)
+        XCTAssertEqual(title(reading, lowBattery: flashOn).nameColour, .unreachable)
+        XCTAssertEqual(title(reading, lowBattery: flashOff).nameColour, .unreachable)
     }
 
     func testACubeThatCannotBeHeardSaysSoOutLoud() {
@@ -502,7 +500,7 @@ final class StatusItemTitleTests: XCTestCase {
         XCTAssertNil(parts.duration, "there is no figure to draw before anything has been read")
         XCTAssertNil(parts.glyphName, "and no pause glyph: whether the cube is running is one of the unknowns")
         XCTAssertNil(parts.iconName)
-        XCTAssertEqual(parts.colour, .labelColor, "green, cyan and yellow are each a claim about a reading")
+        XCTAssertEqual(parts.colour, .ordinary, "green, cyan and yellow are each a claim about a reading")
         XCTAssertEqual(parts.spoken, "Connecting\u{2026}, Facet")
     }
 

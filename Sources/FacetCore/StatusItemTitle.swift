@@ -1,5 +1,4 @@
-import AppKit
-import FacetCore
+import Foundation
 
 /// What the status item spells out: the pieces, in the order they are drawn, decided apart from the drawing.
 ///
@@ -10,17 +9,17 @@ import FacetCore
 /// **The order is the previous app's**, and the reason for it survives: the category's icon rides *inside* the title
 /// rather than as the button's own image, which would draw it to the left of everything and outside the run of text
 /// the rest of the line is.
-struct StatusItemTitle: Equatable {
+package struct StatusItemTitle: Equatable {
     /// The words: the category being timed, or the app's own name when nothing is.
-    let text: String
+    package let text: String
 
     /// The category's artwork, drawn ahead of the words. `nil` for a category with no icon, and while nothing is
     /// being timed.
-    let iconName: String?
+    package let iconName: String?
 
     /// The play/pause glyph between the name and the figure, from `ManualTimerRules`, so the menu bar and the
     /// Faces tab cannot come to draw a pause differently. `nil` while nothing is being timed.
-    let glyphName: String?
+    package let glyphName: String?
 
     /// The lock badge, drawn in red before the play/pause glyph while the cube is locked. `nil` otherwise.
     ///
@@ -35,18 +34,18 @@ struct StatusItemTitle: Equatable {
     /// **Drawn whether or not anything is being timed**, for the reason the flat-battery flash is: it is a fact about
     /// the device rather than about the session, and a locked cube with nothing running is exactly the state somebody
     /// needs to be told about -- it is why nothing is running.
-    let lockGlyphName: String?
+    package let lockGlyphName: String?
 
     /// The figure, already formatted. `nil` while nothing is being timed: a "0:00" with nothing behind it reads as
     /// a session that has started and got nowhere.
-    let duration: String?
+    package let duration: String?
 
     /// What the line's own text is drawn in: the figure, and the spaces between the pieces. The database badge keeps
     /// its own colour, it being a tag naming which file this launch writes to rather than part of the sentence; the
     /// name and its icon take `nameColour`, and the play/pause glyph takes `glyphColour`.
     ///
     /// **Green while a cube is doing the timing, cyan while this app is.** Green is the previous app's
-    /// (`MenuBarStatusStyle`, `overLimit ? .systemRed : .systemGreen`) and it said one thing
+    /// (`MenuBarStatusStyle`, `overLimit ? .spent : .cube`) and it said one thing
     /// there: this reading is live. It is still what green says here. What is new is a second kind of live reading
     /// the archive never had, one this app takes itself with no cube on the other end, and cyan is that -- so the
     /// pair of them answer between them which of the app's two pictures is on show.
@@ -64,7 +63,7 @@ struct StatusItemTitle: Equatable {
     /// A dynamic colour, resolved as it draws: the menu bar tints from the wallpaper rather than from the
     /// appearance setting, so anything resolved earlier than the draw is one of the two answers frozen (see
     /// `MenuBarController.attachment(of:colour:size:font:)`).
-    let colour: NSColor
+    package let colour: StatusColour
 
     /// What the category's name and its icon are drawn in, which is `colour` except while the cube is flat and
     /// except while a limit is spent.
@@ -73,7 +72,7 @@ struct StatusItemTitle: Equatable {
     /// (`MenuBarStatusStyle`): the figure beside it is a clock somebody reads, and a duration
     /// changing colour twice a second is harder to read at the exact moment the app is asking for attention.
     ///
-    /// **The off phase is `.labelColor`, where the archive used `.white`.** That is the one thing not copied, and it
+    /// **The off phase is `.ordinary`, where the archive used `.white`.** That is the one thing not copied, and it
     /// is a correction rather than a preference: the menu bar tints from the wallpaper rather than from the appearance
     /// setting (see `MenuBarController.attachment(of:colour:size:font:)`), so white against a light strip is a name
     /// that disappears for half of every second instead of one that flashes.
@@ -88,8 +87,8 @@ struct StatusItemTitle: Equatable {
     /// charge last read before the link went is the stale colour that rule exists to rule out. `LowBatteryWatch`
     /// stops the flash itself when the link goes ("the flash stops with the link, the warning does not"), so this
     /// is that decision drawn rather than a second one: without it a latched warning would leave the name in a
-    /// steady `.labelColor` off phase, against a yellow figure, flashing at nobody. The warning is still *said*.
-    let nameColour: NSColor
+    /// steady `.ordinary` off phase, against a yellow figure, flashing at nobody. The warning is still *said*.
+    package let nameColour: StatusColour
 
     /// What the play/pause glyph is drawn in, which is the one piece of the line that is neither the name nor the
     /// figure -- and which says something about neither: it reports whether a clock is going.
@@ -97,7 +96,7 @@ struct StatusItemTitle: Equatable {
     /// **The menu bar's own text colour, which is what the archive drew it in.** Its indicator was a template image
     /// handed to AppKit untinted (`MenuBarController.statusIndicatorImage`), so it came out in
     /// whatever the strip draws text in -- white on a dark menu bar, black on a light one -- rather than in the
-    /// line's green. Naming `.labelColor` here is that behaviour spelled out rather than inherited, since this app
+    /// line's green. Naming `.ordinary` here is that behaviour spelled out rather than inherited, since this app
     /// tints its own attachments and would otherwise have to pick something.
     ///
     /// **Not literal white**, for the reason the flash's off phase is not: the menu bar tints from the wallpaper
@@ -107,12 +106,12 @@ struct StatusItemTitle: Equatable {
     /// **The one colour on the line that is the same in every state**, which is the point of it rather than a
     /// simplification: cyan, green and yellow are each a claim about the reading, and whether a clock is going is
     /// not a claim about the reading. A glyph that changed with them would be saying something it does not know.
-    let glyphColour: NSColor
+    package let glyphColour: StatusColour
 
     /// What VoiceOver reads. Spelled out, because a glyph says nothing to a screen reader and neither does the
     /// badge's colour -- and the item's own title would otherwise read as "0:07", which is not a description of
     /// anything.
-    let spoken: String
+    package let spoken: String
 
     /// - Parameters:
     ///   - appLabel: the app's own name, which is the whole title while nothing is being timed.
@@ -120,7 +119,7 @@ struct StatusItemTitle: Equatable {
     ///   - reading: the session, read at the moment this is being composed.
     ///   - showingSeconds: whether the figure carries seconds, from `display_seconds`.
     /// - Parameter lowBattery: the warning and which half of its flash is up, asked for as the item is drawn.
-    static func make(
+    package static func make(
         appLabel: String,
         reading: TimingReadout.Reading,
         showingSeconds: Bool,
@@ -148,16 +147,16 @@ struct StatusItemTitle: Equatable {
                 duration: nil,
                 // The ordinary text colour, as the idle line is drawn in and for the same reason: green, cyan and
                 // yellow are each a claim about a reading, and there is no reading here to make one about.
-                colour: .labelColor,
-                nameColour: .labelColor,
-                glyphColour: .labelColor,
+                colour: .ordinary,
+                nameColour: .ordinary,
+                glyphColour: .ordinary,
                 spoken: spoken([Self.connecting, appLabel])
             )
         }
         // The flash, and what it flashes against. Red on one phase and the ordinary text colour on the other, so the
         // name alternates rather than vanishing -- and `nil` when there is nothing to warn about, which leaves the
         // name drawn in whatever the line's own colour turns out to be.
-        let flash: NSColor? = lowBattery.isBatteryLow ? (lowBattery.isBlinkOn ? .systemRed : .labelColor) : nil
+        let flash: StatusColour? = lowBattery.isBatteryLow ? (lowBattery.isBlinkOn ? .spent : .ordinary) : nil
         let lockGlyphName = cubeLockState == .locked ? "lock.fill" : nil
         // **Following a cube: the face's category and what it has recorded today.**
         //
@@ -210,14 +209,14 @@ struct StatusItemTitle: Equatable {
             // Worked out here rather than in the call below because the two of them are one decision made twice,
             // and because a `guard`-shaped ternary inside a call argument is what the note on the spoken parts
             // above is about: this file has already failed CI once for asking Swift to type-check too much at once.
-            let lineColour: NSColor
-            let cubeNameColour: NSColor
+            let lineColour: StatusColour
+            let cubeNameColour: StatusColour
             if reading.isCubeConnected {
-                lineColour = isLimitReached ? .systemRed : .systemGreen
-                cubeNameColour = flash ?? .systemGreen
+                lineColour = isLimitReached ? .spent : .cube
+                cubeNameColour = flash ?? .cube
             } else {
-                lineColour = .systemYellow
-                cubeNameColour = .systemYellow
+                lineColour = .unreachable
+                cubeNameColour = .unreachable
             }
             let cubeGlyphName: String? = switch reading.cubePauseState {
             case .paused: "pause.fill"
@@ -237,7 +236,7 @@ struct StatusItemTitle: Equatable {
                 // The menu bar's own text colour, exactly as in a session this app is timing. What the glyph
                 // reports -- whether a clock is going -- is the one thing on this line that means the same in both
                 // pictures, so it is the one thing that does not change colour between them.
-                glyphColour: .labelColor,
+                glyphColour: .ordinary,
                 // The figure is said as well as drawn, for the reason the limit and the lock are: what is on the line
                 // has to reach somebody reading it aloud, and a duration is the one part of it that is never a colour.
                 spoken: spoken(spokenParts)
@@ -259,14 +258,14 @@ struct StatusItemTitle: Equatable {
                 duration: nil,
                 // The ordinary text colour, as the previous app's own no-device placeholder drew it: a session
                 // colour is a claim about a reading, and there is no reading here to make it about.
-                colour: .labelColor,
+                colour: .ordinary,
                 // **The warning still flashes with nothing being timed**, on the app's own name. A flat cube is a
                 // fact about the device rather than about the session, and the moment somebody is most likely to
                 // miss it is the moment nothing is running.
-                nameColour: flash ?? .labelColor,
+                nameColour: flash ?? .ordinary,
                 // Nothing is drawn in it, `glyphName` being `nil` here, and it is still answered rather than
                 // defaulted: a field with no answer is a field somebody later picks one for by accident.
-                glyphColour: .labelColor,
+                glyphColour: .ordinary,
                 spoken: spoken(idleParts)
             )
         }
@@ -302,16 +301,16 @@ struct StatusItemTitle: Equatable {
             lockGlyphName: lockGlyphName,
             duration: duration,
             // **Red once the category has spent its `daily_limit`**, which is the archive's colour and its meaning:
-            // `MenuBarStatusStyle` drew `overLimit ? .systemRed : .systemGreen` on the same line. The session colour
+            // `MenuBarStatusStyle` drew `overLimit ? .spent : .cube` on the same line. The session colour
             // is a claim that time is being recorded normally, and once a limit has stopped the clock that claim is
             // no longer true -- so the colour and the pause are two faces of one fact, drawn from the same answer
             // (`DailyLimitEnforcement.isLimitReached`) rather than from two comparisons that could disagree by a second.
             //
             // **On the figure and not on the whole line**, which is where this parts from the archive: the figure is
             // what has reached the number, and the name is only which category it belongs to.
-            colour: isLimitReached ? .systemRed : Self.byHand,
+            colour: isLimitReached ? .spent : Self.byHand,
             nameColour: flash ?? Self.byHand,
-            glyphColour: .labelColor,
+            glyphColour: .ordinary,
             spoken: spoken(sessionParts)
         )
     }
@@ -323,29 +322,19 @@ struct StatusItemTitle: Equatable {
     /// writes down what it drew, and the row is the evidence -- which is this suite's first principle rather than a
     /// convenience: a person watching the menu bar and saying it looked yellow is not evidence.
     ///
-    /// **Named here rather than at the log**, because this is where the colours are decided. A second place turning
-    /// an `NSColor` into a word is a second answer to what the line is, and it would be the one the tests read.
-    var colourDescription: String {
-        "name \(Self.name(of: nameColour)), glyph \(Self.name(of: glyphColour)), figure \(Self.name(of: colour))"
-    }
-
-    /// One colour as a word. Every colour this type can choose has one, and anything else says so rather than
-    /// picking the nearest: a line described as green because the naming ran out is worse than one described as
-    /// unnamed, since only the second sends somebody to look.
-    private static func name(of colour: NSColor) -> String {
-        switch colour {
-        case .systemCyan: return "cyan"
-        case .systemGreen: return "green"
-        case .systemYellow: return "yellow"
-        case .systemRed: return "red"
-        case .labelColor: return "label"
-        default: return "unnamed"
-        }
+    /// **Named here rather than at the log**, because this is where the colours are decided.
+    ///
+    /// **The mapping this used to carry is gone.** It held three `NSColor`s and a `name(of:)` that turned each
+    /// back into a word, which was a round trip: the word is the answer and the `NSColor` was a detour through
+    /// the platform to reach it. `StatusColour` is the word, so this reads it rather than deriving it, and the
+    /// `default` case that answered "unnamed" cannot happen because five cases cannot fall through.
+    package var colourDescription: String {
+        "name \(nameColour.name), glyph \(glyphColour.name), figure \(colour.name)"
     }
 
     /// What a session this app is measuring itself is drawn in.
     ///
-    /// **`.systemCyan` rather than the `Cyan` in `database/005_colour.sql`**, which is `#00ffff` and belongs to a
+    /// **`.byHand` rather than the `Cyan` in `database/005_colour.sql`**, which is `#00ffff` and belongs to a
     /// different question: that table holds what a category can be given and what a cube can be told to light its
     /// face, both of which are fixed hexes because a cube has no idea what appearance a Mac is in. This is a colour
     /// for text on a strip that tints from the wallpaper, so it has to be a dynamic one -- see `colour` for why
@@ -354,9 +343,9 @@ struct StatusItemTitle: Equatable {
     ///
     /// **The archive's word and the archive's ellipsis** (`applyConnectingStatus`), which is also the platform's: one
     /// character rather than three periods, so it reads as the system's own "working on it" rather than as typing.
-    static let connecting = "Connecting\u{2026}"
+    package static let connecting = "Connecting\u{2026}"
 
-    private static let byHand: NSColor = .systemCyan
+    private static let byHand: StatusColour = .byHand
 
     private static func spoken(_ parts: [String]) -> String {
         parts.joined(separator: ", ")
