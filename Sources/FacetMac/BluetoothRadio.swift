@@ -252,32 +252,15 @@ final class BluetoothRadio: NSObject, CubeRadio {
         let rotatingTo: String?
     }
 
-    /// A reset waiting to be proved: which cube, and who to tell.
+    /// The reset proof, which is `CubeResetProof` in the core: the window, the retry cadence, the vendor-PIN-only
+    /// rule and the reporting are all decided there and are the same on both platforms.
     ///
-    /// **While this is set the radio is in a different conversation**, and the ordinary connect callbacks are
+    /// **While it is running the radio is in a different conversation**, and the ordinary connect callbacks are
     /// suppressed for that cube: a login here is evidence about a wipe rather than a device being reached, so
     /// `onLoginBegan`, `onLoginEnded` and `onConnectionDropped` would all be reporting the wrong story to a tab that
-    /// is already showing "Resetting".
-    private struct ResetConfirmation {
-        let id: DeviceHandle
-        let reported: (FactoryResetOutcome) -> Void
-    }
-
-    /// How long a cube is given to come back on the vendor PIN before the reset is called unconfirmed.
-    ///
-    /// The archive's `factoryResetConfirmTimeout`, copied: erasing flash and rebooting is not quick, and the number
-    /// was arrived at against real hardware.
-    static let resetConfirmSeconds: TimeInterval = 120
-
-    /// The gap between attempts to meet the cube again after a reset.
-    ///
-    /// Longer than `settleSeconds`, which exists only to let a refused link finish coming down: this one is waiting on
-    /// a device that is erasing its flash and restarting, so the first attempt is deliberately not immediate. Each
-    /// failed attempt costs `connectTimeoutSeconds` on top, which puts roughly six tries inside the window.
-    static let resetRetrySeconds: TimeInterval = 3
-
-    private var resetConfirmation: ResetConfirmation?
-    private var resetDeadline: ScheduledWake?
+    /// is already showing "Resetting". `resetTarget` is which cube the proof is about, which only this side needs.
+    private var resetProof: CubeResetProof?
+    private var resetTarget: DeviceHandle?
 
     private var attempt: Attempt?
     private var connectTimeout: ScheduledWake?
@@ -492,7 +475,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
     /// `docs/timeflip2-firmware-observations.md`). Without the pause a queue of five cubes would refuse all five in
     /// under a tenth of a second and none of it would mean anything.
     private func tryNextCandidate() {
-        guard reaching != nil, attempt == nil, resetConfirmation == nil else { return }
+        guard reaching != nil, attempt == nil, !isFactoryResetRunning else { return }
         guard !reaching!.queue.isEmpty else {
             // **The shortcut was wrong, so the shortcut is paid for.** The window was cut short because the
             // remembered identifier turned up, and that device has now refused this app's PIN -- so it was not this
@@ -696,7 +679,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
         remembered: String?,
         previouslyKnown: String?
     ) {
-        guard attempt == nil, resetConfirmation == nil else {
+        guard attempt == nil, !isFactoryResetRunning else {
             debugLog?.record(.login, "Already busy with a device; not reaching for \(id.value)")
             return
         }
@@ -760,7 +743,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
     var isReachingForCube: Bool { reaching != nil || attempt != nil }
 
     /// Whether a reset is waiting on the cube to prove itself, which is what the tab shows instead of a connection.
-    var isFactoryResetRunning: Bool { resetConfirmation != nil }
+    var isFactoryResetRunning: Bool { resetProof?.isRunning ?? false }
 
     /// Puts the connected cube back to how it left the factory, and reports only once the cube has **proved** it.
     ///
@@ -841,74 +824,37 @@ final class BluetoothRadio: NSObject, CubeRadio {
             reported(.notSent)
             return
         }
-        // Armed first, for the reason above: the drop that follows is part of the reset.
-        resetConfirmation = ResetConfirmation(id: id, reported: reported)
-        resetDeadline?.cancel()
-        resetDeadline = scheduler.wake(in: Self.resetConfirmSeconds) { [weak self] in
-            self?.debugLog?.record(
-                .pair,
-                "The cube never came back on the vendor PIN within \(Int(Self.resetConfirmSeconds))s,"
-                    + " so the reset is not confirmed"
-            )
-            self?.endReset(.notConfirmed)
-        }
-
-        login.factoryReset { [weak self] sent in
+        // **Which cube, kept here because only this side needs it.** The proof decides everything about the
+        // sequence and nothing about how to reach a peripheral, so the handle stays on the adapter that resolves
+        // it. It is cleared by the proof finishing, through the completion below.
+        resetTarget = id
+        let proof = CubeResetProof(
+            scheduler: scheduler,
+            sendReset: { [weak login] answered in
+                guard let login else { return answered(false) }
+                login.factoryReset(answered)
+            },
+            letGo: { [weak self] reason in self?.disconnect(because: reason) },
+            // **Only the vendor default is presented**, which is the rule the core states and this obeys:
+            // offering the stored PIN as well would let a cube that ignored the command log in and be counted
+            // as proof. `remaining` is empty so a refusal ends the attempt rather than trying another.
+            tryVendorPIN: { [weak self] in
+                guard let self, let id = resetTarget else { return }
+                attempt = Attempt(id: id, remaining: [], presenting: DeviceLoginRules.defaultPIN, rotatingTo: nil)
+                beginConnect()
+            },
+            debugLog: debugLog
+        )
+        resetProof = proof
+        proof.begin { [weak self] outcome in
             guard let self else { return }
-            guard sent else {
-                self.debugLog?.record(.pair, "The cube would not take the reset command")
-                self.endReset(.notSent)
-                return
-            }
-            self.debugLog?.record(.pair, "Reset sent; letting go of the link so the cube can be met again")
-            // **The link is dropped here rather than waited for, and that is a measured correction.** The archive
-            // assumed the cube reboots and severs the connection, so this waited for `didDisconnectPeripheral` to
-            // start the confirmation. On this firmware it does not: a reset on 2026-08-17 was acknowledged and the
-            // link then stayed up for the whole 104 seconds somebody watched it, with no disconnect at all -- so
-            // nothing was ever tried and a wipe that had actually happened went unconfirmed (finding 6 in
-            // `docs/timeflip2-firmware-observations.md`). Dropping it here covers both firmwares: a cube that does
-            // sever the link is handled by `didDisconnectPeripheral`, and one that does not is let go of anyway.
-            self.disconnect(because: "the cube is being reset")
-            self.retryResetConfirmation()
+            // The connect machinery this side owns, torn down whichever way the proof went.
+            connectTimeout?.cancel()
+            connectTimeout = nil
+            attempt = nil
+            resetTarget = nil
+            reported(outcome)
         }
-    }
-
-    /// Tries the vendor default on the rebooted cube, again and again until it answers or the window closes.
-    ///
-    /// **Only the vendor default is presented.** Offering the stored PIN as well would let a cube that ignored the
-    /// command log in and be counted as proof, which is the one mistake this whole sequence exists to avoid.
-    private func retryResetConfirmation() {
-        guard resetConfirmation != nil else { return }
-        settle?.cancel()
-        // **Which cube is read when the timer fires, not captured now.** A `ResetConfirmation` holds a closure and so
-        // is not `Sendable`, which the compiler refuses to let across into a timer -- and re-reading is the better
-        // answer anyway: if the window closed in the meantime there is nothing left to reach for.
-        settle = scheduler.wake(in: Self.resetRetrySeconds) { [weak self] in
-            guard let self, let id = self.resetConfirmation?.id else { return }
-            self.debugLog?.record(.pair, "Trying the vendor PIN, to see whether the cube was really wiped")
-            self.attempt = Attempt(
-                id: id, remaining: [], presenting: DeviceLoginRules.defaultPIN, rotatingTo: nil
-            )
-            self.beginConnect()
-        }
-    }
-
-    /// Ends the reset one way or the other, and says so exactly once.
-    private func endReset(_ outcome: FactoryResetOutcome) {
-        guard let confirmation = resetConfirmation else { return }
-        resetConfirmation = nil
-        resetDeadline?.cancel()
-        resetDeadline = nil
-        settle?.cancel()
-        settle = nil
-        connectTimeout?.cancel()
-        connectTimeout = nil
-        attempt = nil
-        debugLog?.record(.pair, "Reset: \(outcome)")
-        // **Let go either way.** A confirmed reset leaves a pristine cube the app has been told to give up, and an
-        // unconfirmed one leaves a device the app must not go on holding as though nothing had been asked.
-        disconnect(because: "the reset is over")
-        confirmation.reported(outcome)
     }
 
     /// Drops the connection, if there is one. Says nothing when there is nothing to drop: this is called on every
@@ -1015,14 +961,8 @@ final class BluetoothRadio: NSObject, CubeRadio {
         // **A reset confirmation is not a login anybody asked for**, so it reports through its own channel and none of
         // the connect callbacks fire. A cube that did not answer this time is not a failure either: it may still be
         // rebooting, and the window is what decides when to give up.
-        if let confirmation = resetConfirmation, confirmation.id == id {
-            guard outcome == .loggedIn else {
-                debugLog?.record(.pair, "Not back yet (\(outcome)); trying again")
-                retryResetConfirmation()
-                return
-            }
-            debugLog?.record(.pair, "The cube let the app in on the vendor PIN, so the wipe took")
-            endReset(.confirmed)
+        if let resetProof, resetProof.isRunning, resetTarget == id {
+            resetProof.loginEnded(outcome)
             return
         }
         debugLog?.record(.login, "\(id.value): \(outcome)")
@@ -1281,7 +1221,7 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
             // place that knows it is a Mac: the GATT table above, and the clock.
             scheduler: RunLoopScheduler(),
             // A reset confirmation asks nothing about the cube: it is proving a wipe and letting go.
-            staysWithTheCube: resetConfirmation == nil,
+            staysWithTheCube: !isFactoryResetRunning,
             rotated: { [weak self] pin in self?.onPINChanged?(pin) },
             // **No guard on this being still the app's cube**, unlike the reads below: it fires during the login
             // itself, before anything else can have taken the link, and what it reports is a fact about the cube in
@@ -1391,11 +1331,11 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
         }
         // **The cube rebooting is what a reset looks like from here**, so this drop is the sequence proceeding rather
         // than a device going away. Reported as neither, and answered by reaching for it again.
-        if let confirmation = resetConfirmation, confirmation.id == id {
+        if let resetProof, resetProof.isRunning, resetTarget == id {
             connectedDevice = nil
             login = nil
             debugLog?.record(.pair, "The cube dropped the link, which is it rebooting after the reset")
-            retryResetConfirmation()
+            resetProof.linkDropped()
             return
         }
         if let attempt, attempt.id == id {

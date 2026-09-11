@@ -656,7 +656,7 @@ they get in the way. The window is one fixed width as a first consequence, and t
 
 | | Candidate | State |
 | --- | --- | --- |
-| 1 | Radio seam below the sequencing | **three clusters of five done**, and the seam itself exists: `CubeGatt` |
+| 1 | Radio seam below the sequencing | **four clusters of five done**; the reach and candidate order is the last |
 | 2 | `CubeRadio` is a hypothetical seam | **done**, `InMemoryCubeRadio` is the second adapter |
 | 3 | One secret store | **done** |
 | 4 | The daily limit asked five ways | **done** |
@@ -673,14 +673,20 @@ testable at all. `DeviceLoginTests` is the first test that file has ever had, an
 immediately by catching a canonical-UUID bug that compiled perfectly.
 
 That took two clusters with it: the PIN rotation machine, `rotatingTo` and `rotated` being `DeviceLogin`'s
-now, and the history fetch. **Candidate 1's two remaining clusters are the reach and candidate order, and the
-reset proof.**
+now, and the history fetch. **The reset proof followed on 2026-09-11**, so the last cluster is the reach and
+candidate order.
 
-**Read the call rather than the name when deciding which are left**, because `BluetoothRadio` still spells all
-four. `fetchHistory` and `readLastEvent` are now a six-line guard and a delegation to `login`, so the cluster
-has gone even though the method has not. `factoryReset` reads the same from the outside and has not gone: it
-arms a `ResetConfirmation` and a deadline and drives the proof itself. The reach is the same, `reachOrder`
-being a core rule with the loop that drives it still here.
+**`CubeResetProof` is what the reset became**, and it is the shape to copy for the reach: the window, the
+retry cadence, the vendor-PIN-only rule, the let-go-either-way and reporting exactly once are all decided in
+`FacetCore`, and the three things it needs from a platform arrive as closures, which is `DeviceSettingsSync`'s
+arrangement. `BluetoothRadio` keeps only which handle the proof is about and the connect machinery it drives.
+It has its first tests: eight, and the one that matters reproduces the archive's actual mistake, waiting for
+the cube to sever the link before proving, which this firmware does not do (finding 6).
+
+**Read the call rather than the name when deciding what is left**, because `BluetoothRadio` still spells most
+of it. `fetchHistory` and `readLastEvent` are a six-line guard and a delegation to `login`, and `factoryReset`
+is now a construction and a `begin`. The reach is the real one: `reachOrder` is a core rule with the loop that
+drives it still here.
 
 **The exclusion list is what this bought, and it is less than it looks, exactly as predicted.**
 `handover-mac.md` item 15 worked out in advance that only `BLETraceTests` would come off, and only one did.
