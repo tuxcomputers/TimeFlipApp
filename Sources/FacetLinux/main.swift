@@ -254,20 +254,10 @@ let deviceSettings = DeviceSettingsSync(
         return DeviceSettingsSync.Stored(
             autoPauseMinutes: settings.integer("auto_pause_minutes", field: "minutes") ?? seeded.autoPauseMinutes,
             ledBrightnessPercent: settings.integer("led_settings", field: "brightness") ?? seeded.ledBrightnessPercent,
-            ledBlinkSeconds: settings.integer("led_settings", field: "blink_interval") ?? seeded.ledBlinkSeconds,
-            // Clamped on the way out of the table: a register is one byte, and a row holding something else is a
-            // fault to survive rather than a reason to send nothing.
-            doubleTap: DoubleTapParameters(
-                threshold: UInt8(clamping: settings.integer("double_tap_settings", field: "clickThreshold")
-                    ?? Int(seeded.doubleTap.threshold)),
-                limit: UInt8(clamping: settings.integer("double_tap_settings", field: "limit")
-                    ?? Int(seeded.doubleTap.limit)),
-                latency: UInt8(clamping: settings.integer("double_tap_settings", field: "latency")
-                    ?? Int(seeded.doubleTap.latency)),
-                window: UInt8(clamping: settings.integer("double_tap_settings", field: "window")
-                    ?? Int(seeded.doubleTap.window))
-            ),
-            isDoubleTapEnabled: settings.flag("double_tap_settings", field: "enabled") ?? seeded.isDoubleTapEnabled
+            // **Double tap is not read from anywhere** (2026-09-11). The gesture is off for good and
+            // `DoubleTapRules.alwaysSent` is the only thing sent, so `double_tap_settings` is seeded and read by
+            // nothing. `DeviceSettingsSync` still corrects a cube whose `0x17` answer disagrees with it.
+            ledBlinkSeconds: settings.integer("led_settings", field: "blink_interval") ?? seeded.ledBlinkSeconds
         )
     },
     debugLog: debugLog
