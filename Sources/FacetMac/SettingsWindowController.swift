@@ -121,8 +121,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     ///
     /// **Handed in by `main.swift` when the app owns one**, which it does whenever a launch has a device to follow: a
     /// paired app reaches for its cube whether or not anybody opens this window, so the radio cannot be something the
-    /// window makes on its first scan. Made here only when nobody handed one over, which is a launch with nothing
-    /// paired and every layout test.
+    /// window makes on its first scan. **`main.swift` hands one over on every launch**, unconditionally, so the
+    /// fallback in `deviceRadio()` is reached only by a test that builds this controller without one. The comment
+    /// here used to say "a launch with nothing paired", which stopped being true when the radio moved out to the
+    /// composition root and nobody corrected the sentence.
     ///
     /// Either way it outlives the panes and is not theirs. Panes are rebuilt as tabs are switched, and a radio rebuilt
     /// with them would drop the manager mid-scan and start the system's Bluetooth prompt again.
