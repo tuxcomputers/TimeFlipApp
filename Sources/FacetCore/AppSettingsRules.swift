@@ -25,6 +25,12 @@ package enum AppSettingsRules {
     package static let resetHours = 1 ... 12
     package static let resetSuffix = "AM"
     /// The seeded `daily_reset_time`: 3 AM rather than midnight, so a session spanning midnight is not split.
+    /// What the app shows when `display_seconds` has never been written. **`database/011_setting.sql`'s own
+    /// seed**, here rather than in the pane beside it: a fallback written out in an `NSView` is a copy of the
+    /// DDL that no second composition root can reach and nothing checks (`CubePauseStateTests` has the general
+    /// form of this argument). The other three App tab defaults were already here; this one was not.
+    package static let defaultShowsSeconds = true
+
     package static let defaultResetHour24 = 3
 
     /// A 24-hour hour as it reads on a 12-hour face: 0 becomes 12, 13 becomes 1.

@@ -130,7 +130,7 @@ final class AppSettingsPane: NSView {
         /// (`database/011_setting.sql`). Named here rather than at each call site so one missing row cannot come to
         /// mean two different things.
         static let seeded = Values(
-            showsSeconds: true,
+            showsSeconds: AppSettingsRules.defaultShowsSeconds,
             dailyResetHour24: AppSettingsRules.defaultResetHour24,
             fetchIntervalSeconds: AppSettingsRules.defaultFetchIntervalSeconds,
             blipSeconds: AppSettingsRules.defaultBlipSeconds

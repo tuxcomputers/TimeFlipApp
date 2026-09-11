@@ -40,6 +40,27 @@ final class DeviceSettingsSyncTests {
         #expect(settings.integer("double_tap_settings", field: "window") == Int(seeded.doubleTap.window))
     }
 
+    /// The App tab's four, for the same reason and against the same database.
+    ///
+    /// **They were three and a literal.** `defaultResetHour24`, `defaultFetchIntervalSeconds` and
+    /// `defaultBlipSeconds` were already in `AppSettingsRules`; `showsSeconds` was written out as `true` inside
+    /// `AppSettingsPane`, which is an `NSView`, so the one platform that cannot build that view could not have
+    /// read it and nothing compared it with the row it was copied from.
+    @Test func testTheAppSettingFallbacksAreWhatTheDDLSeeds() throws {
+        let database = TemporaryDatabase()
+        defer { database.remove() }
+        try database.bootstrap()
+        let settings = SettingStore(connection: database.connection())
+
+        #expect(settings.flag("display_seconds", field: "enabled") == AppSettingsRules.defaultShowsSeconds)
+        #expect(settings.integer("daily_reset_time", field: "hour") == AppSettingsRules.defaultResetHour24)
+        #expect(
+            settings.integer("fetch_history_interval_seconds", field: "seconds")
+                == AppSettingsRules.defaultFetchIntervalSeconds
+        )
+        #expect(settings.integer("blip_time", field: "seconds") == AppSettingsRules.defaultBlipSeconds)
+    }
+
     /// What the pretend cube was told, in order.
     private final class Wire {
         var sent: [Data] = []
