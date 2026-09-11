@@ -197,10 +197,15 @@ a time because deciding a symbol belongs there is a judgement rather than a patt
 
 **The allowlist emptying would still not mean this rule was satisfied**, and a green run means "nothing new has
 declared itself, and nothing names a spelling we have already ruled out" rather than "the core is
-platform-blind". The judgement is still a person's. Measured on 2026-09-10, after the clock: the conditional
-allowlist is down to 1 file (`GoogleLoopbackListener`, from 7), and 11 files still reach a platform capability
-with no conditional at all, on `applicationSupportDirectory`, `Bundle.main`, `sqlite3_*`, `FileManager.default`
-or `flock`. `docs/architecture-ports-plan.md` is the ordered list of what is left.
+platform-blind". The judgement is still a person's. Re-measured on 2026-09-11: the conditional allowlist is
+still 1 file (`GoogleLoopbackListener`, from 7), and **10** files still reach a platform capability with no
+conditional at all, on `applicationSupportDirectory`, `Bundle.main`, `sqlite3_*`, `FileManager.default` or
+`flock`. It was 11 the day before. `docs/architecture-ports-plan.md` is the ordered list of what is left.
+
+**Nine of the ten are storage or the files around it**, which is not a coincidence and not debt: storage was
+ruled off the diagram as not being a platform capability at all (see below), and `import SQLite3` and
+`FileManager` are the same line on both platforms. `InstanceLock` is the tenth and the real one, being
+`flock`, `errno` and `strerror` with no conditional anywhere.
 
 ### The remote server is a peer, not a backend (settled 2026-09-10)
 
