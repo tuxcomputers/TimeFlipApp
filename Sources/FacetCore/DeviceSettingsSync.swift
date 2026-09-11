@@ -46,29 +46,16 @@ package final class DeviceSettingsSync {
         package var autoPauseMinutes: Int
         package var ledBrightnessPercent: Int
         package var ledBlinkSeconds: Int
-        package var doubleTap: DoubleTapParameters
-        package var isDoubleTapEnabled: Bool
 
         /// Memberwise, spelled out because Swift does not widen a synthesised one with its type.
         package init(
             autoPauseMinutes: Int,
             ledBrightnessPercent: Int,
-            ledBlinkSeconds: Int,
-            doubleTap: DoubleTapParameters,
-            isDoubleTapEnabled: Bool
+            ledBlinkSeconds: Int
         ) {
             self.autoPauseMinutes = autoPauseMinutes
             self.ledBrightnessPercent = ledBrightnessPercent
             self.ledBlinkSeconds = ledBlinkSeconds
-            self.doubleTap = doubleTap
-            self.isDoubleTapEnabled = isDoubleTapEnabled
-        }
-
-        /// What the cube should be reporting for its double-tap registers, which is not the same as what is stored:
-        /// disabling the gesture is faked by sending `window` 0, the hardware having no switch for it
-        /// (`DoubleTapRules.asSent`).
-        var doubleTapAsSent: DoubleTapParameters {
-            DoubleTapRules.asSent(doubleTap, isEnabled: isDoubleTapEnabled)
         }
 
         /// What a database missing every one of these rows holds. **`database/011_setting.sql`'s own seeds**, so a
@@ -86,8 +73,6 @@ package final class DeviceSettingsSync {
             autoPauseMinutes: 0,
             ledBrightnessPercent: 50,
             ledBlinkSeconds: 15,
-            doubleTap: DoubleTapParameters(threshold: 90, limit: 20, latency: 50, window: 50),
-            isDoubleTapEnabled: false
         )
     }
 
@@ -178,8 +163,12 @@ package final class DeviceSettingsSync {
     ///
     /// **Compared against what should be on it**, which is not what is stored: the gesture is disabled by sending
     /// `window` 0, so a cube with the gesture off should report the zeroed form rather than the values the tab shows.
+    /// **Compared against the constant rather than a table**, the gesture being off for good: there is no stored
+    /// value left for it to disagree with. This is the correction path and it is why `0x16` stays inside the
+    /// read-back rule in `CLAUDE.md`: a cube whose registers revert, which a battery change does, has the gesture
+    /// back on, and this is what notices and puts it out again.
     package func cubeReported(doubleTap reported: DoubleTapParameters) {
-        let wanted = stored().doubleTapAsSent
+        let wanted = DoubleTapRules.alwaysSent
         guard reported != wanted else { return }
         queue(.doubleTap, because: "the cube says its double tap is \(reported.described) and the table says \(wanted.described)")
         run()
@@ -305,7 +294,7 @@ package final class DeviceSettingsSync {
         case .autoPause: return DeviceCommandRules.autoPause(stored.autoPauseMinutes)
         case .ledBrightness: return DeviceCommandRules.ledBrightness(stored.ledBrightnessPercent)
         case .blinkInterval: return DeviceCommandRules.ledBlink(stored.ledBlinkSeconds)
-        case .doubleTap: return DoubleTapRules.command(for: stored.doubleTapAsSent)
+        case .doubleTap: return DoubleTapRules.command(for: DoubleTapRules.alwaysSent)
         case .clock: return DeviceCommandRules.setTime(UInt64(max(0, now.timeIntervalSince1970)))
         }
     }
@@ -315,7 +304,7 @@ package final class DeviceSettingsSync {
         case .autoPause: return "auto-pause \(stored.autoPauseMinutes)m"
         case .ledBrightness: return "LED brightness \(stored.ledBrightnessPercent)%"
         case .blinkInterval: return "blink period \(stored.ledBlinkSeconds)s"
-        case .doubleTap: return "double tap \(stored.doubleTapAsSent.described)"
+        case .doubleTap: return "double tap \(DoubleTapRules.alwaysSent.described)"
         case .clock: return "the time"
         }
     }

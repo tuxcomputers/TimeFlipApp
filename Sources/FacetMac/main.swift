@@ -315,16 +315,9 @@ let deviceSettings = DeviceSettingsSync(
         return DeviceSettingsSync.Stored(
             autoPauseMinutes: settings.integer("auto_pause_minutes", field: "minutes") ?? seeded.autoPauseMinutes,
             ledBrightnessPercent: settings.integer("led_settings", field: "brightness") ?? seeded.ledBrightnessPercent,
-            ledBlinkSeconds: settings.integer("led_settings", field: "blink_interval") ?? seeded.ledBlinkSeconds,
-            // Clamped on the way out of the table, as the tab's own fields are: a register is one byte, and a row
-            // holding something else is a fault to survive rather than a reason to send nothing.
-            doubleTap: DoubleTapParameters(
-                threshold: UInt8(clamping: settings.integer("double_tap_settings", field: "clickThreshold") ?? seeded.doubleTapThreshold),
-                limit: UInt8(clamping: settings.integer("double_tap_settings", field: "limit") ?? seeded.doubleTapLimit),
-                latency: UInt8(clamping: settings.integer("double_tap_settings", field: "latency") ?? seeded.doubleTapLatency),
-                window: UInt8(clamping: settings.integer("double_tap_settings", field: "window") ?? seeded.doubleTapWindow)
-            ),
-            isDoubleTapEnabled: settings.flag("double_tap_settings", field: "enabled") ?? seeded.isDoubleTapEnabled
+            // **Double tap is not read from anywhere.** It is off for good and `DoubleTapRules.alwaysSent` is
+            // what goes out on every connection, so `double_tap_settings` is seeded and no longer read.
+            ledBlinkSeconds: settings.integer("led_settings", field: "blink_interval") ?? seeded.ledBlinkSeconds
         )
     },
     debugLog: debugLog

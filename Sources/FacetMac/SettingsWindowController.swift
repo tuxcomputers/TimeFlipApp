@@ -473,19 +473,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
                 self.applyBatteryWarning(on: pane)
             }
         }
-        pane.onDoubleTapEnabledChanged = { [weak self, weak pane] isEnabled in
-            guard let self, let pane else { return }
-            self.applyDoubleTapEnabled(isEnabled, on: pane)
-        }
-        pane.onDoubleTapValueChanged = { [weak self, weak pane] in
-            guard let self, let pane else { return }
-            // **Rescheduled, not queued.** Each tick of a held arrow displaces the last, so a hold of any length is
-            // one command carrying the number the arrow was let go on.
-            self.doubleTapWrite.schedule { [weak self, weak pane] in
-                guard let self, let pane else { return }
-                self.applyDoubleTapValues(on: pane)
-            }
-        }
         // The same arrangement for each LED field, on its own debounce for the reason the two properties give.
         pane.onLEDBrightnessChanged = { [weak self, weak pane] in
             guard let self, let pane else { return }
@@ -593,122 +580,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         lowBattery?.reconsider(because: "the warning level changed")
     }
 
-    /// Turns the cube's double tap off or back on, from the **Disable** box.
-    ///
-    /// **Off is `window` zero, because the hardware has no switch.** The vendor spec defines no command that disables
-    /// double tap, and the archive measured the same on a real cube (`docs/timeflip2-firmware-observations.md` finding 11): the only
-    /// lever is sensitivity. So this is suppression rather than an off switch, and `DoubleTapRules.asSent` is where
-    /// that one decision lives. Turning it back on sends the four values the window holds, which is why the stored
-    /// `window` keeps its real value throughout -- zeroing what is stored would lose the number to come back to.
-    ///
-    /// **Sent before it is recorded, and recorded only if the cube confirmed it.** `0x16` has a read-back, so
-    /// `BluetoothRadio.send` compares `0x17`'s answer against the bytes that went out before reporting success
-    /// (`DeviceCommandRules.readBack`). A `double_tap_settings` row written on the strength of a command the cube
-    /// refused would be the app's wish recorded as the cube's state, which is the disagreement the first rule in
-    /// `CLAUDE.md` exists to prevent.
-    ///
-    /// **The registers are written here too, not just the flag**, and the cancelled write directly above is why. A
-    /// value moved and then covered by a tick inside half a second has its debounced write dropped, so this command
-    /// is the only one carrying those numbers -- and if this path recorded the flag alone, the cube would be left on
-    /// a threshold the table has never heard of.
-    ///
-    /// **Both ways of failing put the window back and say so.** A cube that would not take it, and a table that would
-    /// not hold it: a control still showing what was set while neither the cube nor the table agrees is the
-    /// two-answers problem with a tick in it.
-    private func applyDoubleTapEnabled(_ isEnabled: Bool, on pane: DevicePane) {
-        // **The pending register write is dropped before this one goes**, and it is the archive's measured trap
-        // rather than tidying up: that write carries values worked out before the box was ticked, so landing after
-        // this one it would put `window` back and quietly undo the toggle (`docs/timeflip.md`, on debouncing). The
-        // values are not lost -- they are on the fields, and this command carries them.
-        doubleTapWrite.cancel()
-        let held = pane.doubleTapParameters
-        let wanted = DoubleTapRules.asSent(held, isEnabled: isEnabled)
-        debugLog?.record(.field, "Double tap: turning it \(isEnabled ? "on" : "off"), sending \(wanted.described)")
-        // **No radio at all refuses, rather than silently doing nothing.** That is a controller built without one --
-        // a layout test rather than a launch -- and a box that moved with no command behind it would be the surface
-        // claiming something about hardware that was never asked.
-        guard let radio else {
-            debugLog?.record(.field, "Double tap: there is no radio to send to, so the window goes back")
-            pane.showDoubleTapEnabled(!isEnabled)
-            return
-        }
-        radio.send(DoubleTapRules.command(for: wanted)) { [weak self, weak pane] confirmed in
-            guard let self, let pane else { return }
-            guard confirmed else {
-                self.debugLog?.record(.field, "Double tap: the cube did not take it, so the window goes back")
-                pane.showDoubleTapEnabled(!isEnabled)
-                self.putDoubleTapBack(on: pane)
-                self.showRefusedByTheCube("double-tap")
-                return
-            }
-            var fields = Self.doubleTapFields(held)
-            fields["enabled"] = .flag(isEnabled)
-            guard self.recordDoubleTap(fields, describing: "\(held.described), gesture \(isEnabled ? "on" : "off")")
-            else {
-                // **The cube took it and the table did not**, which is the one case where putting the control back is
-                // a lie about the hardware and leaving it is a lie about the tables. The window follows the table,
-                // that being what the next open of it will read, and the alert says the cube is out of step.
-                pane.showDoubleTapEnabled(!isEnabled)
-                self.putDoubleTapBack(on: pane)
-                self.showNotRecorded("double tap being turned \(isEnabled ? "on" : "off")")
-                return
-            }
-            pane.showDoubleTapEnabled(isEnabled)
-            pane.showDoubleTapValues(held)
-        }
-    }
 
-    /// Sends the four registers after somebody has stopped moving them, and records what the cube took.
-    ///
-    /// **What is sent still runs through `asSent`**, so a value changed while the gesture is off does not turn it
-    /// back on behind the box: `window` stays at zero until the box says otherwise, and the number typed into the
-    /// Window field is kept for when it does.
-    ///
-    /// **What is stored is `held`, never `wanted`.** They differ by exactly the zeroed `window`, and storing that
-    /// would lose the number turning the gesture back on has to put back -- so the table keeps the real four and the
-    /// suppression lives only in what goes on the wire. The archive drew the same line, carrying the real parameters
-    /// on `onDoubleTapSettingsPersist` while `onDoubleTapParametersChange` carried the zeroed ones.
-    ///
-    /// **The sequence is `DeviceSettingWrite`'s**, which is where the ordering the first design rule turns on is
-    /// written once: the cube goes first, the table is written only once the cube has taken the command, and any
-    /// failure puts the row back and says so. Recording beside the send rather than after it is where the archive
-    /// went wrong, so a refused command still moved its row.
-    ///
-    /// **Its sibling `applyDoubleTapEnabled` deliberately does not go through it.** Turning the gesture off is a
-    /// different act from setting a register and its rows say so, which `59-double-tap` depends on to tell a dead
-    /// arrow that sent nothing from a box that sent something.
-    private func applyDoubleTapValues(on pane: DevicePane) {
-        let held = pane.doubleTapParameters
-        let wanted = DoubleTapRules.asSent(held, isEnabled: pane.values.isDoubleTapEnabled)
-        DeviceSettingWrite.send(
-            DoubleTapRules.command(for: wanted),
-            "Double tap",
-            value: wanted.described,
-            through: radio.map { radio in { payload, reported in radio.send(payload, reported) } },
-            // Only when the gesture is off, and worth its own row: the two lists differ and nothing else says why.
-            noting: wanted == held
-                ? nil
-                : "Double tap: the gesture is off, so Window goes as 0 and \(held.window) is what gets stored",
-            // **`held`, never `wanted`.** They differ by exactly the zeroed `window`, and storing that would lose
-            // the number turning the gesture back on has to put back.
-            recording: { [weak self] in
-                guard let self else { return false }
-                return self.recordDoubleTap(Self.doubleTapFields(held), describing: held.described)
-            },
-            debugLog: debugLog
-        ) { [weak self, weak pane] outcome in
-            guard let self, let pane else { return }
-            if outcome.putsTheRowBack { self.putDoubleTapBack(on: pane) }
-            if let notice = DeviceSettingWrite.notice(for: outcome, setting: "the double-tap values") {
-                self.dialogues.tell(notice)
-                return
-            }
-            // Nothing moves on screen: the fields already hold these numbers, and `showDoubleTapValues` leaves a
-            // field alone when it does. What this call is for is `values`, which the fields have been ahead of since
-            // the first arrow moved.
-            pane.showDoubleTapValues(held)
-        }
-    }
 
     /// Sends one LED setting after its arrows have stopped, and records what the cube took.
     ///
@@ -888,54 +760,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         return stored
     }
 
-    /// The four registers as fields of the `double_tap_settings` row.
-    ///
-    /// **In one place** because two paths write them -- a value settling, and the Disable box carrying a value whose
-    /// own write it just cancelled -- and four field names spelled out twice is four chances to spell one of them
-    /// differently. They are the names `database/011_setting.sql` seeds.
-    private static func doubleTapFields(_ parameters: DoubleTapParameters) -> [String: SettingStore.Value] {
-        [
-            "clickThreshold": .number(Int(parameters.threshold)),
-            "limit": .number(Int(parameters.limit)),
-            "latency": .number(Int(parameters.latency)),
-            "window": .number(Int(parameters.window)),
-        ]
-    }
 
-    /// Writes the row and says whether the table took it, with a row either way.
-    ///
-    /// **One update rather than one per field** (`SettingStore.write(_:fields:)`): the registers go to the cube as a
-    /// single command and mean nothing apart, so a row holding three new numbers and one old one would describe a
-    /// cube that has never existed.
-    private func recordDoubleTap(_ fields: [String: SettingStore.Value], describing what: String) -> Bool {
-        guard let settings else {
-            debugLog?.record(.field, "Double tap: there is no settings store, so \(what) cannot be recorded")
-            return false
-        }
-        let stored = settings.write("double_tap_settings", fields: fields)
-        debugLog?.record(
-            .field,
-            stored ? "Double tap: the table now holds \(what)" : "Double tap: the table REFUSED \(what)"
-        )
-        return stored
-    }
 
-    /// Puts the four fields back to whatever the table holds.
-    ///
-    /// **Read at the point of use**, as the first rule in `CLAUDE.md` has it, and here that matters rather than being
-    /// a formality: this runs when a write has just failed, so what the table holds is precisely the question, and
-    /// showing a copy taken before the attempt would be showing the value that did not land.
-    private func putDoubleTapBack(on pane: DevicePane) {
-        let stored = deviceSettings()
-        pane.showDoubleTapValues(
-            DoubleTapParameters(
-                threshold: UInt8(clamping: stored.doubleTapThreshold),
-                limit: UInt8(clamping: stored.doubleTapLimit),
-                latency: UInt8(clamping: stored.doubleTapLatency),
-                window: UInt8(clamping: stored.doubleTapWindow)
-            )
-        )
-    }
 
     /// What a cube that would not take the command says.
     ///
@@ -1383,13 +1209,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             autoPauseMinutes: settings.integer("auto_pause_minutes", field: "minutes") ?? seeded.autoPauseMinutes,
             ledBrightnessPercent: settings.integer("led_settings", field: "brightness")
                 ?? seeded.ledBrightnessPercent,
-            ledBlinkSeconds: settings.integer("led_settings", field: "blink_interval") ?? seeded.ledBlinkSeconds,
-            isDoubleTapEnabled: settings.flag("double_tap_settings", field: "enabled") ?? seeded.isDoubleTapEnabled,
-            doubleTapThreshold: settings.integer("double_tap_settings", field: "clickThreshold")
-                ?? seeded.doubleTapThreshold,
-            doubleTapLimit: settings.integer("double_tap_settings", field: "limit") ?? seeded.doubleTapLimit,
-            doubleTapLatency: settings.integer("double_tap_settings", field: "latency") ?? seeded.doubleTapLatency,
-            doubleTapWindow: settings.integer("double_tap_settings", field: "window") ?? seeded.doubleTapWindow
+            ledBlinkSeconds: settings.integer("led_settings", field: "blink_interval") ?? seeded.ledBlinkSeconds
         )
     }
 

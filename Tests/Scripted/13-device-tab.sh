@@ -15,7 +15,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=45
+EXPECTED_CHECKS=40
 start "the Device tab's two sections, and the folds that need no cube"
 
 open_settings
@@ -72,13 +72,13 @@ check "so nothing is connected either" "0" "$(setting connection connected)"
 # saying why about: no command carries either, so both could have been left live, and neither is. A section about a
 # cube answers the question about a cube the same way in every row of it. See `DevicePane.drawSettingsGate`.
 
-# **Both inner folds are opened first.** LED and Double tap are built folded, so their rows are not in the tree at
-# all until the heading is pressed, and a control that is absent is not a control that is dead. Opened once around
-# the whole loop rather than per row, and put back below, so the section is left as the fold checks further down
-# expect to find it.
+# **The inner fold is opened first.** LED is built folded, so its rows are not in the tree at all until the heading
+# is pressed, and a control that is absent is not a control that is dead. Opened once around the whole loop rather
+# than per row, and put back below, so the section is left as the fold checks further down expect to find it.
+#
+# **Double tap was the second inner fold and is gone** (2026-09-11): the gesture is off for good, nothing on this
+# tab sets it, and `DoubleTapRules.alwaysSent` is what the app sends. There is no control left to gate.
 press device-led-heading-button
-sleep 0.5
-press device-double-tap-heading-button
 sleep 0.5
 
 for control in \
@@ -86,12 +86,7 @@ for control in \
     device-battery-warning \
     device-auto-pause \
     device-led-brightness \
-    device-led-blink \
-    device-double-tap-disable \
-    device-double-tap-threshold \
-    device-double-tap-limit \
-    device-double-tap-latency \
-    device-double-tap-window
+    device-led-blink
 do
     check "$control is dead with no cube connected" "1" \
         "$(tree | grep -cE "id=$control[[:space:]].*disabled" || true)"
@@ -99,9 +94,7 @@ done
 
 press device-led-heading-button
 sleep 0.5
-press device-double-tap-heading-button
-sleep 0.5
-check "and both inner folds are back as they were built" "0" "$(on_tab device-led-brightness)"
+check "and the inner fold is back as it was built" "0" "$(on_tab device-led-brightness)"
 
 # The arrows go with the field they belong to: a dead box above two live arrows is a control that is half off.
 check "and the Auto-pause arrows are dead with it" "2" \

@@ -59,12 +59,6 @@ final class DevicePane: NSView {
         static let led = "device-led"
         static let ledBrightness = "device-led-brightness"
         static let ledBlink = "device-led-blink"
-        static let doubleTap = "device-double-tap"
-        static let doubleTapDisable = "device-double-tap-disable"
-        static let doubleTapThreshold = "device-double-tap-threshold"
-        static let doubleTapLimit = "device-double-tap-limit"
-        static let doubleTapLatency = "device-double-tap-latency"
-        static let doubleTapWindow = "device-double-tap-window"
 
         static let scan = "device-scan"
         static let scanAll = "device-scan-all"
@@ -139,11 +133,6 @@ final class DevicePane: NSView {
         var autoPauseMinutes: Int
         var ledBrightnessPercent: Int
         var ledBlinkSeconds: Int
-        var isDoubleTapEnabled: Bool
-        var doubleTapThreshold: Int
-        var doubleTapLimit: Int
-        var doubleTapLatency: Int
-        var doubleTapWindow: Int
 
         /// What a database missing every one of these rows would give, and the only guess made anywhere on this tab.
         /// The numbers are `database/011_setting.sql`'s own seeds, so a pane nobody has read into shows what a fresh
@@ -167,12 +156,7 @@ final class DevicePane: NSView {
             // and nothing fails when they do.
             autoPauseMinutes: DeviceSettingsSync.Stored.seeded.autoPauseMinutes,
             ledBrightnessPercent: DeviceSettingsSync.Stored.seeded.ledBrightnessPercent,
-            ledBlinkSeconds: DeviceSettingsSync.Stored.seeded.ledBlinkSeconds,
-            isDoubleTapEnabled: DeviceSettingsSync.Stored.seeded.isDoubleTapEnabled,
-            doubleTapThreshold: Int(DeviceSettingsSync.Stored.seeded.doubleTap.threshold),
-            doubleTapLimit: Int(DeviceSettingsSync.Stored.seeded.doubleTap.limit),
-            doubleTapLatency: Int(DeviceSettingsSync.Stored.seeded.doubleTap.latency),
-            doubleTapWindow: Int(DeviceSettingsSync.Stored.seeded.doubleTap.window)
+            ledBlinkSeconds: DeviceSettingsSync.Stored.seeded.ledBlinkSeconds
         )
     }
 
@@ -214,8 +198,6 @@ final class DevicePane: NSView {
     private var autoPauseField: SteppedNumberField!
     private var ledBrightnessField: SteppedNumberField!
     private var ledBlinkField: SteppedNumberField!
-    private var doubleTapDisableBox: NSButton!
-    private var doubleTapValues: [String: SteppedNumberField] = [:]
 
     /// The scan's own controls and its results, held because they are redrawn as the radio answers rather than
     /// built once. **The list itself is not held here**: what has been found is the scanner's, and this draws
@@ -250,7 +232,6 @@ final class DevicePane: NSView {
 
     private(set) var moreRow: DisclosureRow!
     private(set) var ledRow: DisclosureRow!
-    private(set) var doubleTapRow: DisclosureRow!
 
     /// The tab's two sections, each folding away behind its own triangle. Exposed so a test can measure one without
     /// a window on screen.
@@ -270,7 +251,6 @@ final class DevicePane: NSView {
     ///
     /// **Every tick of a held arrow fires this**, which is the whole reason the window debounces rather than sending
     /// from here: a hold repeats every 0.1s (`StepperHoldRules`) and each of those would be a command on the wire.
-    var onDoubleTapValueChanged: (() -> Void)?
 
     /// One of the two LED fields moved. What it moved to is on the pane; this only says that it did.
     ///
@@ -329,7 +309,6 @@ final class DevicePane: NSView {
     /// **The box reports what it now shows, and does not decide anything.** Whether the cube accepts it is the
     /// window's to find out and the cube's to answer, and a refusal puts the box back (`showDoubleTapEnabled`) --
     /// which is `CLAUDE.md`'s rule about a control never being left showing something the table does not hold.
-    var onDoubleTapEnabledChanged: ((Bool) -> Void)?
 
     init() {
         super.init(frame: .zero)
@@ -414,11 +393,6 @@ final class DevicePane: NSView {
         ledBrightnessField.value = values.ledBrightnessPercent
         ledBlinkField.value = values.ledBlinkSeconds
         drawSettingsGate()
-        drawDoubleTap(isEnabled: values.isDoubleTapEnabled)
-        doubleTapValues[Identifier.doubleTapThreshold]?.value = values.doubleTapThreshold
-        doubleTapValues[Identifier.doubleTapLimit]?.value = values.doubleTapLimit
-        doubleTapValues[Identifier.doubleTapLatency]?.value = values.doubleTapLatency
-        doubleTapValues[Identifier.doubleTapWindow]?.value = values.doubleTapWindow
     }
 
     /// Puts the whole Settings section out of use while no cube is connected, and gives it back the moment one
@@ -449,7 +423,7 @@ final class DevicePane: NSView {
         let live = values.isCubeConnected
         let help = live ? nil : Self.notConnectedHelp
 
-        for box in [pauseOnLockBox, doubleTapDisableBox] {
+        for box in [pauseOnLockBox] {
             box?.isEnabled = live
             box?.toolTip = help
         }
@@ -459,27 +433,6 @@ final class DevicePane: NSView {
         }
     }
 
-    /// The four registers as this window currently holds them.
-    /// The four registers as this window currently holds them.
-    ///
-    /// **From the window rather than from the table**, which is the licence `CLAUDE.md` grants an open Settings
-    /// window and the reason it grants it: these are what somebody is looking at, so they are what a command built
-    /// now should carry. The `enabled` flag is deliberately not folded in -- what is sent when the gesture is off is
-    /// `DoubleTapRules.asSent`'s to decide, and it is one decision in one place.
-    /// **Read off the fields, not off `values`**, which is the difference between what is on screen and what was
-    /// last shown. A held arrow moves the field several times a second and nothing writes those back to `values`
-    /// until one lands, so a command built from `values` would carry the number the row opened with.
-    var doubleTapParameters: DoubleTapParameters {
-        func register(_ identifier: String, or fallback: Int) -> UInt8 {
-            UInt8(clamping: doubleTapValues[identifier]?.value ?? fallback)
-        }
-        return DoubleTapParameters(
-            threshold: register(Identifier.doubleTapThreshold, or: values.doubleTapThreshold),
-            limit: register(Identifier.doubleTapLimit, or: values.doubleTapLimit),
-            latency: register(Identifier.doubleTapLatency, or: values.doubleTapLatency),
-            window: register(Identifier.doubleTapWindow, or: values.doubleTapWindow)
-        )
-    }
 
     /// The two LED values as this window currently holds them.
     ///
@@ -574,71 +527,6 @@ final class DevicePane: NSView {
         put(minutes, in: autoPauseField)
     }
 
-    /// Puts the Disable box where the answer says it should be, without telling anybody it moved.
-    ///
-    /// **Set directly rather than through `show`**, because this is the one path that must not re-read the whole tab:
-    /// a refused write has to put this one control back while every other row goes on showing what it was showing.
-    /// `state` is assigned rather than the action fired, so a correction cannot be mistaken for somebody ticking it.
-    func showDoubleTapEnabled(_ isEnabled: Bool) {
-        values.isDoubleTapEnabled = isEnabled
-        drawDoubleTap(isEnabled: isEnabled)
-    }
-
-    /// The Disable box and the four registers under it, drawn together.
-    ///
-    /// **Ticking Disable puts the four fields out of use**, because with the gesture off there is nothing for them to
-    /// describe: `DoubleTapRules.asSent` sends `Window` as 0 whatever the field holds, so a live-looking field is a
-    /// control that would take a number and then not send it. A dead one says why nothing happens, which is the same
-    /// reasoning the Faces tab greys its category rows with while a click would be refused.
-    ///
-    /// **The values stay in the fields rather than being cleared.** They are what the gesture goes back to when
-    /// somebody unticks the box, and they are still what the table holds -- emptying them would lose a setting to a
-    /// display decision.
-    ///
-    /// **One method for both, called from all three paths** -- the tab being drawn, a refused write being put back,
-    /// and somebody ticking the box -- so the fields cannot come to disagree with the box beside them. That is the
-    /// same fault in miniature that the first rule in `CLAUDE.md` is about: two controls answering one question.
-    private func drawDoubleTap(isEnabled: Bool) {
-        doubleTapDisableBox.state = isEnabled ? .off : .on
-        // **Two gates, and a register is live only with both open**: the gesture has to be wanted, and there has to
-        // be a cube to tell about it. Folded in here rather than left to `drawSettingsGate` because this method is
-        // also reached from the box being ticked and from a refused write being put back, neither of which has any
-        // business re-enabling a field the connection has closed.
-        let live = isEnabled && values.isCubeConnected
-        for field in doubleTapValues.values {
-            field.isEnabled = live
-            // **Only the connection gets a tooltip.** A register dead because the gesture is off is explained by the
-            // ticked box directly above it; one dead because there is no cube has nothing on screen saying so.
-            field.disabledHelp = values.isCubeConnected ? nil : Self.notConnectedHelp
-        }
-    }
-
-    /// Puts the four registers where the table says they should be, without telling anybody they moved.
-    ///
-    /// **The mirror of `showDoubleTapEnabled`, and for the same reason**: a refused write has to correct these four
-    /// rows while every other row on the tab goes on showing what it was showing, so this is the one path that must
-    /// not re-read the whole tab.
-    ///
-    /// **Called on the way out of a write that took, as well as one that did not**, so `values` never drifts from
-    /// what the fields hold -- and the guard below is what makes that safe. `SteppedNumberField.value` does not fire
-    /// `onChange`, so no correction can be mistaken for somebody moving an arrow, but assigning it does replace the
-    /// text in the field: doing that to a field already showing the number would take it out from under whoever is
-    /// typing, which `CLAUDE.md` names as its own fault. A field already on the value is left alone.
-    func showDoubleTapValues(_ parameters: DoubleTapParameters) {
-        values.doubleTapThreshold = Int(parameters.threshold)
-        values.doubleTapLimit = Int(parameters.limit)
-        values.doubleTapLatency = Int(parameters.latency)
-        values.doubleTapWindow = Int(parameters.window)
-        put(Int(parameters.threshold), in: Identifier.doubleTapThreshold)
-        put(Int(parameters.limit), in: Identifier.doubleTapLimit)
-        put(Int(parameters.latency), in: Identifier.doubleTapLatency)
-        put(Int(parameters.window), in: Identifier.doubleTapWindow)
-    }
-
-    private func put(_ value: Int, in identifier: String) {
-        put(value, in: doubleTapValues[identifier])
-    }
-
     /// **A field already on the value is left alone**, which is what keeps a correction from taking the text out
     /// from under whoever is typing: `SteppedNumberField.value` replaces the box's contents whatever it held, and
     /// rebuilding a row to show a number it is already showing is a fault `CLAUDE.md` names on its own.
@@ -647,9 +535,6 @@ final class DevicePane: NSView {
         field.value = value
     }
 
-    private func doubleTapValueChanged() {
-        onDoubleTapValueChanged?()
-    }
 
     @objc private func pauseOnLockChanged() {
         // **`values` moves with the box, here rather than on the way back.** Nothing else on this tab reads it
@@ -660,17 +545,6 @@ final class DevicePane: NSView {
         onPauseOnLockChanged?(pausesOnLock)
     }
 
-    @objc private func doubleTapDisableChanged() {
-        // The box says "Disable", so ticked is the gesture being unwanted. Reported the right way round here, once,
-        // rather than at every reader of it.
-        let isEnabled = doubleTapDisableBox.state == .off
-        values.isDoubleTapEnabled = isEnabled
-        // The four registers go dead with the box, at the moment it is ticked rather than when the write comes back:
-        // the fields are the thing somebody is looking at, and a field that stays live until a round trip finishes is
-        // a field that accepts a number nobody will send. A refused write puts both back through `showDoubleTapEnabled`.
-        drawDoubleTap(isEnabled: isEnabled)
-        onDoubleTapEnabledChanged?(isEnabled)
-    }
 
     /// Flashes the Battery row while the cube is flat, in step with the menu bar.
     ///
@@ -869,39 +743,6 @@ final class DevicePane: NSView {
         ledRow = DisclosureRow(title: "LED", identifier: Identifier.led, isExpanded: false, content: led)
         ledRow.onToggle = { [weak self] expanded in self?.onToggle?(Identifier.led, expanded) }
 
-        // **"Disable", not "Enable".** The archive's wording, and the right way round: the setting is on by default,
-        // so the box somebody ticks is the one that turns the gesture off.
-        doubleTapDisableBox = NSButton(
-            checkboxWithTitle: "Disable", target: self, action: #selector(doubleTapDisableChanged)
-        )
-        doubleTapDisableBox.translatesAutoresizingMaskIntoConstraints = false
-        doubleTapDisableBox.setAccessibilityIdentifier(Identifier.doubleTapDisable)
-
-        let doubleTap = stack()
-        var doubleTapRows: [NSView] = [leading(doubleTapDisableBox)]
-        // **0 to 255, because that is the register.** Each of the four is one `UInt8` written straight to the
-        // accelerometer (`0x16`), so the range is the hardware's and not a judgement about useful values. `Window` at
-        // 0 is the one meaningful edge, being how the gesture is turned off (`DoubleTapRules.asSent`) -- somebody can
-        // reach it here as well as through the box above, and it means the same thing either way.
-        //
-        // **No suffix**, unlike Auto-pause's "min": these are register values and there is no unit to name.
-        for (title, identifier, current) in [
-            ("Threshold", Identifier.doubleTapThreshold, values.doubleTapThreshold),
-            ("Limit", Identifier.doubleTapLimit, values.doubleTapLimit),
-            ("Latency", Identifier.doubleTapLatency, values.doubleTapLatency),
-            ("Window", Identifier.doubleTapWindow, values.doubleTapWindow),
-        ] {
-            let field = SteppedNumberField(value: current, range: 0...255, suffix: "", identifier: identifier)
-            field.onChange = { [weak self] _ in self?.doubleTapValueChanged() }
-            doubleTapValues[identifier] = field
-            doubleTapRows.append(SettingsRow.make(title, field))
-        }
-        add(doubleTapRows, to: doubleTap)
-        doubleTapRow = DisclosureRow(
-            title: "Double tap", identifier: Identifier.doubleTap, isExpanded: false, content: doubleTap
-        )
-        doubleTapRow.onToggle = { [weak self] expanded in self?.onToggle?(Identifier.doubleTap, expanded) }
-
         return [
             SettingsRow.make("Pause the device when locking it", pauseOnLockBox),
             SettingsRow.make("Battery warning at", batteryWarningField),
@@ -909,7 +750,6 @@ final class DevicePane: NSView {
                 "Auto-pause (0 disable, max \(DeviceCommandRules.autoPauseRange.upperBound)m)", autoPauseField
             ),
             ledRow,
-            doubleTapRow,
         ]
     }
 

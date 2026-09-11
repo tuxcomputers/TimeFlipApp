@@ -18,17 +18,6 @@ package struct DoubleTapParameters: Equatable {
     /// gesture (`docs/timeflip2-firmware-observations.md` finding 11), which is worth knowing because no command disables it.
     package let window: UInt8
 
-    /// The same registers with the second knock given no time to arrive in, which is the whole of how this app turns
-    /// the gesture off.
-    ///
-    /// **The other three are left exactly as they are, deliberately.** They are what somebody dialled in, and turning
-    /// the gesture back on has to put back what was there rather than a guess at it -- so what is stored keeps the
-    /// real `window` and only what is *sent* is zeroed. Nothing reads this back out of the cube to recover it either:
-    /// a disabled cube reports `window 0` because that is genuinely what its register holds.
-    var withTheGestureOff: DoubleTapParameters {
-        DoubleTapParameters(threshold: threshold, limit: limit, latency: latency, window: 0)
-    }
-
     /// The four registers named and listed, which is how every row about them reads.
     ///
     /// **The register names rather than the bytes**, so a row says what a number is for without anybody holding the
@@ -102,18 +91,26 @@ package enum DoubleTapRules {
         ])
     }
 
-    /// What is actually sent, which is not always what is stored.
+    /// The only registers this app ever sends, and it sends them on every connection.
     ///
-    /// **Turning the gesture off is faked, because the hardware has no switch for it.** The vendor spec defines no
-    /// command that disables double tap, and the archive measured the same on a real cube: "no BLE command disables
-    /// it. The only lever is accelerometer sensitivity" (`docs/timeflip2-firmware-observations.md` finding 11). So off is `window`
-    /// zero, and it is suppression rather than an off switch -- a knock hard enough is still a knock.
+    /// **The gesture is off for good** (owner's decision, 2026-09-11), so there is nothing to read out of a table
+    /// and nothing on the Device tab to set. `double_tap_settings` is still seeded and is no longer read.
     ///
-    /// The archive's `effectiveDoubleTapParameters`, massaged: same trick and same reason, and a free function of two
-    /// arguments rather than a property reading two pieces of published state.
-    package static func asSent(_ parameters: DoubleTapParameters, isEnabled: Bool) -> DoubleTapParameters {
-        isEnabled ? parameters : parameters.withTheGestureOff
-    }
+    /// **Off is `window` zero, and it is suppression rather than an off switch.** The vendor spec defines no
+    /// command that disables double tap and the archive measured the same on a real cube: "no BLE command
+    /// disables it. The only lever is accelerometer sensitivity" (finding 11,
+    /// `docs/timeflip2-firmware-observations.md`). A knock hard enough is still a knock; what this removes is
+    /// the ordinary double tap.
+    ///
+    /// **Why it is worth removing at all**, which is the reason behind the decision rather than a preference: a
+    /// double tap stops the cube's tracking *in firmware with no command involved*. It produces no face change,
+    /// writes no command result, and `systemState` does not carry it, so nothing can tell the app it happened.
+    /// The app finds out on its next history fetch and not before. Off, that state cannot arise.
+    ///
+    /// The other three are the factory values the archive captured from a real device's registers
+    /// (`Tests/Bench/device_register_snapshot.json`), kept because they are what a cube ships with and there is
+    /// no longer anybody to dial them in.
+    package static let alwaysSent = DoubleTapParameters(threshold: 90, limit: 20, latency: 50, window: 0)
 
     private static func parameters(from data: Data?, leadingWith command: UInt8) -> DoubleTapParameters? {
         guard let data, data.count >= 9, data[data.startIndex] == command else { return nil }

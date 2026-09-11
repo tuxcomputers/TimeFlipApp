@@ -75,19 +75,13 @@ final class DevicePaneTests: XCTestCase {
     /// no cube is connected, so a pane built from the seed alone has four dead registers however the box is set, and
     /// a test of the gesture would be reading the connection instead. The two gates are told apart by
     /// `testEverySettingsControlIsDeadWhileAPairedCubeIsOutOfReach` and the tests around it.
+    /// A cube paired and answering. **Named `gestureOn` while the Device tab had a double-tap control**, which it
+    /// no longer does; the name survives because the tests that use it are about the settings gate rather than
+    /// about the gesture, and renaming them was not part of removing a control.
     private var gestureOn: DevicePane.Values {
         var values = DevicePane.Values.seeded
         values.isCubePaired = true
         values.isCubeConnected = true
-        values.isDoubleTapEnabled = true
-        return values
-    }
-
-    /// The tab with a cube connected and the gesture off: the seed's answer to double tap, with the connection the
-    /// seed does not have.
-    private var gestureOff: DevicePane.Values {
-        var values = gestureOn
-        values.isDoubleTapEnabled = false
         return values
     }
 
@@ -335,7 +329,6 @@ final class DevicePaneTests: XCTestCase {
             DevicePane.Identifier.batteryWarning,
             DevicePane.Identifier.autoPause,
             DevicePane.Identifier.led,
-            DevicePane.Identifier.doubleTap,
             DevicePane.Identifier.scan,
             DevicePane.Identifier.scanAll,
         ] {
@@ -513,11 +506,6 @@ final class DevicePaneTests: XCTestCase {
             DevicePane.Identifier.autoPause,
             DevicePane.Identifier.ledBrightness,
             DevicePane.Identifier.ledBlink,
-            DevicePane.Identifier.doubleTapDisable,
-            DevicePane.Identifier.doubleTapThreshold,
-            DevicePane.Identifier.doubleTapLimit,
-            DevicePane.Identifier.doubleTapLatency,
-            DevicePane.Identifier.doubleTapWindow,
         ] {
             let control = try XCTUnwrap(view(identifier, in: pane), identifier)
             // The row is the ancestor that `settled` sized, which is the first plain `NSView` above the control.
@@ -544,11 +532,11 @@ final class DevicePaneTests: XCTestCase {
         pane.frame = NSRect(x: 0, y: 0, width: 520, height: 1200)
         pane.layoutSubtreeIfNeeded()
 
+        // **The LED pair since 2026-09-11**, the double-tap group this used to measure having gone with its
+        // control. Two rows is one gap, which is the whole of what a pitch is.
         let centres = try [
-            DevicePane.Identifier.doubleTapThreshold,
-            DevicePane.Identifier.doubleTapLimit,
-            DevicePane.Identifier.doubleTapLatency,
-            DevicePane.Identifier.doubleTapWindow,
+            DevicePane.Identifier.ledBrightness,
+            DevicePane.Identifier.ledBlink,
         ].map { identifier -> CGFloat in
             let control = try XCTUnwrap(view(identifier, in: pane), identifier)
             return control.convert(control.bounds, to: pane).midY
@@ -573,194 +561,17 @@ final class DevicePaneTests: XCTestCase {
         XCTAssertEqual(DevicePane.Layout.minimumRowHeight, 24)
     }
 
-    func testTheFourRegistersAreSteppedFields() throws {
-        // The same control the rest of the app uses, so an arrow steps them and a script can drive them by name.
-        // They were read-only labels until the registers could actually be sent.
-        let pane = DevicePane()
-        var values = DevicePane.Values.seeded
-        values.doubleTapThreshold = 90
-        values.doubleTapWindow = 50
-        pane.show(values)
 
-        let threshold = try XCTUnwrap(stepper(DevicePane.Identifier.doubleTapThreshold, in: pane))
-        let window = try XCTUnwrap(stepper(DevicePane.Identifier.doubleTapWindow, in: pane))
 
-        XCTAssertEqual(threshold.value, 90)
-        XCTAssertEqual(window.value, 50)
-    }
 
-    func testTheRegistersRunTheWholeByte() throws {
-        // 0 to 255 is the register, not a judgement about useful values -- and 0 in particular has to be reachable on
-        // Window, that being how the gesture is turned off.
-        let pane = DevicePane()
-        pane.show(.seeded)
-        let window = try XCTUnwrap(stepper(DevicePane.Identifier.doubleTapWindow, in: pane))
 
-        window.value = 0
-        XCTAssertEqual(window.value, 0)
-        window.value = 255
-        XCTAssertEqual(window.value, 255)
-    }
 
-    func testTheParametersComeOffTheFieldsRatherThanTheLastShownValues() throws {
-        // A held arrow moves the field several times a second and nothing writes those back to `values`, so a command
-        // built from `values` would carry the number the row opened with.
-        let pane = DevicePane()
-        var values = DevicePane.Values.seeded
-        values.doubleTapLatency = 50
-        pane.show(values)
-        let latency = try XCTUnwrap(stepper(DevicePane.Identifier.doubleTapLatency, in: pane))
 
-        latency.value = 77
 
-        XCTAssertEqual(pane.doubleTapParameters.latency, 77)
-    }
 
-    func testMovingARegisterSaysSo() throws {
-        // The pane reports that a value moved and nothing else: when to act on it is the window's, which debounces.
-        let pane = DevicePane()
-        pane.show(.seeded)
-        var changes = 0
-        pane.onDoubleTapValueChanged = { changes += 1 }
-        let limit = try XCTUnwrap(stepper(DevicePane.Identifier.doubleTapLimit, in: pane))
 
-        limit.onChange?(21)
 
-        XCTAssertEqual(changes, 1)
-    }
 
-    func testTheBoxReportsWhichWayRoundItIs() throws {
-        // It says "Disable", so ticked is the gesture being unwanted. Reported the right way round once, here, rather
-        // than at every reader of it.
-        let pane = DevicePane()
-        pane.show(gestureOn)
-        var reported: [Bool] = []
-        pane.onDoubleTapEnabledChanged = { reported.append($0) }
-        let box = try XCTUnwrap(view(DevicePane.Identifier.doubleTapDisable, in: pane) as? NSButton)
-
-        // `performClick` toggles the box and then fires the action, so the state is not set here: doing both would
-        // report the value it had on the way past rather than the one it landed on.
-        box.performClick(nil)
-        box.performClick(nil)
-
-        XCTAssertEqual(box.state, .off, "back where it started after two clicks")
-        XCTAssertEqual(reported, [false, true], "ticked means off, unticked means on")
-    }
-
-    func testTickingDisableTakesTheFourRegistersOutOfUse() throws {
-        // With the gesture off there is nothing for the four to describe: `DoubleTapRules.asSent` sends Window as 0
-        // whatever they hold, so a live field would take a number and then not send it.
-        let pane = DevicePane()
-        pane.show(gestureOn)
-        let box = try XCTUnwrap(view(DevicePane.Identifier.doubleTapDisable, in: pane) as? NSButton)
-
-        box.performClick(nil)
-
-        for identifier in [
-            DevicePane.Identifier.doubleTapThreshold,
-            DevicePane.Identifier.doubleTapLimit,
-            DevicePane.Identifier.doubleTapLatency,
-            DevicePane.Identifier.doubleTapWindow,
-        ] {
-            XCTAssertEqual(stepper(identifier, in: pane)?.isEnabled, false, identifier)
-        }
-    }
-
-    func testUntickingItGivesThemBack() throws {
-        let pane = DevicePane()
-        pane.show(gestureOn)
-        let box = try XCTUnwrap(view(DevicePane.Identifier.doubleTapDisable, in: pane) as? NSButton)
-
-        box.performClick(nil)
-        box.performClick(nil)
-
-        for identifier in [
-            DevicePane.Identifier.doubleTapThreshold,
-            DevicePane.Identifier.doubleTapLimit,
-            DevicePane.Identifier.doubleTapLatency,
-            DevicePane.Identifier.doubleTapWindow,
-        ] {
-            XCTAssertEqual(stepper(identifier, in: pane)?.isEnabled, true, identifier)
-        }
-    }
-
-    func testTheDeadFieldsKeepTheirNumbers() throws {
-        // The values are what the gesture goes back to when somebody unticks the box, and they are still what the
-        // table holds -- so emptying them would lose a setting to a display decision.
-        let pane = DevicePane()
-        var values = DevicePane.Values.seeded
-        values.doubleTapThreshold = 90
-        values.doubleTapWindow = 50
-        pane.show(values)
-        let box = try XCTUnwrap(view(DevicePane.Identifier.doubleTapDisable, in: pane) as? NSButton)
-
-        box.performClick(nil)
-
-        XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapThreshold, in: pane)?.value, 90)
-        XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapWindow, in: pane)?.value, 50)
-        XCTAssertEqual(pane.doubleTapParameters, DoubleTapParameters(threshold: 90, limit: 20, latency: 50, window: 50))
-    }
-
-    func testATabDrawnWithTheGestureOffOpensWithTheFieldsDead() throws {
-        // The other way into the same state: the box is not clicked here, the table simply says the gesture is off.
-        // Both paths go through one method, so the fields cannot come to disagree with the box beside them.
-        let pane = DevicePane()
-        var values = DevicePane.Values.seeded
-        values.isDoubleTapEnabled = false
-
-        pane.show(values)
-
-        let box = try XCTUnwrap(view(DevicePane.Identifier.doubleTapDisable, in: pane) as? NSButton)
-        XCTAssertEqual(box.state, .on)
-        XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapThreshold, in: pane)?.isEnabled, false)
-    }
-
-    func testARefusedWriteTakesTheFieldsBackWithTheBox() throws {
-        // The correction path moves both, for the same reason the click does: a box put back to ticked with four live
-        // fields under it is the two controls answering one question differently.
-        let pane = DevicePane()
-        pane.show(gestureOn)
-
-        pane.showDoubleTapEnabled(false)
-
-        XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapWindow, in: pane)?.isEnabled, false)
-
-        pane.showDoubleTapEnabled(true)
-
-        XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapWindow, in: pane)?.isEnabled, true)
-    }
-
-    func testARefusedWriteCanPutTheBoxBackWithoutSayingSo() throws {
-        // The correction path. `state` is assigned rather than the action fired, so putting the box back cannot be
-        // mistaken for somebody ticking it and start a second write.
-        let pane = DevicePane()
-        pane.show(.seeded)
-        var reported = 0
-        pane.onDoubleTapEnabledChanged = { _ in reported += 1 }
-        let box = try XCTUnwrap(view(DevicePane.Identifier.doubleTapDisable, in: pane) as? NSButton)
-
-        pane.showDoubleTapEnabled(false)
-
-        XCTAssertEqual(box.state, .on, "ticked, the gesture being off")
-        XCTAssertEqual(reported, 0, "and nobody was told, because nobody did it")
-    }
-
-    func testARefusedWriteCanPutTheFourFieldsBackWithoutSayingSo() throws {
-        // The mirror of the box's correction path. `SteppedNumberField.value` is assigned rather than the arrow
-        // pressed, so putting a field back cannot be mistaken for somebody moving it and start a second write.
-        let pane = DevicePane()
-        pane.show(.seeded)
-        var changes = 0
-        pane.onDoubleTapValueChanged = { changes += 1 }
-
-        pane.showDoubleTapValues(DoubleTapParameters(threshold: 200, limit: 45, latency: 34, window: 0))
-
-        XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapThreshold, in: pane)?.value, 200)
-        XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapLimit, in: pane)?.value, 45)
-        XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapLatency, in: pane)?.value, 34)
-        XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapWindow, in: pane)?.value, 0)
-        XCTAssertEqual(changes, 0, "and nobody was told, because nobody did it")
-    }
 
     // MARK: - the LED fields
 
@@ -996,19 +807,15 @@ final class DevicePaneTests: XCTestCase {
     /// **Listed once**, so a row added to that section and not to this list is a row nothing checks the gate on --
     /// which is exactly how Pause on lock came to be live in a section that was otherwise dead.
     ///
-    /// The four registers are in the list with the rest: their second gate is the gesture, and the live case below
-    /// is drawn from `gestureOn` so that one list means the same thing in all three tests.
+    /// **The double-tap registers are gone from this list with the control** (2026-09-11): the gesture is off for
+    /// good and nothing on this tab sets it, so there is no row left to gate.
     private func settingsControls(in pane: DevicePane) -> [(String, Bool)] {
-        let boxes = [DevicePane.Identifier.pauseOnLock, DevicePane.Identifier.doubleTapDisable]
+        let boxes = [DevicePane.Identifier.pauseOnLock]
         let fields = [
             DevicePane.Identifier.batteryWarning,
             DevicePane.Identifier.autoPause,
             DevicePane.Identifier.ledBrightness,
             DevicePane.Identifier.ledBlink,
-            DevicePane.Identifier.doubleTapThreshold,
-            DevicePane.Identifier.doubleTapLimit,
-            DevicePane.Identifier.doubleTapLatency,
-            DevicePane.Identifier.doubleTapWindow,
         ]
         return boxes.map { ($0, box($0, in: pane)?.isEnabled ?? false) }
             + fields.map { ($0, stepper($0, in: pane)?.isEnabled ?? false) }
@@ -1033,7 +840,6 @@ final class DevicePaneTests: XCTestCase {
         var values = DevicePane.Values.seeded
         values.isCubePaired = true
         values.isCubeConnected = false
-        values.isDoubleTapEnabled = true
         let pane = DevicePane()
 
         pane.show(values)
@@ -1067,9 +873,7 @@ final class DevicePaneTests: XCTestCase {
         let help = stepper(DevicePane.Identifier.autoPause, in: pane)?.disabledHelp
         XCTAssertEqual(help, "The TimeFlip is not connected, so this cannot be changed.")
         XCTAssertEqual(stepper(DevicePane.Identifier.ledBrightness, in: pane)?.disabledHelp, help)
-        XCTAssertEqual(stepper(DevicePane.Identifier.doubleTapWindow, in: pane)?.disabledHelp, help)
         XCTAssertEqual(try XCTUnwrap(box(DevicePane.Identifier.pauseOnLock, in: pane)).toolTip, help)
-        XCTAssertEqual(try XCTUnwrap(box(DevicePane.Identifier.doubleTapDisable, in: pane)).toolTip, help)
 
         pane.show(gestureOn)
 
@@ -1213,23 +1017,6 @@ final class DevicePaneTests: XCTestCase {
         XCTAssertEqual(pane.values.autoPauseMinutes, 1, "and what landed is what was recorded")
     }
 
-    func testTheCorrectedFieldsAreWhatTheNextReadOfThePaneGives() {
-        // `values` is what `doubleTapParameters` falls back to and what the next write carries, so a correction that
-        // moved the fields and left it behind would send the refused numbers again on the following change.
-        let pane = DevicePane()
-        pane.show(.seeded)
-
-        pane.showDoubleTapValues(DoubleTapParameters(threshold: 200, limit: 45, latency: 34, window: 0))
-
-        XCTAssertEqual(pane.values.doubleTapThreshold, 200)
-        XCTAssertEqual(pane.values.doubleTapLimit, 45)
-        XCTAssertEqual(pane.values.doubleTapLatency, 34)
-        XCTAssertEqual(pane.values.doubleTapWindow, 0)
-        XCTAssertEqual(
-            pane.doubleTapParameters,
-            DoubleTapParameters(threshold: 200, limit: 45, latency: 34, window: 0)
-        )
-    }
 
     func testAFieldAlreadyOnTheValueIsLeftAlone() throws {
         // This runs on the way out of a write that took, as well as one that did not, so it lands on fields already
@@ -1237,30 +1024,17 @@ final class DevicePaneTests: XCTestCase {
         // whoever is typing -- so a field already on the value is not touched.
         let pane = DevicePane()
         pane.show(.seeded)
-        let field = try XCTUnwrap(stepper(DevicePane.Identifier.doubleTapThreshold, in: pane))
+        // **Asked of the LED brightness since 2026-09-11**, the double-tap registers it used to use having gone
+        // with the control. The behaviour is `put(_:in:)`'s and is the same whichever field asks it.
+        let field = try XCTUnwrap(stepper(DevicePane.Identifier.ledBrightness, in: pane))
         let text = try XCTUnwrap(descendants(of: field).compactMap { $0 as? NSTextField }.first)
         text.stringValue = "9"
 
-        pane.showDoubleTapValues(DoubleTapParameters(threshold: 90, limit: 20, latency: 50, window: 50))
+        pane.showLEDBrightness(DevicePane.Values.seeded.ledBrightnessPercent)
 
-        XCTAssertEqual(text.stringValue, "9", "the field is already on 90, so it was not rebuilt")
+        XCTAssertEqual(text.stringValue, "9", "the field is already on that number, so it was not rebuilt")
     }
 
-    func testTheDoubleTapBoxIsTickedWhenTheGestureIsOff() throws {
-        // "Disable", not "Enable", which is the archive's wording and the right way round: the setting is on by
-        // default, so the box somebody ticks is the one that turns the gesture off. Ticked means disabled, and
-        // getting this backwards would be invisible in a screenshot.
-        var values = DevicePane.Values.seeded
-        values.isDoubleTapEnabled = false
-        let pane = DevicePane()
-
-        pane.show(values)
-
-        let box = try XCTUnwrap(view(DevicePane.Identifier.doubleTapDisable, in: pane) as? NSButton)
-        XCTAssertEqual(box.state, .on)
-        pane.show(gestureOn)
-        XCTAssertEqual(box.state, .off, "and clear again when the gesture is on")
-    }
 
     func testValuesGreyWhenNothingCanBeHeardFrom() throws {
         let pane = DevicePane()
@@ -1559,7 +1333,6 @@ final class DevicePaneTests: XCTestCase {
 
         XCTAssertFalse(pane.moreRow.isExpanded)
         XCTAssertFalse(pane.ledRow.isExpanded)
-        XCTAssertFalse(pane.doubleTapRow.isExpanded)
     }
 
     func testFoldingTakesTheSpaceBackRatherThanLeavingItBehind() {

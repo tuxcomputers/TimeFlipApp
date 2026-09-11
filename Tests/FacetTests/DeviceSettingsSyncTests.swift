@@ -31,13 +31,9 @@ final class DeviceSettingsSyncTests {
         #expect(settings.integer("auto_pause_minutes", field: "minutes") == seeded.autoPauseMinutes)
         #expect(settings.integer("led_settings", field: "brightness") == seeded.ledBrightnessPercent)
         #expect(settings.integer("led_settings", field: "blink_interval") == seeded.ledBlinkSeconds)
-        #expect(settings.flag("double_tap_settings", field: "enabled") == seeded.isDoubleTapEnabled)
-        #expect(
-            settings.integer("double_tap_settings", field: "clickThreshold") == Int(seeded.doubleTap.threshold)
-        )
-        #expect(settings.integer("double_tap_settings", field: "limit") == Int(seeded.doubleTap.limit))
-        #expect(settings.integer("double_tap_settings", field: "latency") == Int(seeded.doubleTap.latency))
-        #expect(settings.integer("double_tap_settings", field: "window") == Int(seeded.doubleTap.window))
+        // **Double tap is not here and that is not an omission.** The gesture is off for good, so nothing reads
+        // `double_tap_settings` and there is no stored value left to keep in step with the DDL.
+        // `DoubleTapRulesTests` pins what is sent instead.
     }
 
     /// The App tab's four, for the same reason and against the same database.
@@ -77,9 +73,7 @@ final class DeviceSettingsSyncTests {
     private var held = DeviceSettingsSync.Stored(
         autoPauseMinutes: 15,
         ledBrightnessPercent: 60,
-        ledBlinkSeconds: 10,
-        doubleTap: DoubleTapParameters(threshold: 90, limit: 20, latency: 50, window: 50),
-        isDoubleTapEnabled: true
+        ledBlinkSeconds: 10
     )
     private var moment = Date(timeIntervalSince1970: 1_800_000_000)
 
@@ -190,11 +184,10 @@ final class DeviceSettingsSyncTests {
         #expect(wire.commands.last == 0x16)
     }
 
-    @Test func testRegistersAreComparedAgainstWhatShouldBeOnTheCubeRatherThanWhatIsStored() {
-        // **The disable is faked by sending `window` 0**, the hardware having no switch for the gesture. So a cube
-        // with the gesture off should be reporting the zeroed form, and comparing against the stored form would send
-        // `0x16` on every single connection.
-        held.isDoubleTapEnabled = false
+    @Test func testRegistersAreComparedAgainstWhatIsAlwaysSentRatherThanAnythingStored() {
+        // **There is nothing stored to compare against any more.** The gesture is off for good, so the cube should
+        // be reporting `DoubleTapRules.alwaysSent` and a cube that already is gets told nothing. Comparing against
+        // anything else would send `0x16` on every single connection.
         let wire = Wire()
         let sync = sync(on: wire)
         sync.linkSettled()

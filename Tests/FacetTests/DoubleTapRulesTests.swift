@@ -75,25 +75,20 @@ final class DoubleTapRulesTests: XCTestCase {
         )
     }
 
-    func testTurningTheGestureOffClosesTheWindowAndNothingElse() {
-        // **The other three are what somebody dialled in**, and turning it back on has to put those back rather than
-        // a guess at them -- so only `window` moves, and only in what is sent.
-        let real = DoubleTapParameters(threshold: 90, limit: 20, latency: 50, window: 50)
-
-        let off = DoubleTapRules.asSent(real, isEnabled: false)
-
-        XCTAssertEqual(off, DoubleTapParameters(threshold: 90, limit: 20, latency: 50, window: 0))
-        XCTAssertEqual(DoubleTapRules.asSent(real, isEnabled: true), real, "on sends exactly what is held")
+    func testTheOnlyRegistersThisAppEverSendsCloseTheWindow() {
+        // **`window` 0 is the whole of how the gesture is off**, the hardware having no switch for it: the vendor
+        // spec defines no command that disables double tap and the archive measured the same on a real cube
+        // (finding 11). A knock hard enough is still a knock; what this removes is the ordinary double tap.
+        XCTAssertEqual(DoubleTapRules.alwaysSent.window, 0)
     }
 
-    func testTheStoredWindowIsNotTheOneThatWasZeroed() {
-        // The trick is in what is *sent*. A caller that zeroed what it holds would have nothing to turn back on with,
-        // and the next enable would send window 0 and appear to do nothing.
-        let held = DoubleTapParameters(threshold: 90, limit: 20, latency: 50, window: 50)
-
-        _ = DoubleTapRules.asSent(held, isEnabled: false)
-
-        XCTAssertEqual(held.window, 50)
+    func testTheOtherThreeAreTheFactoryValues() {
+        // Captured from a real device's registers by the archive (`Tests/Bench/device_register_snapshot.json`).
+        // They are kept because they are what a cube ships with and there is nobody left to dial them in: the
+        // control came off the Device tab on 2026-09-11 and nothing reads `double_tap_settings` any more.
+        XCTAssertEqual(DoubleTapRules.alwaysSent.threshold, 90)
+        XCTAssertEqual(DoubleTapRules.alwaysSent.limit, 20)
+        XCTAssertEqual(DoubleTapRules.alwaysSent.latency, 50)
     }
 
     func testTheEchoedRegisterAddressesAreChecked() {
