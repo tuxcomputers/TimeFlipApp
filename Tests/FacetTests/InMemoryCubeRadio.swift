@@ -14,7 +14,7 @@ import Foundation
 /// flags are what a test wants `DeviceReconnectRules` to see; `reach` records rather than acts.
 @MainActor
 final class InMemoryCubeRadio: CubeRadio {
-    var connectedDevice: UUID?
+    var connectedDevice: DeviceHandle?
     var isScanning = false
     var isReachingForCube = false
     var isFactoryResetRunning = false
@@ -27,7 +27,7 @@ final class InMemoryCubeRadio: CubeRadio {
     /// it -- and a loop that reached with values captured once would look identical from outside unless a
     /// test could see the arguments.
     struct Reach: Equatable {
-        let id: UUID
+        let id: DeviceHandle
         let candidates: [String]
         let rotatingTo: String?
         let remembered: String?
@@ -43,7 +43,7 @@ final class InMemoryCubeRadio: CubeRadio {
     var lastReach: Reach? { reaches.last }
 
     func reach(
-        _ id: UUID,
+        _ id: DeviceHandle,
         presenting candidates: [String],
         rotatingTo: String?,
         remembered: String?,

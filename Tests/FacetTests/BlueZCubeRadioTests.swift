@@ -20,12 +20,15 @@ final class BlueZCubeRadioTests {
 
     private lazy var radio = BlueZCubeRadio(link: link, scheduler: clock, debugLog: nil)
 
-    private let ours = BlueZAddress.identifier(forAddress: "E8:DB:D8:CF:F9:0F")!
-    private let theirs = BlueZAddress.identifier(forAddress: "AA:BB:CC:DD:EE:FF")!
+    // **The address verbatim, which is the whole of the change of 2026-09-11.** These used to be packed into a
+    // `UUID` behind a marker because the core insisted on that type; it takes a `DeviceHandle` now and reads none
+    // of it, so BlueZ's own spelling goes straight through.
+    private let ours = DeviceHandle("E8:DB:D8:CF:F9:0F")
+    private let theirs = DeviceHandle("AA:BB:CC:DD:EE:FF")
 
-    private var outcomes: [(id: UUID, outcome: DeviceLoginOutcome)] = []
-    private var dropped: [UUID] = []
-    private var linksEnded: [UUID] = []
+    private var outcomes: [(id: DeviceHandle, outcome: DeviceLoginOutcome)] = []
+    private var dropped: [DeviceHandle] = []
+    private var linksEnded: [DeviceHandle] = []
 
     init() {
         radio.onLoginEnded = { [self] id, outcome in outcomes.append((id, outcome)) }

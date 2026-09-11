@@ -27,8 +27,8 @@ final class FakeBlueZLink: BlueZLink {
     private(set) var poweredOn = 0
     private(set) var discoveriesStarted = 0
     private(set) var discoveriesStopped = 0
-    private(set) var connects: [UUID] = []
-    private(set) var disconnects: [UUID] = []
+    private(set) var connects: [DeviceHandle] = []
+    private(set) var disconnects: [DeviceHandle] = []
 
     /// One `InMemoryGatt` per device the reach got as far as, newest last.
     private(set) var gatts: [InMemoryGatt] = []
@@ -52,11 +52,11 @@ final class FakeBlueZLink: BlueZLink {
         devices
     }
 
-    func device(_ id: UUID) throws -> BlueZObjectTree.Device? {
+    func device(_ id: DeviceHandle) throws -> BlueZObjectTree.Device? {
         records[id]
     }
 
-    func connect(_ id: UUID) throws {
+    func connect(_ id: DeviceHandle) throws {
         connects.append(id)
         if let connectFailure { throw connectFailure }
         // A real `Connect` is answered before the services resolve, so this leaves the record alone: a test that
@@ -76,7 +76,7 @@ final class FakeBlueZLink: BlueZLink {
         }
     }
 
-    func disconnect(_ id: UUID) throws {
+    func disconnect(_ id: DeviceHandle) throws {
         disconnects.append(id)
         guard let record = records[id] else { return }
         records[id] = BlueZObjectTree.Device(
@@ -100,7 +100,7 @@ final class FakeBlueZLink: BlueZLink {
     // MARK: - what a test makes BlueZ say
 
     /// A device BlueZ knows about, listed by the scan and answering to this address.
-    func add(_ id: UUID, named name: String, address: String = "E8:DB:D8:CF:F9:0F") {
+    func add(_ id: DeviceHandle, named name: String, address: String = "E8:DB:D8:CF:F9:0F") {
         devices.append(
             ScannedDevice(
                 id: id, peripheralName: name, advertisedName: name, advertisesTimeFlipService: false
@@ -119,7 +119,7 @@ final class FakeBlueZLink: BlueZLink {
     }
 
     /// BlueZ finishing reading the GATT tree, which is the moment a login may begin.
-    func resolve(_ id: UUID) {
+    func resolve(_ id: DeviceHandle) {
         guard let record = records[id] else { return }
         records[id] = BlueZObjectTree.Device(
             path: record.path,
@@ -134,7 +134,7 @@ final class FakeBlueZLink: BlueZLink {
     }
 
     /// The cube going away, which BlueZ reports by the device no longer being connected.
-    func drop(_ id: UUID) {
+    func drop(_ id: DeviceHandle) {
         try? disconnect(id)
         disconnects.removeLast()
     }

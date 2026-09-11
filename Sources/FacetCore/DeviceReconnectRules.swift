@@ -66,11 +66,18 @@ enum DeviceReconnectRules {
 
     /// The cube to reach, out of `device_uuid.uuid`.
     ///
-    /// **A row that does not parse is not a device**, and answering `nil` is what stops the loop scanning for ever for
-    /// something it could never connect to: `paired` and `device_uuid` are written together, so the pair disagreeing is
-    /// a database somebody has edited or a write that half landed. Either way there is nothing to reach.
-    static func target(from uuid: String?) -> UUID? {
+    /// **Empty is the only thing that is not a device.** `paired` and `device_uuid` are written together, so an
+    /// empty row against a true `paired` is a database somebody has edited or a write that half landed, and
+    /// answering `nil` is what stops the loop scanning for a cube it was never told about.
+    ///
+    /// **It stopped checking the shape on 2026-09-11 and lost nothing**, the row having been a `UUID` until then.
+    /// The core cannot know what a handle looks like: CoreBluetooth mints one shape and BlueZ another, so
+    /// validating here would mean the circle knowing which square it is attached to. It also bought less than it
+    /// looked: the handle orders the reach list rather than choosing from it, so a handle that resolves to
+    /// nothing costs a preference and not an attempt, and the PIN is what identifies the cube either way.
+    /// Refusing a resolvable-looking handle is the adapter's job, and `BluetoothRadio.connect` does it.
+    static func target(from uuid: String?) -> DeviceHandle? {
         guard let uuid, !uuid.isEmpty else { return nil }
-        return UUID(uuidString: uuid)
+        return DeviceHandle(uuid)
     }
 }

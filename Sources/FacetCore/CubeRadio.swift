@@ -10,7 +10,7 @@ import Foundation
 @MainActor
 package protocol CubeRadio: AnyObject {
     /// The device this app is currently logged in to, or `nil`.
-    var connectedDevice: UUID? { get }
+    var connectedDevice: DeviceHandle? { get }
     /// Whether a scan is running.
     var isScanning: Bool { get }
     /// Whether an attempt to reach a cube is already under way, from this loop or from anywhere else.
@@ -24,7 +24,7 @@ package protocol CubeRadio: AnyObject {
     /// `remembered` and `previouslyKnown` are the names the app has for it, which is how a renamed cube is still
     /// recognised. `rotatingTo` is a new PIN to set once logged in, or `nil` to leave it alone.
     func reach(
-        _ id: UUID,
+        _ id: DeviceHandle,
         presenting candidates: [String],
         rotatingTo: String?,
         remembered: String?,

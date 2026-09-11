@@ -72,7 +72,7 @@ final class DevicePane: NSView {
         static let forget = "device-forget"
         static let reset = "device-reset"
         /// One per listed device, suffixed with the peripheral identifier.
-        static func scanResult(_ id: UUID) -> String { "device-scan-result-\(id.uuidString)" }
+        static func scanResult(_ id: DeviceHandle) -> String { "device-scan-result-\(id.value)" }
     }
 
     /// Shared with `DisclosureRow`, so a folding row sits at the same rhythm as the plain rows around it.
@@ -240,7 +240,7 @@ final class DevicePane: NSView {
     var onStopScan: (() -> Void)?
 
     /// A listed device was clicked, and the app should go and reach it.
-    var onConnect: ((UUID) -> Void)?
+    var onConnect: ((DeviceHandle) -> Void)?
 
     /// **Forget Device** was pressed: the app should stop having a device.
     var onForget: (() -> Void)?
@@ -1038,7 +1038,7 @@ final class DevicePane: NSView {
         name.setAccessibilityIdentifier(Identifier.scanResult(device.id))
         // The identifier is how the press finds its way back to a device: the button is the only thing that knows
         // which row was clicked, and a closure captured per row would keep the pane holding a list of its own.
-        name.identifier = NSUserInterfaceItemIdentifier(device.id.uuidString)
+        name.identifier = NSUserInterfaceItemIdentifier(device.id.value)
         deviceButtons.append(name)
 
         row.addSubview(name)
@@ -1062,8 +1062,11 @@ final class DevicePane: NSView {
     }
 
     @objc private func devicePressed(_ sender: NSButton) {
-        guard let identifier = sender.identifier?.rawValue, let id = UUID(uuidString: identifier) else { return }
-        onConnect?(id)
+        // **Non-empty is the whole test now the identifier is a `DeviceHandle`.** This used to parse the raw value
+        // as a `UUID`, which read as validation and was really the type: a handle is whatever the adapter minted,
+        // and this view is only handing back the string it stashed on the button a moment ago.
+        guard let identifier = sender.identifier?.rawValue, !identifier.isEmpty else { return }
+        onConnect?(DeviceHandle(identifier))
     }
 
     // **Nothing is asked before it, deliberately, which is the archive's decision copied.** Forgetting is local

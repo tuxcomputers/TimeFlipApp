@@ -1241,7 +1241,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             // reports a name, including the one that proves a factory reset and any made to a device that turns out
             // to be somebody else's -- and writing one of those into `device_name` would rename the pairing after a
             // cube it is not to.
-            guard self.settings?.string("device_uuid", field: "uuid") == id.uuidString else {
+            guard self.settings?.string("device_uuid", field: "uuid") == id.value else {
                 self.debugLog?.record(.pair, "Ignoring the name \(name): it is not the cube this app is paired to")
                 return
             }
@@ -1319,7 +1319,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     private func recordConnected(on pane: DevicePane?, with device: ScannedDevice) {
         guard let settings else { return }
         let alreadyPaired = settings.flag("paired", field: "paired") == true
-            && settings.string("device_uuid", field: "uuid") == device.id.uuidString
+            && settings.string("device_uuid", field: "uuid") == device.id.value
         guard alreadyPaired else {
             recordPairing(on: pane, with: device)
             return

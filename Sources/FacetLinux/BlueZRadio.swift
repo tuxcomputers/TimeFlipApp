@@ -124,7 +124,7 @@ package final class BlueZRadio {
     /// is the first thing to check when a cube is renamed on this platform.
     package func scannedDevices() throws -> [ScannedDevice] {
         try tree().devices.compactMap { device in
-            guard let id = BlueZAddress.identifier(forAddress: device.address) else { return nil }
+            let id = DeviceHandle(device.address)
             let remoteName = device.name.isEmpty ? nil : device.name
             return ScannedDevice(
                 id: id,

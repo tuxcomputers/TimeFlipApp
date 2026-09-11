@@ -15,7 +15,7 @@ final class DeviceScanRulesTests: XCTestCase {
         peripheral: String? = nil,
         advertised: String? = nil,
         service: Bool = false,
-        id: UUID = UUID()
+        id: DeviceHandle = DeviceHandle(UUID().uuidString)
     ) -> ScannedDevice {
         ScannedDevice(
             id: id, peripheralName: peripheral, advertisedName: advertised, advertisesTimeFlipService: service
@@ -145,11 +145,11 @@ final class DeviceScanRulesTests: XCTestCase {
         // A dictionary's iteration order is not stable, and these are drawn from one. Without the tiebreak the list
         // would reshuffle between redraws of the same two devices.
         let first = ScannedDevice(
-            id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+            id: DeviceHandle("00000000-0000-0000-0000-000000000001"),
             peripheralName: "TimeFlip v2.0", advertisedName: nil, advertisesTimeFlipService: false
         )
         let second = ScannedDevice(
-            id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+            id: DeviceHandle("00000000-0000-0000-0000-000000000002"),
             peripheralName: "TimeFlip v2.0", advertisedName: nil, advertisesTimeFlipService: false
         )
 
@@ -236,11 +236,11 @@ final class DeviceScanRulesTests: XCTestCase {
         // Drawn from a dictionary, whose iteration order is not stable. Without the tiebreak a reach would ask a
         // room of identical cubes in a different order each time, which makes a failure impossible to reproduce.
         let first = ScannedDevice(
-            id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+            id: DeviceHandle("00000000-0000-0000-0000-000000000001"),
             peripheralName: "TimeFlip v2.0", advertisedName: nil, advertisesTimeFlipService: false
         )
         let second = ScannedDevice(
-            id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+            id: DeviceHandle("00000000-0000-0000-0000-000000000002"),
             peripheralName: "TimeFlip v2.0", advertisedName: nil, advertisesTimeFlipService: false
         )
 

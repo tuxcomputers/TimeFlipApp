@@ -6,7 +6,7 @@ import XCTest
 final class DevicePairingRulesTests: XCTestCase {
     private func device(peripheralName: String?, advertisedName: String? = "TimeFlip v2.0") -> ScannedDevice {
         ScannedDevice(
-            id: UUID(),
+            id: DeviceHandle(UUID().uuidString),
             peripheralName: peripheralName,
             advertisedName: advertisedName,
             advertisesTimeFlipService: true

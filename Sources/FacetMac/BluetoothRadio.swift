@@ -57,12 +57,12 @@ final class BluetoothRadio: NSObject, CubeRadio {
     /// Called when an attempt to reach a device starts, and again when it ends. The two are separate because the
     /// first is the only thing that can be said for the several seconds in between, and a control that reports
     /// nothing until it succeeds is one somebody presses twice.
-    var onLoginBegan: ((UUID) -> Void)?
-    var onLoginEnded: ((UUID, DeviceLoginOutcome) -> Void)?
+    var onLoginBegan: ((DeviceHandle) -> Void)?
+    var onLoginEnded: ((DeviceHandle, DeviceLoginOutcome) -> Void)?
 
     /// Called when a connection this app was keeping goes away on its own: the cube out of range, switched off, or
     /// its batteries out. Not called for a disconnect this app asked for.
-    var onConnectionDropped: ((UUID) -> Void)?
+    var onConnectionDropped: ((DeviceHandle) -> Void)?
 
     /// Called whenever a link ends, **however it ended**: the cube going away, the window closing, another device
     /// being chosen, a reset, a forget.
@@ -71,7 +71,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
     /// listens to. This one fires for every ending, because whoever is holding something perishable needs to let go
     /// of it whether the parting was the cube's decision or the app's. It is fired from `connectedDevice`'s `didSet`,
     /// beside the charge, the face and the cube's status being let go of for exactly the same reason.
-    var onLinkEnded: ((UUID) -> Void)?
+    var onLinkEnded: ((DeviceHandle) -> Void)?
 
     /// Called with a cube's new PIN, once the cube has proved it took it by logging in with it again.
     ///
@@ -87,21 +87,21 @@ final class BluetoothRadio: NSObject, CubeRadio {
     /// percentages, thousands of times a day, and `BatteryRules.shown` absorbs that: this fires when the answer moves,
     /// which is what anything drawing it or warning about it actually cares about. Every raw value is still in the
     /// trace.
-    var onBatteryLevel: ((UUID, Int?) -> Void)?
+    var onBatteryLevel: ((DeviceHandle, Int?) -> Void)?
 
     /// Called when the face a device is resting on changes, with the face or `nil` once there is no live reading.
     ///
     /// **Called per change, not per arrival**, matching `onBatteryLevel`: a cube left alone re-reports nothing, but
     /// the read taken when a link comes up can name the face the app is already showing, and a redraw for an answer
     /// that did not move is a redraw nobody asked for. Every raw value is still in the trace.
-    var onFace: ((UUID, Int?) -> Void)?
+    var onFace: ((DeviceHandle, Int?) -> Void)?
 
     /// Called with the double-tap registers a cube reports, once per connection.
     ///
     /// **What it is for is the comparison, not the display.** The Device tab draws those four fields from the table;
     /// this is the cube's own answer to the same question, and a disagreement between the two is a cube that has
     /// lost the registers the app believes it has (`DeviceSettingsSync.cubeReported(doubleTap:)`).
-    var onDoubleTapParameters: ((UUID, DoubleTapParameters) -> Void)?
+    var onDoubleTapParameters: ((DeviceHandle, DoubleTapParameters) -> Void)?
 
     /// Called with the PIN a cube accepted, at the moment it accepts one.
     ///
@@ -112,7 +112,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
     /// **Fired before any rotation**, so it names the PIN that got in rather than the one about to replace it. The
     /// two cannot be confused: a rotation only ever follows the vendor default (`DevicePINRules.rotates`), which is
     /// not a PIN either store holds.
-    var onPINAccepted: ((UUID, String) -> Void)?
+    var onPINAccepted: ((DeviceHandle, String) -> Void)?
 
     /// Called when the cube reports what it is called, a second or two into a connection.
     ///
@@ -123,20 +123,20 @@ final class BluetoothRadio: NSObject, CubeRadio {
     /// **Every arrival, not only the changes**, unlike the charge and the face. There is roughly one per connection,
     /// and what to do about a name that has not moved is the recorder's question (`DevicePairingRecorder.recordName`)
     /// rather than a reason to drop the report here.
-    var onDeviceName: ((UUID, String) -> Void)?
+    var onDeviceName: ((DeviceHandle, String) -> Void)?
 
     /// Called when what the cube says about its own state changes, or `nil` once there is no cube to say.
     ///
     /// **Only ever an answer to a question this app asked**, unlike the charge and the face: the cube pushes nothing
     /// when a double tap pauses it, when auto-pause fires, or when the vendor's app locks it. So this fires on
     /// connecting and after each command the app reads back, and at no other time.
-    var onCubeStatus: ((UUID, DeviceCommandRules.Status?) -> Void)?
+    var onCubeStatus: ((DeviceHandle, DeviceCommandRules.Status?) -> Void)?
 
     /// Called with what the cube says about itself: what it wants pushed back, and whether its hardware is working.
     ///
     /// **Every arrival, not only the changes**, unlike the charge and the face. There are few of them, each one is
     /// either a request or a fault, and a repeat is the cube saying it is still waiting.
-    var onSystemState: ((UUID, DeviceSystemStateRules.State) -> Void)?
+    var onSystemState: ((DeviceHandle, DeviceSystemStateRules.State) -> Void)?
 
     /// Told when the link is all the way up: every characteristic found, every notification subscribed to, and the
     /// cube able to answer a question. **The mirror of `onConnectionDropped`**, and the pair is the point -- the app
@@ -146,7 +146,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
     /// **Not `onLoginEnded`, which is a different moment.** That one fires when the PIN is accepted, several round
     /// trips before the listening phase has discovered anything: a fetch made then finds no history characteristic,
     /// because there is not one yet. This is the first moment the cube can actually be asked.
-    var onCubeReady: ((UUID) -> Void)?
+    var onCubeReady: ((DeviceHandle) -> Void)?
 
     /// The cube has answered everything the login asks it, so the command channel is free for somebody else.
     ///
@@ -154,14 +154,14 @@ final class BluetoothRadio: NSObject, CubeRadio {
     /// command characteristic after `ready` -- the `0x17` read and the `0x10` behind it -- and the first of those
     /// does not set `isCommandInFlight`, so a command sent off `onCubeReady` writes over a question already out. See
     /// `DeviceLogin.settled`.
-    var onCubeSettled: ((UUID) -> Void)?
+    var onCubeSettled: ((DeviceHandle) -> Void)?
 
     /// Called with what a cube says it is, once the Device Information reads that follow a login have come back.
     ///
     /// **Separate from `onLoginEnded` rather than carried on it**, because it arrives afterwards and may not arrive at
     /// all: a cube that answers none of these is still a cube this app logged in to and paired with, and folding the
     /// two together would make an optional read into something a pairing waits on.
-    var onDeviceInfo: ((UUID, DeviceInfo) -> Void)?
+    var onDeviceInfo: ((DeviceHandle, DeviceInfo) -> Void)?
 
     /// How long a scan runs before stopping itself.
     ///
@@ -205,7 +205,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
     private let debugLog: DebugLog?
     private let scheduler: Scheduler
     private var central: CBCentralManager?
-    private var found: [UUID: ScannedDevice] = [:]
+    private var found: [DeviceHandle: ScannedDevice] = [:]
     private var timeout: ScheduledWake?
 
     /// The peripherals behind the values in `found`.
@@ -213,7 +213,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
     /// **Held because CoreBluetooth requires it**: a `CBPeripheral` nobody retains is deallocated, and connecting to
     /// one needs the object the scan produced rather than its identifier. Cleared with the list at the start of each
     /// scan, except for one that is currently connected -- dropping that would sever a live link to tidy up a list.
-    private var peripherals: [UUID: CBPeripheral] = [:]
+    private var peripherals: [DeviceHandle: CBPeripheral] = [:]
 
     /// How many devices the scan now running has listed. What the tab's status line reports once it stops.
     var deviceCount: Int { found.count }
@@ -244,7 +244,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
 
     /// One run at reaching a device: which one, which PINs are left to try on it, and what to leave it on.
     private struct Attempt {
-        let id: UUID
+        let id: DeviceHandle
         var remaining: [String]
         var presenting: String
         /// Carried across the reconnect between candidates: which PIN got the app in has no bearing on what the cube
@@ -259,7 +259,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
     /// `onLoginBegan`, `onLoginEnded` and `onConnectionDropped` would all be reporting the wrong story to a tab that
     /// is already showing "Resetting".
     private struct ResetConfirmation {
-        let id: UUID
+        let id: DeviceHandle
         let reported: (FactoryResetOutcome) -> Void
     }
 
@@ -296,7 +296,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
     /// **The charge and the face go with it**, in one place rather than at each of the several ways a link ends: the
     /// window closing, another device being chosen, a reset, and the cube simply going away all pass through here, and
     /// either of them outliving that would be a reading from a device nobody can hear.
-    private(set) var connectedDevice: UUID? {
+    private(set) var connectedDevice: DeviceHandle? {
         didSet {
             guard oldValue != connectedDevice, let gone = oldValue else { return }
             // Said out loud, because the alternative is a figure that simply stops moving. A charge nobody can
@@ -515,7 +515,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
             guard let self, self.reaching != nil, self.attempt == nil else { return }
             self.debugLog?.record(
                 .login,
-                "Trying \(id.uuidString), \(self.reaching!.queue.count) more with the name behind it"
+                "Trying \(id.value), \(self.reaching!.queue.count) more with the name behind it"
             )
             self.connect(to: id, presenting: candidates, rotatingTo: rotatingTo)
         }
@@ -538,7 +538,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
                 ? "\(reason): \(target.tried.count) device(s) with the name, none took the PIN"
                 : "\(reason): nothing with the name answered"
         )
-        end(target.preferred ?? UUID(), outcome)
+        end(target.preferred ?? DeviceHandle(""), outcome)
     }
 
     private func beginScanIfReady() {
@@ -638,17 +638,17 @@ final class BluetoothRadio: NSObject, CubeRadio {
     ///
     /// - Parameter rotatingTo: the PIN the cube should end up on, or `nil` to leave it on whichever one let the app
     ///   in. What that is, and whether it is fixed or random, is `DevicePINRules.target`'s answer.
-    func connect(to id: UUID, presenting candidates: [String], rotatingTo: String? = nil) {
+    func connect(to id: DeviceHandle, presenting candidates: [String], rotatingTo: String? = nil) {
         guard peripherals[id] != nil else {
-            debugLog?.record(.login, "Asked to connect to \(id.uuidString), which is not a device this scan found")
+            debugLog?.record(.login, "Asked to connect to \(id.value), which is not a device this scan found")
             return
         }
         guard attempt == nil else {
-            debugLog?.record(.login, "Already reaching a device; ignoring the request for \(id.uuidString)")
+            debugLog?.record(.login, "Already reaching a device; ignoring the request for \(id.value)")
             return
         }
         guard let first = candidates.first else {
-            debugLog?.record(.login, "No PIN to present to \(id.uuidString)")
+            debugLog?.record(.login, "No PIN to present to \(id.value)")
             end(id, .wrongPIN)
             return
         }
@@ -690,14 +690,14 @@ final class BluetoothRadio: NSObject, CubeRadio {
     ///   - id: `device_uuid.uuid`, read from the table by the caller at this moment.
     ///   - candidates: the PINs to present, from `DeviceLoginRules.reconnectCandidates`.
     func reach(
-        _ id: UUID,
+        _ id: DeviceHandle,
         presenting candidates: [String],
         rotatingTo: String? = nil,
         remembered: String?,
         previouslyKnown: String?
     ) {
         guard attempt == nil, resetConfirmation == nil else {
-            debugLog?.record(.login, "Already busy with a device; not reaching for \(id.uuidString)")
+            debugLog?.record(.login, "Already busy with a device; not reaching for \(id.value)")
             return
         }
         guard connectedDevice != id else { return }
@@ -731,15 +731,15 @@ final class BluetoothRadio: NSObject, CubeRadio {
     private struct ReachTarget {
         /// `device_uuid`, which is a **hint and never a gate**: worth trying first when it turns up, worth nothing
         /// when it does not.
-        let preferred: UUID?
+        let preferred: DeviceHandle?
         let candidates: [String]
         let rotatingTo: String?
         /// Eligible devices seen this scan and not yet tried, in the order they will be tried.
-        var queue: [UUID] = []
+        var queue: [DeviceHandle] = []
         /// Tried this reach, so a device advertising repeatedly is not tried twice in one pass. **Not remembered
         /// beyond it**: the next scan starts over, so a cube that refused for a passing reason is picked up again
         /// rather than needing a restart.
-        var tried: Set<UUID> = []
+        var tried: Set<DeviceHandle> = []
         /// Whether anything refused, which is what tells "nothing was in range" from "none of them was ours".
         var anyRefused = false
         /// Whether the remembered identifier turning up may still cut the scan window short. False once it has, so
@@ -916,7 +916,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
     func disconnect(because reason: String) {
         cancelAttempt()
         guard let id = connectedDevice, let peripheral = peripherals[id] else { return }
-        debugLog?.record(.login, "Disconnecting from \(id.uuidString): \(reason)")
+        debugLog?.record(.login, "Disconnecting from \(id.value): \(reason)")
         isDisconnectingDeliberately = true
         connectedDevice = nil
         login = nil
@@ -955,14 +955,14 @@ final class BluetoothRadio: NSObject, CubeRadio {
             // refuses to begin with "already busy with a device" -- an app that has silently stopped looking for its
             // cube and will not start again until it is restarted. That is what 2026-08-23 cost: a Retry that scanned
             // for ten seconds, found the cube, and said nothing at all.
-            debugLog?.record(.login, "Nothing left to connect to for \(attempt.id.uuidString)")
+            debugLog?.record(.login, "Nothing left to connect to for \(attempt.id.value)")
             end(attempt.id, .unreachable)
             return
         }
         debugLog?.record(
             .login,
             "Connecting to \(DeviceScanRules.label(for: found[attempt.id] ?? placeholder(attempt.id)))"
-                + " (\(attempt.id.uuidString))"
+                + " (\(attempt.id.value))"
         )
         isDisconnectingDeliberately = false
         central.connect(peripheral, options: nil)
@@ -1006,7 +1006,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
     /// the reach reported from inside the half-finished `connect`, and the tail of that `connect` then overwrote the
     /// retry the dialog had just started. The app scanned for ten seconds, found the cube, and said nothing at all
     /// for the rest of the launch.
-    private func end(_ id: UUID, _ outcome: DeviceLoginOutcome) {
+    private func end(_ id: DeviceHandle, _ outcome: DeviceLoginOutcome) {
         connectTimeout?.cancel()
         connectTimeout = nil
         settle?.cancel()
@@ -1025,7 +1025,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
             endReset(.confirmed)
             return
         }
-        debugLog?.record(.login, "\(id.uuidString): \(outcome)")
+        debugLog?.record(.login, "\(id.value): \(outcome)")
         // **A reach is not over because one candidate refused.** The PIN is what identifies this app's cube, so a
         // refusal answers "is this one mine?" with no, and the next device with the name gets asked. Only running out
         // of them ends it (`endReach`). Reported to nobody until then: telling the reconnect loop about each refusal
@@ -1072,7 +1072,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
     /// wavers across one percent all day, so the figure follows the lower of the two until a reading genuinely
     /// climbs past it. Every reading, absorbed or not, is already in the trace as `ble-rx`; a `battery` row means
     /// the answer moved.
-    private func received(batteryLevel raw: Int, from id: UUID) {
+    private func received(batteryLevel raw: Int, from id: DeviceHandle) {
         let shown = BatteryRules.shown(batteryPercent, reading: raw)
         guard shown != batteryPercent else { return }
         batteryPercent = shown
@@ -1090,7 +1090,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
     /// noisy measurement, and the cube has never been seen to repeat one unprompted. What this does guard against is
     /// the read taken when a link comes up naming the face already on show, which is the ordinary case for a cube
     /// nobody has touched since the last connection.
-    private func received(face: Int, from id: UUID) {
+    private func received(face: Int, from id: DeviceHandle) {
         guard face != cubeFace else { return }
         cubeFace = face
         debugLog?.record(.face, "Face \(face) is up")
@@ -1103,7 +1103,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
     /// that it has been put back to the factory or that its flash memory has failed, and a flash fault means it records
     /// no history at all -- which from the outside is indistinguishable from a cube that has simply been reset. Both of
     /// those are hours of confusion if they are not in the log, so the row goes in whether or not anything acts on it.
-    private func received(systemState state: DeviceSystemStateRules.State, from id: UUID) {
+    private func received(systemState state: DeviceSystemStateRules.State, from id: DeviceHandle) {
         debugLog?.record(
             .info,
             state.isEverythingFine
@@ -1127,7 +1127,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
     ///
     /// The list is republished for the same reason it is republished when anything else about a device changes: a row
     /// on screen showing a name the radio no longer believes is a second answer to what the cube is called.
-    private func received(name: String, from id: UUID) {
+    private func received(name: String, from id: DeviceHandle) {
         if let device = found[id], device.peripheralName != name {
             found[id] = ScannedDevice(
                 id: device.id,
@@ -1140,7 +1140,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
         onDeviceName?(id, name)
     }
 
-    private func received(status: DeviceCommandRules.Status, from id: UUID) {
+    private func received(status: DeviceCommandRules.Status, from id: DeviceHandle) {
         guard status != cubeStatus else { return }
         cubeStatus = status
         debugLog?.record(
@@ -1161,7 +1161,7 @@ final class BluetoothRadio: NSObject, CubeRadio {
     /// **Asked of the radio rather than remembered by the tab**, which is the same reasoning as handing the tab the
     /// whole list on every change: the scan owns what was found, so a caller keeping names by it would be a second
     /// copy of a list that moves.
-    func label(for id: UUID) -> String {
+    func label(for id: DeviceHandle) -> String {
         DeviceScanRules.label(for: found[id] ?? placeholder(id))
     }
 
@@ -1170,13 +1170,13 @@ final class BluetoothRadio: NSObject, CubeRadio {
     ///
     /// The placeholder stands in for a device that has dropped out of the list while an attempt on it was still
     /// running, so this answers for anything the radio has reached rather than only for what is currently listed.
-    func device(_ id: UUID) -> ScannedDevice {
+    func device(_ id: DeviceHandle) -> ScannedDevice {
         found[id] ?? placeholder(id)
     }
 
     /// Stands in for a device that has left the list while an attempt on it is still running, so a log line can name
     /// something rather than trailing off.
-    private func placeholder(_ id: UUID) -> ScannedDevice {
+    private func placeholder(_ id: DeviceHandle) -> ScannedDevice {
         ScannedDevice(id: id, peripheralName: nil, advertisedName: nil, advertisesTimeFlipService: false)
     }
 }
@@ -1213,7 +1213,7 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
             + (advertisementData[CBAdvertisementDataOverflowServiceUUIDsKey] as? [CBUUID] ?? [])
             + (advertisementData[CBAdvertisementDataSolicitedServiceUUIDsKey] as? [CBUUID] ?? [])
         let device = ScannedDevice(
-            id: peripheral.identifier,
+            id: DeviceHandle(peripheral.identifier.uuidString),
             peripheralName: peripheral.name,
             advertisedName: advertisedName,
             advertisesTimeFlipService: services.contains(TimeFlipUUIDs.service)
@@ -1232,7 +1232,7 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
         if found[device.id] == nil {
             debugLog?.record(
                 .scan,
-                "Found \(device.id.uuidString): peripheral \(device.peripheralName ?? ""), "
+                "Found \(device.id.value): peripheral \(device.peripheralName ?? ""), "
                     + "advertised \(device.advertisedName ?? "")"
                     + (device.advertisesTimeFlipService ? ", TimeFlip service" : "")
             )
@@ -1265,7 +1265,7 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-        guard let attempt, attempt.id == peripheral.identifier else { return }
+        guard let attempt, attempt.id.value == peripheral.identifier.uuidString else { return }
         connectTimeout?.cancel()
         connectTimeout = nil
         debugLog?.record(.login, "Connected to \(peripheral.identifier.uuidString), presenting a PIN")
@@ -1351,7 +1351,7 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
     }
 
     /// What `finish` does with a refusal is the one branch that does not end the attempt: there may be another PIN.
-    private func finish(_ id: UUID, _ outcome: DeviceLoginOutcome) {
+    private func finish(_ id: DeviceHandle, _ outcome: DeviceLoginOutcome) {
         guard let attempt, attempt.id == id else { return }
         if outcome == .wrongPIN, !attempt.remaining.isEmpty {
             debugLog?.record(.login, "Refused, and there is another PIN to try")
@@ -1365,7 +1365,7 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
-        guard let attempt, attempt.id == peripheral.identifier else { return }
+        guard let attempt, attempt.id.value == peripheral.identifier.uuidString else { return }
         debugLog?.record(.login, "Could not connect: \(error?.localizedDescription ?? "no reason given")")
         end(attempt.id, .unreachable)
     }
@@ -1375,10 +1375,10 @@ extension BluetoothRadio: @preconcurrency CBCentralManagerDelegate {
         didDisconnectPeripheral peripheral: CBPeripheral,
         error: Error?
     ) {
-        let id = peripheral.identifier
+        let id = DeviceHandle(peripheral.identifier.uuidString)
         debugLog?.record(
             .login,
-            "Disconnected from \(id.uuidString)"
+            "Disconnected from \(id.value)"
                 + (isDisconnectingDeliberately ? ", as asked" : ", unexpectedly")
                 + (error.map { ": \($0.localizedDescription)" } ?? "")
         )

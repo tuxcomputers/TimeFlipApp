@@ -14,7 +14,7 @@ final class DevicePairingRecorderTests {
     private var recorder: DevicePairingRecorder!
 
     private let cube = ScannedDevice(
-        id: UUID(uuidString: "0BE1F1CE-0000-4000-8000-000000000001")!,
+        id: DeviceHandle("0BE1F1CE-0000-4000-8000-000000000001"),
         peripheralName: "Dibby",
         advertisedName: "TimeFlip v2.0",
         advertisesTimeFlipService: true
@@ -58,7 +58,7 @@ final class DevicePairingRecorderTests {
         // The peripheral identifier, which is how the app finds the same cube again rather than rediscovering one.
         #expect(recorder.recordPairing(with: cube))
 
-        #expect(settings.string("device_uuid", field: "uuid") == cube.id.uuidString)
+        #expect(settings.string("device_uuid", field: "uuid") == cube.id.value)
     }
 
     @Test func testItRecordsTheNameTheCubeIsCarrying() throws {
@@ -169,7 +169,7 @@ final class DevicePairingRecorderTests {
         #expect(recorder.recordName("Plopper", because: "renamed"))
 
         #expect(settings.flag("paired", field: "paired") == true)
-        #expect(settings.string("device_uuid", field: "uuid") == cube.id.uuidString)
+        #expect(settings.string("device_uuid", field: "uuid") == cube.id.value)
         #expect(settings.flag("connection", field: "connected") == true)
     }
 
@@ -212,7 +212,7 @@ final class DevicePairingRecorderTests {
         // Going out of range does not change which device this app is paired to, and clearing it here would make the
         // app forget a perfectly good cube the moment somebody carried it out of the room.
         #expect(settings.flag("paired", field: "paired") == true)
-        #expect(settings.string("device_uuid", field: "uuid") == cube.id.uuidString)
+        #expect(settings.string("device_uuid", field: "uuid") == cube.id.value)
         #expect(settings.string("device_name", field: "name") == "Dibby")
     }
 
@@ -325,7 +325,7 @@ final class DevicePairingRecorderTests {
         #expect(recorder.recordInfo(reading), "precondition: the first cube said what it was")
         #expect(recorder.recordForget(), "precondition")
         let other = ScannedDevice(
-            id: UUID(uuidString: "0BE1F1CE-0000-4000-8000-000000000002")!,
+            id: DeviceHandle("0BE1F1CE-0000-4000-8000-000000000002"),
             peripheralName: "Wobble", advertisedName: "TimeFlip v2.0", advertisesTimeFlipService: true
         )
 
@@ -470,6 +470,6 @@ final class DevicePairingRecorderTests {
 
         // And the rows that could still be written were: a half-recorded pairing is reported, not rolled back, since
         // the uuid and the name are what a later diagnosis is made from.
-        #expect(settings.string("device_uuid", field: "uuid") == cube.id.uuidString)
+        #expect(settings.string("device_uuid", field: "uuid") == cube.id.value)
     }
 }

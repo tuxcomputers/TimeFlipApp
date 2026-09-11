@@ -33,25 +33,25 @@ final class BlueZCubeRadio: CubeRadio {
     /// Every device this scan has seen, whether or not it is a cube.
     var onDevicesChanged: (([ScannedDevice]) -> Void)?
     var onScanningChanged: ((Bool) -> Void)?
-    var onLoginBegan: ((UUID) -> Void)?
-    var onLoginEnded: ((UUID, DeviceLoginOutcome) -> Void)?
+    var onLoginBegan: ((DeviceHandle) -> Void)?
+    var onLoginEnded: ((DeviceHandle, DeviceLoginOutcome) -> Void)?
     /// The link going, deliberately or not. **Not the same as a login ending**: a login that failed never had a link.
-    var onConnectionDropped: ((UUID) -> Void)?
+    var onConnectionDropped: ((DeviceHandle) -> Void)?
     /// The link ending, for whatever holds per-link state and has to let go of it.
-    var onLinkEnded: ((UUID) -> Void)?
+    var onLinkEnded: ((DeviceHandle) -> Void)?
     var onPINChanged: ((String) -> Void)?
-    var onPINAccepted: ((UUID, String) -> Void)?
-    var onBatteryLevel: ((UUID, Int?) -> Void)?
-    var onFace: ((UUID, Int?) -> Void)?
-    var onDeviceName: ((UUID, String) -> Void)?
-    var onCubeStatus: ((UUID, DeviceCommandRules.Status?) -> Void)?
-    var onSystemState: ((UUID, DeviceSystemStateRules.State) -> Void)?
-    var onDoubleTapParameters: ((UUID, DoubleTapParameters) -> Void)?
-    var onDeviceInfo: ((UUID, DeviceInfo) -> Void)?
+    var onPINAccepted: ((DeviceHandle, String) -> Void)?
+    var onBatteryLevel: ((DeviceHandle, Int?) -> Void)?
+    var onFace: ((DeviceHandle, Int?) -> Void)?
+    var onDeviceName: ((DeviceHandle, String) -> Void)?
+    var onCubeStatus: ((DeviceHandle, DeviceCommandRules.Status?) -> Void)?
+    var onSystemState: ((DeviceHandle, DeviceSystemStateRules.State) -> Void)?
+    var onDoubleTapParameters: ((DeviceHandle, DoubleTapParameters) -> Void)?
+    var onDeviceInfo: ((DeviceHandle, DeviceInfo) -> Void)?
     /// The characteristics are discovered and the cube can be asked things. What the history fetch waits for.
-    var onCubeReady: ((UUID) -> Void)?
+    var onCubeReady: ((DeviceHandle) -> Void)?
     /// The login has finished asking its own questions, so a command sent now is not writing over one.
-    var onCubeSettled: ((UUID) -> Void)?
+    var onCubeSettled: ((DeviceHandle) -> Void)?
 
     // MARK: - the timings
 
@@ -83,7 +83,7 @@ final class BlueZCubeRadio: CubeRadio {
         }
     }
 
-    private(set) var connectedDevice: UUID?
+    private(set) var connectedDevice: DeviceHandle?
 
     var isReachingForCube: Bool { reaching != nil || attempt != nil }
 
@@ -141,20 +141,20 @@ final class BlueZCubeRadio: CubeRadio {
     /// **There is no "the" device here, and that is the point** -- see this type's own note. `preferred` is a hint
     /// and never a gate: worth trying first when it turns up, worth nothing when it does not.
     private struct Reach {
-        let preferred: UUID?
+        let preferred: DeviceHandle?
         let candidates: [String]
         let rotatingTo: String?
         let remembered: String?
         let previouslyKnown: String?
-        var queue: [UUID] = []
-        var tried: Set<UUID> = []
+        var queue: [DeviceHandle] = []
+        var tried: Set<DeviceHandle> = []
         /// Whether anything refused a PIN, which is what tells "nothing was in range" from "none of them was ours".
         var anyRefused = false
     }
 
     /// One device being tried, and which of the PINs it is on.
     private struct Attempt {
-        let id: UUID
+        let id: DeviceHandle
         let candidates: [String]
         var index = 0
         var pin: String { candidates.isEmpty ? DeviceLoginRules.defaultPIN : candidates[index] }
@@ -163,7 +163,7 @@ final class BlueZCubeRadio: CubeRadio {
     // MARK: - reaching one
 
     func reach(
-        _ id: UUID,
+        _ id: DeviceHandle,
         presenting candidates: [String],
         rotatingTo: String?,
         remembered: String?,
@@ -407,7 +407,7 @@ final class BlueZCubeRadio: CubeRadio {
         login?.begin()
     }
 
-    private func loginEnded(_ id: UUID, _ outcome: DeviceLoginOutcome) {
+    private func loginEnded(_ id: DeviceHandle, _ outcome: DeviceLoginOutcome) {
         guard outcome != .loggedIn else {
             connectedDevice = id
             reaching = nil
@@ -454,7 +454,7 @@ final class BlueZCubeRadio: CubeRadio {
     /// hear. `BluetoothRadio` does the same and for the same reason. Nothing downstream reads the identifier when
     /// the outcome is not `loggedIn`.
     private func endReach(reporting outcome: DeviceLoginOutcome, because reason: String) {
-        let id = reaching?.preferred ?? UUID()
+        let id = reaching?.preferred ?? DeviceHandle("")
         debugLog?.record(.login, "The reach ended: \(reason)")
         closeTheScan()
         reaching = nil
@@ -462,7 +462,7 @@ final class BlueZCubeRadio: CubeRadio {
         onLoginEnded?(id, outcome)
     }
 
-    private func letGoOfTheLink(_ id: UUID, because reason: String) {
+    private func letGoOfTheLink(_ id: DeviceHandle, because reason: String) {
         login = nil
         try? link.disconnect(id)
         debugLog?.record(.login, "Let go of the link: \(reason)")
@@ -486,7 +486,7 @@ final class BlueZCubeRadio: CubeRadio {
         dropTheLink(id, because: "the cube stopped answering")
     }
 
-    private func dropTheLink(_ id: UUID, because reason: String) {
+    private func dropTheLink(_ id: DeviceHandle, because reason: String) {
         linkPoll?.cancel()
         linkPoll = nil
         connectedDevice = nil
@@ -549,7 +549,7 @@ final class BlueZCubeRadio: CubeRadio {
     }
 
     /// What this app knows about a device it has seen, or a placeholder for one it has not.
-    func device(_ id: UUID) -> ScannedDevice {
+    func device(_ id: DeviceHandle) -> ScannedDevice {
         found.first { $0.id == id }
             ?? ScannedDevice(
                 id: id,
@@ -566,7 +566,7 @@ final class BlueZCubeRadio: CubeRadio {
     /// The judgement is `BatteryRules.shown`'s: this hardware reports a charge that wavers across one percent all
     /// day, so the figure follows the lower of the two until a reading genuinely climbs past it. Every reading,
     /// absorbed or not, is already in the trace as `ble-rx`; a `battery` row means the answer moved.
-    private func received(batteryLevel raw: Int, from id: UUID) {
+    private func received(batteryLevel raw: Int, from id: DeviceHandle) {
         let shown = BatteryRules.shown(batteryPercent, reading: raw)
         guard shown != batteryPercent else { return }
         batteryPercent = shown
@@ -583,7 +583,7 @@ final class BlueZCubeRadio: CubeRadio {
     /// No rule absorbing anything, unlike the charge beside it: a face is one of twelve discrete answers rather
     /// than a noisy measurement. What this does guard against is the read taken when a link comes up naming the
     /// face already on show, which is the ordinary case for a cube nobody has touched since the last connection.
-    private func received(face: Int, from id: UUID) {
+    private func received(face: Int, from id: DeviceHandle) {
         guard face != cubeFace else { return }
         cubeFace = face
         debugLog?.record(.face, "Face \(face) is up")
@@ -591,7 +591,7 @@ final class BlueZCubeRadio: CubeRadio {
     }
 
     /// Files what the cube says about its own condition.
-    private func received(status: DeviceCommandRules.Status, from id: UUID) {
+    private func received(status: DeviceCommandRules.Status, from id: DeviceHandle) {
         guard status != cubeStatus else { return }
         cubeStatus = status
         debugLog?.record(
@@ -625,8 +625,9 @@ final class BlueZCubeRadio: CubeRadio {
 
 /// What `BlueZCubeRadio` needs of BlueZ, and the seam its tests take the place of.
 ///
-/// **Addressed by `UUID` rather than by address or path**, because that is what the app is written in and
-/// `BlueZAddress` makes the mapping reversible in both directions. The one exception is `gatt(for:)`, which takes
+/// **Addressed by `DeviceHandle`, which on this platform holds the device's address verbatim.** The core mints
+/// none of these and reads none of them, so nothing above needs a mapping and there is none: `id.value` is what
+/// BlueZ calls the cube. The one exception is `gatt(for:)`, which takes
 /// the device record it was just handed: the GATT adapter is addressed by object path, and the record is where the
 /// path came from.
 @MainActor
@@ -638,11 +639,11 @@ package protocol BlueZLink: AnyObject {
     /// Everything BlueZ knows, as the values `DeviceScanRules` decides about.
     func scannedDevices() throws -> [ScannedDevice]
     /// What BlueZ currently says about one device, or `nil` if it has never heard of it.
-    func device(_ id: UUID) throws -> BlueZObjectTree.Device?
+    func device(_ id: DeviceHandle) throws -> BlueZObjectTree.Device?
     /// Asks for a link. **Answers as soon as BlueZ has taken the request**: whether the services resolved is a
     /// separate question, asked of `device(_:)` afterwards.
-    func connect(_ id: UUID) throws
-    func disconnect(_ id: UUID) throws
+    func connect(_ id: DeviceHandle) throws
+    func disconnect(_ id: DeviceHandle) throws
     /// A GATT table for a device whose services BlueZ has resolved.
     func gatt(for device: BlueZObjectTree.Device) -> CubeGatt
 }
@@ -667,9 +668,8 @@ package final class BlueZBusLink: BlueZLink {
     package func stopDiscovery() throws { try radio.stopDiscovery() }
     package func scannedDevices() throws -> [ScannedDevice] { try radio.scannedDevices() }
 
-    package func device(_ id: UUID) throws -> BlueZObjectTree.Device? {
-        guard let address = BlueZAddress.address(fromIdentifier: id) else { return nil }
-        return try radio.tree().device(withAddress: address)
+    package func device(_ id: DeviceHandle) throws -> BlueZObjectTree.Device? {
+        try radio.tree().device(withAddress: id.value)
     }
 
     /// **`BlueZRadio.connect` is not used here, and this is the difference.** That method waits for the services to
@@ -681,12 +681,9 @@ package final class BlueZBusLink: BlueZLink {
     /// rather than a hidden one: it is a single round trip in the ordinary case and the D-Bus timeout in the worst.
     /// Making it asynchronous means matching replies by serial inside `SystemBus`, which is worth doing and is not
     /// what this item is.
-    package func connect(_ id: UUID) throws {
-        guard let address = BlueZAddress.address(fromIdentifier: id) else {
-            throw BlueZRadio.Failure.notFound(id.uuidString)
-        }
-        guard let device = try radio.tree().device(withAddress: address) else {
-            throw BlueZRadio.Failure.notFound(address)
+    package func connect(_ id: DeviceHandle) throws {
+        guard let device = try radio.tree().device(withAddress: id.value) else {
+            throw BlueZRadio.Failure.notFound(id.value)
         }
         guard !device.isConnected else { return }
         try bus.call(
@@ -696,9 +693,8 @@ package final class BlueZBusLink: BlueZLink {
         )
     }
 
-    package func disconnect(_ id: UUID) throws {
-        guard let address = BlueZAddress.address(fromIdentifier: id) else { return }
-        try radio.disconnect(address: address)
+    package func disconnect(_ id: DeviceHandle) throws {
+        try radio.disconnect(address: id.value)
     }
 
     package func gatt(for device: BlueZObjectTree.Device) -> CubeGatt {

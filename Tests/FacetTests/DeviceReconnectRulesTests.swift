@@ -122,8 +122,8 @@ final class DeviceReconnectRulesTests: XCTestCase {
     // MARK: - which cube
 
     func testTheStoredUUIDIsTheDeviceToReach() {
-        let id = UUID()
-        XCTAssertEqual(DeviceReconnectRules.target(from: id.uuidString), id)
+        let id = DeviceHandle(UUID().uuidString)
+        XCTAssertEqual(DeviceReconnectRules.target(from: id.value), id)
     }
 
     func testARowThatNamesNoDeviceIsNothingToReachFor() {
@@ -132,10 +132,21 @@ final class DeviceReconnectRulesTests: XCTestCase {
         XCTAssertNil(DeviceReconnectRules.target(from: nil))
     }
 
-    func testAMalformedUUIDIsNotGuessedAt() {
-        // `paired` true beside an unparseable uuid is a half-landed write or a hand-edited database. There is no device
-        // here, and scanning for ever for one nothing could connect to is worse than saying so.
-        XCTAssertNil(DeviceReconnectRules.target(from: "not-a-uuid"))
-        XCTAssertNil(DeviceReconnectRules.target(from: "6B29FC40-CA47-1067-B31D"))
+    func testTheShapeOfAHandleIsNotThisFilesBusiness() {
+        // **This used to assert the opposite**, that an unparseable value answered `nil`, back when the row was a
+        // `UUID`. It cannot any more and should not: CoreBluetooth mints one shape and BlueZ another, so a core
+        // rule deciding what a handle looks like would be the circle knowing which square it is attached to.
+        //
+        // **It gave up less than it appears to.** The handle orders the reach list rather than choosing from it
+        // (`BluetoothRadio.reach`), because no identifier this app can see is unique to a cube -- what identifies
+        // this app's cube is the PIN it set on it. So a handle that resolves to nothing costs a preference and not
+        // an attempt, and the adapter refuses it where it is meaningful to: `BluetoothRadio.connect` logs that it
+        // was asked for a device this scan did not find, and does nothing.
+        XCTAssertEqual(DeviceReconnectRules.target(from: "not-a-uuid"), DeviceHandle("not-a-uuid"))
+        XCTAssertEqual(
+            DeviceReconnectRules.target(from: "E8:DB:D8:CF:F9:0F"),
+            DeviceHandle("E8:DB:D8:CF:F9:0F"),
+            "which is what BlueZ calls a cube, and is the reason this stopped checking"
+        )
     }
 }

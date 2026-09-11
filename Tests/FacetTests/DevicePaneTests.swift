@@ -27,7 +27,7 @@ final class DevicePaneTests: XCTestCase {
 
     /// A scan result's row. It is a button rather than a label, the whole row being the way to reach the device, so
     /// its name is a title and not a value.
-    private func deviceRow(_ id: UUID, in pane: DevicePane) -> NSButton? {
+    private func deviceRow(_ id: DeviceHandle, in pane: DevicePane) -> NSButton? {
         descendants(of: pane).compactMap { $0 as? NSButton }
             .first { $0.accessibilityIdentifier() == DevicePane.Identifier.scanResult(id) }
     }
@@ -155,7 +155,7 @@ final class DevicePaneTests: XCTestCase {
     func testTheFoundDevicesAreDrawnUnderTheButton() {
         let pane = DevicePane()
         let cube = ScannedDevice(
-            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!,
+            id: DeviceHandle("00000000-0000-0000-0000-0000000000AA"),
             peripheralName: "Hazza cuber", advertisedName: "TimeFlip v2.0", advertisesTimeFlipService: false
         )
 
@@ -173,7 +173,7 @@ final class DevicePaneTests: XCTestCase {
         // result had been made to look like a settings row. It is a list item: the name appears once, on the left.
         let pane = DevicePane()
         let cube = ScannedDevice(
-            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!,
+            id: DeviceHandle("00000000-0000-0000-0000-0000000000AA"),
             peripheralName: "TimeFlip v2.0", advertisedName: "TimeFlip v2.0", advertisesTimeFlipService: false
         )
 
@@ -195,11 +195,11 @@ final class DevicePaneTests: XCTestCase {
         // cannot linger because nothing here remembers it.
         let pane = DevicePane()
         let first = ScannedDevice(
-            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!,
+            id: DeviceHandle("00000000-0000-0000-0000-0000000000AA"),
             peripheralName: "One", advertisedName: nil, advertisesTimeFlipService: false
         )
         let second = ScannedDevice(
-            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000BB")!,
+            id: DeviceHandle("00000000-0000-0000-0000-0000000000BB"),
             peripheralName: "Two", advertisedName: nil, advertisesTimeFlipService: false
         )
 
@@ -218,14 +218,14 @@ final class DevicePaneTests: XCTestCase {
         // triangle-versus-heading mistake `CLAUDE.md` describes.
         let pane = DevicePane()
         let first = ScannedDevice(
-            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!,
+            id: DeviceHandle("00000000-0000-0000-0000-0000000000AA"),
             peripheralName: "One", advertisedName: nil, advertisesTimeFlipService: false
         )
         let second = ScannedDevice(
-            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000BB")!,
+            id: DeviceHandle("00000000-0000-0000-0000-0000000000BB"),
             peripheralName: "Two", advertisedName: nil, advertisesTimeFlipService: false
         )
-        var asked: [UUID] = []
+        var asked: [DeviceHandle] = []
         pane.onConnect = { asked.append($0) }
 
         pane.showFound([first, second])
@@ -239,7 +239,7 @@ final class DevicePaneTests: XCTestCase {
         // again. Ignoring that press quietly is what makes a control look broken; the row going dead says so.
         let pane = DevicePane()
         let cube = ScannedDevice(
-            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!,
+            id: DeviceHandle("00000000-0000-0000-0000-0000000000AA"),
             peripheralName: "One", advertisedName: nil, advertisesTimeFlipService: false
         )
         pane.showFound([cube])
@@ -257,7 +257,7 @@ final class DevicePaneTests: XCTestCase {
         // case, and the fix has to be in the redraw rather than in whoever called it.
         let pane = DevicePane()
         let cube = ScannedDevice(
-            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!,
+            id: DeviceHandle("00000000-0000-0000-0000-0000000000AA"),
             peripheralName: "One", advertisedName: nil, advertisesTimeFlipService: false
         )
 
@@ -1411,7 +1411,7 @@ final class DevicePaneTests: XCTestCase {
     func testPairingClearsTheListOfFoundDevices() {
         let pane = DevicePane()
         let cube = ScannedDevice(
-            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!,
+            id: DeviceHandle("00000000-0000-0000-0000-0000000000AA"),
             peripheralName: "Dibby", advertisedName: "TimeFlip v2.0", advertisesTimeFlipService: true
         )
         pane.showFound([cube])
@@ -1429,7 +1429,7 @@ final class DevicePaneTests: XCTestCase {
         // clearing unconditionally would empty the list out from under somebody about to press a row.
         let pane = DevicePane()
         let cube = ScannedDevice(
-            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!,
+            id: DeviceHandle("00000000-0000-0000-0000-0000000000AA"),
             peripheralName: "Dibby", advertisedName: "TimeFlip v2.0", advertisesTimeFlipService: true
         )
         pane.showFound([cube])
@@ -1442,7 +1442,7 @@ final class DevicePaneTests: XCTestCase {
     func testAPairedPaneStaysEmptyAcrossRedraws() {
         let pane = DevicePane()
         let cube = ScannedDevice(
-            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!,
+            id: DeviceHandle("00000000-0000-0000-0000-0000000000AA"),
             peripheralName: "Dibby", advertisedName: "TimeFlip v2.0", advertisesTimeFlipService: true
         )
         pane.showFound([cube])
@@ -1459,7 +1459,7 @@ final class DevicePaneTests: XCTestCase {
         // on behind a pairing would otherwise put the list straight back, under controls with no way to stop it.
         let pane = DevicePane()
         let cube = ScannedDevice(
-            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!,
+            id: DeviceHandle("00000000-0000-0000-0000-0000000000AA"),
             peripheralName: "Dibby", advertisedName: "TimeFlip v2.0", advertisesTimeFlipService: true
         )
         pane.show(paired)

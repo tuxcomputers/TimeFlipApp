@@ -55,7 +55,7 @@ package struct DevicePairingRecorder {
         }
 
         put("paired", "paired", true)
-        put("device_uuid", "uuid", device.id.uuidString)
+        put("device_uuid", "uuid", device.id.value)
 
         // **What the scan heard, weighed against what is on record.** A pairing made straight after a rename is
         // handed the GAP name macOS had cached, which is the name the cube was called *before* it -- so this asks
@@ -91,8 +91,8 @@ package struct DevicePairingRecorder {
         debugLog?.record(
             .pair,
             refused.isEmpty
-                ? "Paired with \(DeviceScanRules.label(for: device)) (\(device.id.uuidString))"
-                : "PAIRING NOT FULLY RECORDED for \(device.id.uuidString) -- "
+                ? "Paired with \(DeviceScanRules.label(for: device)) (\(device.id.value))"
+                : "PAIRING NOT FULLY RECORDED for \(device.id.value) -- "
                     + "the table refused \(refused.joined(separator: ", "))"
         )
         return refused.isEmpty
@@ -115,8 +115,8 @@ package struct DevicePairingRecorder {
         debugLog?.record(
             .pair,
             wrote
-                ? "Reconnected to \(DeviceScanRules.label(for: device)) (\(device.id.uuidString))"
-                : "RECONNECTION NOT RECORDED for \(device.id.uuidString) -- the table refused a write"
+                ? "Reconnected to \(DeviceScanRules.label(for: device)) (\(device.id.value))"
+                : "RECONNECTION NOT RECORDED for \(device.id.value) -- the table refused a write"
         )
         return wrote
     }

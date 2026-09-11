@@ -7,10 +7,14 @@ import Foundation
 /// could only ever be tested by holding a cube. `BluetoothScanner` turns each callback into one of these and asks
 /// the rules; the rules are the part with the reasoning in it.
 package struct ScannedDevice: Equatable, Identifiable {
-    /// The peripheral identifier CoreBluetooth assigns. **This Mac's name for the device, not the device's own**:
-    /// it is stable on this machine and meaningless on any other, which is why `device_uuid` is described the way
-    /// it is in `database/011_setting.sql`.
-    package let id: UUID
+    /// What the adapter that found it calls it, and nothing this file reads. See `DeviceHandle`: CoreBluetooth
+    /// invents a per-host `UUID` and BlueZ answers the device's real address, so the shape is the platform's and
+    /// the meaning is local to the machine that minted it.
+    ///
+    /// **It is a hint rather than an identity.** No identifier this app can see is unique to a cube (finding 8,
+    /// `docs/timeflip2-firmware-observations.md`), so this orders the reach list rather than choosing from it, and
+    /// what actually identifies this app's cube is the PIN it set on it. See `BluetoothRadio.reach`.
+    package let id: DeviceHandle
 
     /// `CBPeripheral.name`, the GAP Device Name. What a rename changes, and what macOS caches.
     package let peripheralName: String?
@@ -23,7 +27,9 @@ package struct ScannedDevice: Equatable, Identifiable {
     package let advertisesTimeFlipService: Bool
 
     /// Memberwise, spelled out because Swift does not widen a synthesised one with its type.
-    package init(id: UUID, peripheralName: String?, advertisedName: String?, advertisesTimeFlipService: Bool) {
+    package init(
+        id: DeviceHandle, peripheralName: String?, advertisedName: String?, advertisesTimeFlipService: Bool
+    ) {
         self.id = id
         self.peripheralName = peripheralName
         self.advertisedName = advertisedName
@@ -120,10 +126,10 @@ package enum DeviceScanRules {
     /// one it wrote last is the one the cube should be answering to.
     package static func reachOrder(
         _ devices: [ScannedDevice],
-        preferring preferred: UUID?,
+        preferring preferred: DeviceHandle?,
         remembered: String?,
         previouslyKnown: String?
-    ) -> [UUID] {
+    ) -> [DeviceHandle] {
         func rank(_ device: ScannedDevice) -> Int {
             if let preferred, device.id == preferred { return 0 }
             if isCalled(device, remembered) { return 1 }
@@ -137,7 +143,7 @@ package enum DeviceScanRules {
                 // dictionary hands its values over in whatever order it likes.
                 let comparison = label(for: first).localizedCaseInsensitiveCompare(label(for: second))
                 if comparison != .orderedSame { return comparison == .orderedAscending }
-                return first.id.uuidString < second.id.uuidString
+                return first.id < second.id
             }
             .map(\.id)
     }
@@ -165,7 +171,7 @@ package enum DeviceScanRules {
             if firstEligible != secondEligible { return firstEligible }
             let comparison = label(for: first).localizedCaseInsensitiveCompare(label(for: second))
             if comparison != .orderedSame { return comparison == .orderedAscending }
-            return first.id.uuidString < second.id.uuidString
+            return first.id < second.id
         }
     }
 }

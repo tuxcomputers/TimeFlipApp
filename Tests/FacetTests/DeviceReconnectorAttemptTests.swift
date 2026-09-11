@@ -26,7 +26,7 @@ final class DeviceReconnectorAttemptTests {
     private let radio = InMemoryCubeRadio()
 
     /// The cube these tests are paired to. Any valid UUID does; what matters is that it parses.
-    private let cube = UUID(uuidString: "0BE1F1CE-0000-4000-8000-000000000001")!
+    private let cube = DeviceHandle("0BE1F1CE-0000-4000-8000-000000000001")
 
     init() throws {
         database = TemporaryDatabase()
@@ -52,9 +52,9 @@ final class DeviceReconnectorAttemptTests {
     }
 
     /// A paired app that knows which cube it has, which is the state every attempt below starts from.
-    private func pair(to id: UUID? = nil, name: String = "Dibby", previously: String = "timeflip") {
+    private func pair(to id: DeviceHandle? = nil, name: String = "Dibby", previously: String = "timeflip") {
         #expect(write("paired", "{\"paired\":true}"))
-        #expect(write("device_uuid", "{\"uuid\":\"\((id ?? cube).uuidString)\"}"))
+        #expect(write("device_uuid", "{\"uuid\":\"\((id ?? cube).value)\"}"))
         #expect(write("device_name", "{\"name\":\"\(name)\",\"previous_name\":\"\(previously)\"}"))
     }
 
@@ -123,14 +123,14 @@ final class DeviceReconnectorAttemptTests {
 
     @Test func testTheDeviceIsReadFromTheTableOnEveryAttempt() {
         // Pairing a different cube redirects the loop, with nothing having to tell it.
-        let other = UUID(uuidString: "0BE1F1CE-0000-4000-8000-000000000002")!
+        let other = DeviceHandle("0BE1F1CE-0000-4000-8000-000000000002")
         pair()
         let loop = reconnector()
 
         loop.attempt()
         #expect(radio.lastReach?.id == cube)
 
-        #expect(write("device_uuid", "{\"uuid\":\"\(other.uuidString)\"}"))
+        #expect(write("device_uuid", "{\"uuid\":\"\(other.value)\"}"))
         loop.attempt()
 
         #expect(radio.lastReach?.id == other, "the attempt should follow the table rather than what it reached before")

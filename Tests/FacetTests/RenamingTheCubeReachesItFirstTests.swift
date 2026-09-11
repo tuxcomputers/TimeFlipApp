@@ -24,7 +24,7 @@ final class RenamingTheCubeReachesItFirstTests: XCTestCase, @unchecked Sendable 
     private var settings: SettingStore!
     private var debugLog: DebugLog!
     /// The cube this app is paired to, as far as the table is concerned.
-    private let cube = UUID(uuidString: "0BE1F1CE-0000-4000-8000-000000000001")!
+    private let cube = DeviceHandle("0BE1F1CE-0000-4000-8000-000000000001")
 
     override func setUpWithError() throws {
         try super.setUpWithError()
@@ -40,7 +40,7 @@ final class RenamingTheCubeReachesItFirstTests: XCTestCase, @unchecked Sendable 
             // artificial -- it is the state between a link going down and the drop being recorded, and what the
             // window does in it is what these tests are about.
             XCTAssertTrue(settings.write("paired", field: "paired", true))
-            XCTAssertTrue(settings.write("device_uuid", field: "uuid", cube.uuidString))
+            XCTAssertTrue(settings.write("device_uuid", field: "uuid", cube.value))
             XCTAssertTrue(settings.write("connection", field: "connected", true))
             XCTAssertTrue(settings.write("device_name", field: "name", "Dibby"))
         }
@@ -200,7 +200,7 @@ final class RenamingTheCubeReachesItFirstTests: XCTestCase, @unchecked Sendable 
 
     /// A cube reporting its own name, which is what `peripheralDidUpdateName(_:)` produces a second or two into a
     /// connection and the only confirmation a rename ever gets.
-    private func reportName(_ name: String, from id: UUID, on radio: BluetoothRadio) {
+    private func reportName(_ name: String, from id: DeviceHandle, on radio: BluetoothRadio) {
         radio.onDeviceName?(id, name)
     }
 
@@ -251,7 +251,7 @@ final class RenamingTheCubeReachesItFirstTests: XCTestCase, @unchecked Sendable 
         let radio = BluetoothRadio(debugLog: nil, scheduler: HandDrivenScheduler())
         window(with: radio)
 
-        reportName("Somebody elses cube", from: UUID(), on: radio)
+        reportName("Somebody elses cube", from: DeviceHandle(UUID().uuidString), on: radio)
 
         XCTAssertEqual(storedName(), "Dibby")
         XCTAssertEqual(rows(matching: "Ignoring the name Somebody elses cube%"), 1)

@@ -76,7 +76,8 @@ struct PlatformBlindCoreTests {
     ///   it belongs to, and this cannot until it is split in two.
     ///
     /// **The BlueZ transport came off on 2026-09-10**, six files to `FacetLinux`: `SystemBus`, `BlueZRadio`,
-    /// `BlueZGatt`, `DBusValue`, `BlueZObjectTree` and `BlueZAddress`. They were moved and not altered, which was
+    /// `BlueZGatt`, `DBusValue`, `BlueZObjectTree` and `BlueZAddress` (the last of which is gone entirely since
+    /// 2026-09-11, `DeviceHandle` having removed the reason for it). They were moved and not altered, which was
     /// the instruction, the only change being the `import FacetCore` four of them need to see types they use from
     /// outside it now. The allowlist said this was blocked on the radio port existing. It was not: the port is
     /// what a *second* adapter needs, and putting an adapter in its own target needs nothing but the move.
