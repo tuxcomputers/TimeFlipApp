@@ -2788,39 +2788,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// So a launch that inherits a paused session can resume it, which an in-memory flag could not -- a new launch
     /// started that flag empty, and the toggle refused, leaving a category on show that could not be started.
     func togglePause() {
-        // Read before anything is written, since it is what decides which of the two this is.
-        let before = timing?.read() ?? .idle
-        // Nothing being timed means no clock and no row, so there is nothing here to stop or start. The same
-        // question the dropdown's Pause item and the status item's right side ask, and the same answer.
-        // **The refusal itself.** Every path in -- the dropdown item, the status item's right half, the Timing
-        // column's glyph -- lands here, so a limit that stopped the clock cannot be undone by finding another
-        // button. The two controls also grey themselves, but that is the courtesy; this is the enforcement.
-        guard ManualTimerRules.isClickable(before.timingState, isLimitReached: isLimitReached()) else {
-            debugLog?.record(
-                .limit,
-                "Resume refused, \(before.category?.name ?? "nothing") has spent its daily limit"
-            )
-            return
-        }
-        // One moment for both halves, so the segment that ends and the one that begins meet exactly.
-        let moment = Date()
-        if before.timingState == .running {
-            deviceEvents?.closeOpenSegment(at: moment)
-        } else {
-            // The same face the paused stretch was on, not the next one, and nothing is written to it. Rotating
-            // exists to stop a face's category changing under a finished segment, and resuming does not change
-            // it: this is the same category continuing. Reusing the face is therefore safe, and it keeps a
-            // pause-heavy session from cycling the pool for no reason.
-            deviceEvents?.startSegment(face: currentManualFace(), at: moment)
-        }
-        // Read back rather than assumed, which is the rule applied to the app's own writes as well as to what it
-        // shows: this says what the table now holds, so a write that did not take says so here.
-        let after = timing?.read() ?? .idle
-        debugLog?.record(
-            .mode,
-            "Timing: \(after.timingState == .running ? "running" : "stopped") "
-                + "\(after.category?.name ?? "nothing"), \(Int(after.seconds))s today"
-        )
+        // **The decision is `ManualClock`'s and the drawing is this one's.** Three controls reach it, one of
+        // them with no window on screen at all, so what it decides is not a window's to own.
+        guard let after = ManualClock.toggle(
+            timing: timing,
+            events: deviceEvents,
+            isLimitReached: isLimitReached(),
+            debugLog: debugLog
+        ) else { return }
         draw(after)
         redrawTotals()
         onTimingChanged?()
