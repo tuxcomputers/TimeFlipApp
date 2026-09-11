@@ -3,8 +3,19 @@ import FacetCore
 
 /// The Settings window: one tab per `SettingsTab`, each pane empty.
 ///
-/// Owns the window and nothing else. Which tabs exist is `SettingsTab`'s business, and what goes in
-/// them is each pane's, once there is anything to put there.
+/// **"Owns the window and nothing else" is what this used to say, and it was not true.** It is kept above the
+/// sections below because the gap between the sentence and the file is the point. It also owns every write of
+/// device and pairing state in the app, ten of the radio's callbacks, the whole Google account and calendar
+/// lifecycle, `togglePause` that the status item calls, and the radio itself when nobody hands one over.
+/// `docs/architecture-review-2026-09.md` candidate 8 is the argument for taking those out and the direction is
+/// not settled, so this says what is here rather than pretending.
+///
+/// **The sections are the seams somebody would cut along**, added 2026-09-11 before any of them is cut. They
+/// are marks and nothing more: no member moved and no access level changed, because splitting a Swift type
+/// across files turns every crossed `private` into `internal`, and that is a real cost to pay deliberately
+/// rather than as a side effect of tidying.
+///
+/// Which tabs exist is `SettingsTab`'s business, and what goes in them is each pane's.
 @MainActor
 final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDelegate {
     /// Accessibility identifiers for the parts a script needs to address. The tabs themselves are
@@ -263,6 +274,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// applied literally (see `CLAUDE.md`): the values a window shows are read when it is about to show
     /// them, so closing and reopening it, or leaving a tab and coming back, reads the table again rather
     /// than redrawing what was true the first time.
+    // MARK: - Reading the tables into the panes
+
     private func reloadSelectedPane() {
         // Only the pane on show is read. The others are read when they are switched to, which is the same rule
         // applied one level down: a tab nobody is looking at has no values worth having.
@@ -387,6 +400,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// The rows themselves are wired where the window reads the settings, not here. What this adds is the same thing
     /// `makeDevicePane` adds, for the same reason: a fold is a gesture nothing stores, so the `debug_log` row is the
     /// only record that it happened and the only way a scripted check can see one.
+    // MARK: - Building each pane and wiring what it reports
+
     private func makeAppPane() -> AppSettingsPane {
         let pane = AppSettingsPane()
         pane.onSectionToggle = { [weak self] identifier, isExpanded in
@@ -502,6 +517,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// **Checked by reading it back** (`SettingStore.write`), and put back with an alert if the table refused: a box
     /// left ticked while the table says otherwise is the two-answers problem the first rule in `CLAUDE.md` is about,
     /// and this one would be found out at the next lock rather than on screen.
+    // MARK: - The Device tab: settings written to the cube and the table
+
     private func applyPauseOnLock(_ pausesOnLock: Bool, on pane: DevicePane) {
         let outcome = DeviceSettingWrite.record(
             "Pause on lock",
@@ -1056,6 +1073,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// **The scanner outlives the pane and the pane does not own it.** Panes are rebuilt as tabs are switched, and a
     /// scanner rebuilt with them would drop the manager mid-scan and start the system's Bluetooth prompt again. So it
     /// is made once, lazily, and told where to draw.
+    // MARK: - The Device tab: finding a cube, pairing with it and following it
+
     private func wireScan(on pane: DevicePane) {
         let scanner = deviceRadio()
         pane.onScan = { [weak self] includeEverything in
@@ -1477,6 +1496,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     }
 
     /// Points the App tab's rows at the table they write to.
+    // MARK: - The App tab: preferences and the debug trace
+
     private func wire(_ pane: AppSettingsPane) {
         pane.onChange = { [weak self, weak pane] change in
             guard let pane else { return }
@@ -1754,6 +1775,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// **The refresh token is stored before the identity.** If the token cannot be saved there is no usable
     /// connection, and writing a name and an email first would leave the section saying "Connected" over a Keychain
     /// with nothing in it -- an app that believes it is signed in and cannot act.
+    // MARK: - The App tab: the Google account and its calendar
+
     private func signInToGoogle(from pane: AppSettingsPane, using settings: SettingStore) {
         guard let credentials = GoogleCredentials.resolve() else {
             showGoogleFailed(GoogleOAuthRules.Failure.noCredentials)
@@ -2203,6 +2226,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// screen and re-reading would only rebuild the row -- taking the field out from under whoever is still typing in
     /// it. Retiring is different in kind: it changes *which* rows belong in the list, so the list is read again and
     /// the row leaves because the table no longer calls it active.
+    // MARK: - The Categories tab
+
     private func wire(_ pane: CategoriesPane) {
         pane.activeTable.facesHolding = { [weak self] category in
             self?.faces?.facesHolding(categoryID: category.id) ?? []
@@ -2542,6 +2567,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     }
 
     /// Starts or stops the once-a-second repaint, from one answer, so no caller has to remember both halves.
+    // MARK: - The Faces tab: the clock, the face and what it is timing
+
     private func keepTicking(_ shouldTick: Bool) {
         if shouldTick {
             startTicking()
@@ -2870,6 +2897,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     ///
     /// **Found by walking the tree rather than by a list kept here**, so this stays true of every collapsible group
     /// the app grows instead of the three it had when it was written. See `CollapsibleSection`.
+    // MARK: - The window itself: chrome, the tab bar and the panes it holds
+
     private func restoreDefaultSectionStates() {
         for item in panes.tabViewItems {
             guard let view = item.view else { continue }
@@ -3288,6 +3317,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// different because the tabs are asking different things. Typing a name on the Categories tab is maintaining a
     /// list; typing one on the Faces tab is saying what you are doing now, and making somebody create a category and
     /// then click the row they just made is asking them to say it twice.
+    // MARK: - Creating a category, which both tabs that can do it come through
+
     private func wire(_ control: CategoryCreateControl, startsTiming: Bool = false) {
         control.onSave = { [weak self, weak control] typed in
             guard let control else { return }
