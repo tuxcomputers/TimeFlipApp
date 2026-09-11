@@ -62,6 +62,24 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
 
     /// Where a question or a notice goes. `Dialogue` values are decided in `FacetCore` and this turns them
     /// into sheets, which is the whole of what a Mac contributes to asking somebody something.
+    /// The app's half of everything the radio reports: the rotated PIN, the pairing rows, the reconnect loop's
+    /// feedback and the low-battery warning.
+    ///
+    /// **Built here because this is what owns the radio's callback slots**, and handed what it needs rather than
+    /// reaching for it: `changed` is the pane redraw, so a report with nobody looking records and draws nothing.
+    /// `reconnect` and `lowBattery` are forwarded from this controller's own, which `main.swift` sets.
+    private lazy var reports: CubeReports = {
+        let made = CubeReports(settings: settings, devicePINs: devicePINs, debugLog: debugLog)
+        made.dialogues = dialogues
+        made.reconnect = reconnect
+        made.lowBattery = lowBattery
+        made.changed = { [weak self] in
+            guard let self else { return }
+            devicePane?.show(deviceSettings())
+        }
+        return made
+    }()
+
     /// How this window asks and tells. **Settable, so a test can hand over `RecordingDialogues`**, which is the
     /// same shape `isOnScreen` uses and for a sharper reason: the default builds a real `AlertPresenter`, and a
     /// headless suite that reached a modal alert would block until somebody pressed a button that is not there.
@@ -1026,22 +1044,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         ))
     }
 
-    /// What a PIN that reached the cube and nowhere else says.
-    ///
-    /// **The one fault on this tab the app cannot put right by trying again**, which is why it is an alert and not
-    /// a log row: the cube is on a PIN this app asked for and could not write down, so the next attempt presents the
-    /// vendor default and whatever it used to hold, and neither is right. The recovery is the vendor's own -- the
-    /// batteries -- and it is worth stating plainly, since nothing on screen would otherwise suggest it.
-    private func showPINNotRecorded() {
-        dialogues.tell(Dialogue(
-            title: "The TimeFlip PIN could not be saved",
-            message: "The device has been given a new PIN, and neither the Keychain nor this app's "
-                + "config file would take a copy of it -- so Facet cannot log in to it again.\n\n"
-                + "Take the batteries out of the TimeFlip and put them back. That returns it to its factory PIN, "
-                + "and pairing again will set a new one.",
-            isWarning: true
-        ))
-    }
 
     private func showRefusedByTheCube(_ what: String) {
         dialogues.tell(Dialogue(
@@ -1222,16 +1224,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // (`DeviceLogin.confirmationAnswered`), so a failure here is the app losing a PIN the cube already has rather
         // than a change that did not happen. That is the one fault this app cannot put right on its own, which is
         // why the PIN is offered to two stores before it is given up on, and why the user is told when both refuse.
-        radio.onPINChanged = { [weak self] pin in
-            guard let self else { return }
-            // The write happens on its own line rather than inside a logging call: `debugLog?.record(...)` is
-            // optional chaining, so with no logger its argument is never evaluated and the PIN would go unrecorded in
-            // exactly the build that has no log to notice.
-            guard let devicePINs = self.devicePINs else { return }
-            let recorded = DevicePINSource(keychain: devicePINs, debugLog: self.debugLog).record(pin)
-            guard !recorded.isRecorded else { return }
-            self.showPINNotRecorded()
-        }
+        // **The app's half of all of these is `CubeReports`', and this is where the two meet.** A radio
+        // callback is one slot, so a window and the app cannot each register for it; the window owns the slot
+        // and hands the app-side on, which keeps the ordering explicit at the one place that knows both.
+        radio.onPINChanged = { [weak self] pin in self?.reports.pinChanged(to: pin) }
         radio.onLoginBegan = { [weak self, weak radio] id in
             guard let self, let radio else { return }
             self.devicePane?.showReaching(true)
@@ -1241,78 +1237,24 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             guard let self, let radio else { return }
             self.devicePane?.showReaching(false)
             self.devicePane?.showScanMessage(outcome.message(for: radio.label(for: id)))
-            // **Told either way, and before the recording.** A failure is what starts the next attempt, so the loop has
-            // to hear about the ones that did not work -- that is the whole of what backing off is.
-            self.reconnect?.noteOutcome(outcome)
-            // **Only a login that got all the way through writes anything.** A refused PIN, a device that turned out
-            // not to be a TimeFlip and a cube that stopped answering all leave the table exactly as it was: the app
-            // does not know which cube it was talking to, or knows it cannot open it, and a `paired` row written
-            // anyway would send the next launch looking for a device it cannot log into.
-            guard outcome == .loggedIn else { return }
-            self.recordConnected(on: self.devicePane, with: radio.device(id))
+            self.reports.loginEnded(outcome, with: outcome == .loggedIn ? radio.device(id) : nil)
         }
-        // **Its own callback, arriving after the pairing rather than with it.** The four Device Information reads run
-        // once the login is over and take a moment; the tab is already showing a paired, connected cube by the time
-        // they land, and this fills the More rows in when they do.
-        radio.onDeviceInfo = { [weak self] _, info in
-            self?.recordDeviceInfo(on: self?.devicePane, info)
-        }
+        // **Its own callback, arriving after the pairing rather than with it.** The four Device Information reads
+        // run once the login is over and take a moment; the tab is already showing a paired, connected cube by the
+        // time they land, and this fills the More rows in when they do.
+        radio.onDeviceInfo = { [weak self] _, info in self?.reports.deviceInfoArrived(info) }
         // **The one confirmation a rename ever gets**, arriving a second or two into a connection: `0x15` has no
         // answer of its own, and macOS re-reads the GAP name only on connecting. It is also what notices a cube
         // renamed in the vendor's app, and what corrects the name a pairing adopted from a stale cache.
-        radio.onDeviceName = { [weak self] id, name in
-            guard let self else { return }
-            // **Only for the cube this app is paired to**, read from the table at this moment. Every connection
-            // reports a name, including the one that proves a factory reset and any made to a device that turns out
-            // to be somebody else's -- and writing one of those into `device_name` would rename the pairing after a
-            // cube it is not to.
-            guard self.settings?.string("device_uuid", field: "uuid") == id.value else {
-                self.debugLog?.record(.pair, "Ignoring the name \(name): it is not the cube this app is paired to")
-                return
-            }
-            // **A report is not automatically newer than what is on record**, and the one case where it is older is
-            // the one that matters here: macOS re-reads the GAP name only on connecting, so the connection after a
-            // rename can still be handing out the name the cube was renamed away from. Adopting that would undo the
-            // rename on the tab and in the row the scan filter is built from, and put it back a connection later.
-            switch DevicePairingRules.adoption(
-                of: name,
-                current: self.settings?.string("device_name", field: "name"),
-                previouslyKnown: self.settings?.string("device_name", field: "previous_name")
-            ) {
-            case .unchanged:
-                return
-            case .stale:
-                self.debugLog?.record(
-                    .pair,
-                    "The cube reports the name it had before the rename, which macOS is a connection behind on, so the record stands"
-                )
-                return
-            case .adopt:
-                break
-            }
-            guard self.recordDeviceName(name, because: "the cube said so on connecting") else { return }
-            self.devicePane?.show(self.deviceSettings())
-        }
-        // **Nothing is written down**, which makes this the one radio callback that files nothing: the charge has no
-        // row and is not going to get one (see `deviceSettings`). What it does is tell the warning to think again --
-        // which happens whether or not anybody has this window open, because the flash the warning drives is in the
-        // menu bar -- and then redraw the tab if somebody is looking.
-        radio.onBatteryLevel = { [weak self] _, _ in
-            guard let self else { return }
-            self.lowBattery?.reconsider(because: "a charge arrived")
-            self.devicePane?.show(self.deviceSettings())
-        }
+        radio.onDeviceName = { [weak self] id, name in self?.reports.nameArrived(name, from: id) }
+        radio.onBatteryLevel = { [weak self] _, _ in self?.reports.chargeArrived() }
         radio.onConnectionDropped = { [weak self, weak radio] id in
             guard let self, let radio else { return }
-            // **Said, rather than left to the list going quiet.** A connection that ends by itself -- the cube out of
-            // range, or its batteries out -- is the one the user did not ask for, and the tab would otherwise go on
-            // reading "Connected" for the rest of the session.
+            // **Said, rather than left to the list going quiet.** A connection that ends by itself -- the cube out
+            // of range, or its batteries out -- is the one the user did not ask for, and the tab would otherwise go
+            // on reading "Connected" for the rest of the session.
             self.devicePane?.showScanMessage("The connection to \(radio.label(for: id)) dropped.")
-            self.markConnectionDown(on: self.devicePane, because: "the connection to \(radio.label(for: id)) dropped")
-            // **After the row is down, not before.** The loop's first act is to ask whether the app is already
-            // connected, and it reads that from the radio -- but the row is what the tab draws, and a reconnect that
-            // succeeded before the drop was written down would leave `connected` false under a live link.
-            self.reconnect?.noteDropped()
+            self.reports.connectionDropped(because: "the connection to \(radio.label(for: id)) dropped")
         }
     }
 
@@ -1325,51 +1267,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         devicePane?.showLowBattery(lowBattery?.alert ?? .none)
     }
 
-    /// Writes a confirmed pairing down and puts what the table now says back on the tab.
-    ///
-    /// **The tab is redrawn from the table, not from what was just written**, which is `CLAUDE.md`'s rule about
-    /// reading back after a write: `deviceSettings()` re-reads every row, so a write the table refused shows on
-    /// screen as the row it actually holds rather than as the value the app hoped for.
-    ///
-    /// **Manual mode goes off here**, in front of the redraw, because it is read by the same `deviceSettings()` call
-    /// and it outranks the pairing in what the Connection row says. The app now has a cube to follow; it stops being
-    /// an app timing by hand at the moment one is paired, not at the next launch.
-    /// Writes down a confirmed login, as either a new pairing or a reconnection to the one already on record.
-    ///
-    /// **The table is what decides which, read here.** The two are the same event on the radio -- a PIN accepted by a
-    /// cube -- and different claims about the app: pairing gains a device, reconnecting reaches the device it already
-    /// has. Asking `paired` and `device_uuid` at this moment is the only way to tell them apart, and it is the honest
-    /// way round: a login to the cube named in `device_uuid` cannot be a new pairing, whoever started it, and a login to
-    /// any other cube is a pairing even if the user got there from a tab that already showed one.
-    private func recordConnected(on pane: DevicePane?, with device: ScannedDevice) {
-        guard let settings else { return }
-        let alreadyPaired = settings.flag("paired", field: "paired") == true
-            && settings.string("device_uuid", field: "uuid") == device.id.value
-        guard alreadyPaired else {
-            recordPairing(on: pane, with: device)
-            return
-        }
-        DevicePairingRecorder(settings: settings, debugLog: debugLog).recordReconnection(with: device)
-        pane?.show(deviceSettings())
-    }
 
-    /// The pane is optional because a login is not always something somebody is watching: a paired app reaches its cube
-    /// at launch with no window open, and the row is what the next open reads.
-    private func recordPairing(on pane: DevicePane?, with device: ScannedDevice) {
-        guard let settings else { return }
-        DevicePairingRecorder(settings: settings, debugLog: debugLog).recordPairing(with: device)
-        pane?.show(deviceSettings())
-        // **What the app is doing has just changed, and only this says so.** Timing by hand is what being unpaired
-        // means, so writing `paired` is what makes this app follow a cube -- every reader works that out for itself
-        // the next time it asks. The menu bar is the one that would not: it repaints on a tick that only runs while
-        // something is being timed, so a cube paired while nothing was running would leave the item drawn for an app
-        // with no device until something else happened to redraw it. That staleness is the whole of what the
-        // switching used to cost, and it is a redraw rather than a second copy of the answer.
-        //
-        // The same funnel also puts the history timer and the daily-limit watch back on their feet, which a launch
-        // that has just gained a cube to follow needs and an unpaired one had stood down.
-        onTimingChanged?()
-    }
 
     /// Forgets the device and puts what the table now says back on the tab.
     ///
@@ -1422,19 +1320,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         pane.show(deviceSettings())
     }
 
-    /// Writes down what the cube says it is, and puts what the table now says back on the tab.
-    ///
-    /// **Redrawn from the table like every other write here**, so a field the table refused shows on screen as the
-    /// value it actually holds. The pane is optional for the same reason `markConnectionDown`'s is: these reads land
-    /// seconds after the login, and the window may have been closed in between -- the row is what the next open reads.
-    private func recordDeviceInfo(on pane: DevicePane?, _ info: DeviceInfo) {
-        guard let settings else { return }
-        DevicePairingRecorder(settings: settings, debugLog: debugLog).recordInfo(info)
-        pane?.show(deviceSettings())
-    }
 
     /// Marks the connection down and redraws, for every way a link ends: the cube going away, another device being
     /// chosen, and the window that owns the link closing.
+    /// **Survives the move to `CubeReports` because it is the deliberate case.** That module's
+    /// `connectionDropped` tells the reconnect loop to back off, which is right for a link that ended by itself
+    /// and wrong for one this app let go of on purpose: choosing another device is not the cube going away, and
+    /// a loop told otherwise would start reaching for a cube nobody asked it to.
     private func markConnectionDown(on pane: DevicePane?, because reason: String) {
         guard let settings else { return }
         DevicePairingRecorder(settings: settings, debugLog: debugLog).recordConnectionLost(because: reason)
