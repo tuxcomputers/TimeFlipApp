@@ -56,4 +56,44 @@ package enum CubePauseState: Equatable {
         case nil: self = .unknown
         }
     }
+
+    /// The SF Symbol drawn for this state, and `nil` for a cube that has not said. `ManualTimerRules.symbolName`
+    /// is the same idea for the app's own clock, and this is the cube's.
+    ///
+    /// **One answer, because it was two.** `StatusItemTitle` and `TimingView` each held this switch, identically,
+    /// which is the hazard `docs/state-reference.md` opens with: one fact asked in two places, taught something
+    /// in one of them, and nothing failing when they part. The menu bar and the Faces tab draw the same cube.
+    ///
+    /// **Nothing for `unknown`, deliberately.** A glyph for "we have not asked" would be a picture of a cube
+    /// doing something, and it is not doing anything we know about.
+    package var symbolName: String? {
+        switch self {
+        case .unknown: return nil
+        case .paused: return "pause.fill"
+        case .running: return "play.fill"
+        }
+    }
+
+    /// What this state is called out loud, standalone: an accessibility label on its own control.
+    ///
+    /// **Capitalised, and its lowercase twin is below**, because the two are read in different places and only
+    /// one of them starts a sentence. `Tests/Scripted/57-cube-pause` matches on this one, which makes the
+    /// wording interface rather than decoration.
+    package var spokenLabel: String? {
+        switch self {
+        case .unknown: return nil
+        case .paused: return "Device paused"
+        case .running: return "Device running"
+        }
+    }
+
+    /// The same fact as a fragment inside a longer spoken line, which is what the menu bar builds: the status
+    /// item's description is several of these joined, so this one does not start with a capital.
+    package var spokenFragment: String? {
+        switch self {
+        case .unknown: return nil
+        case .paused: return "device paused"
+        case .running: return "device running"
+        }
+    }
 }
