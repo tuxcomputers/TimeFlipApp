@@ -53,6 +53,9 @@ final class CreateStartsTimingTests: XCTestCase, @unchecked Sendable {
                 settings: settings,
                 isManualMode: { settings.flag("paired", field: "paired") != true }
             )
+            // A recorder, not the real presenter: the default builds an `AlertPresenter`, and an alert
+            // raised with no window on screen runs modal and would block a headless suite for ever.
+            controller.dialogues = RecordingDialogues()
         }
     }
 

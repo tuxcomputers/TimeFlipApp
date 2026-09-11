@@ -15,7 +15,11 @@ import XCTest
 @MainActor
 final class SettingsWindowControllerTests: XCTestCase {
     private func controller() -> SettingsWindowController {
-        SettingsWindowController(debugLog: nil, categories: nil, faces: nil)
+        let made = SettingsWindowController(debugLog: nil, categories: nil, faces: nil)
+        // A recorder, not the real presenter: the default builds an `AlertPresenter`, and an alert raised
+        // with no window on screen runs modal and would block a headless suite for ever.
+        made.dialogues = RecordingDialogues()
+        return made
     }
 
     /// The App tab's pane, whichever tab is on show. Found the way the controller finds it.

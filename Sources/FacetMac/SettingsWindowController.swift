@@ -62,7 +62,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
 
     /// Where a question or a notice goes. `Dialogue` values are decided in `FacetCore` and this turns them
     /// into sheets, which is the whole of what a Mac contributes to asking somebody something.
-    private lazy var dialogues: DialoguePresenter = AlertPresenter(window: window, debugLog: debugLog)
+    /// How this window asks and tells. **Settable, so a test can hand over `RecordingDialogues`**, which is the
+    /// same shape `isOnScreen` uses and for a sharper reason: the default builds a real `AlertPresenter`, and a
+    /// headless suite that reached a modal alert would block until somebody pressed a button that is not there.
+    /// Assign before anything raises a dialogue; a `lazy var` set first is simply set.
+    lazy var dialogues: DialoguePresenter = AlertPresenter(window: window, debugLog: debugLog)
 
     /// `nil` in a build without the dev flag.
     /// Where the Google refresh token and the cube's PIN are kept.

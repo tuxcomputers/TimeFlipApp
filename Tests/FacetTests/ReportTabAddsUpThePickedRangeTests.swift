@@ -36,6 +36,9 @@ final class ReportTabAddsUpThePickedRangeTests: XCTestCase, @unchecked Sendable 
                 entries: TimeEntryStore(connection: connection),
                 settings: settings
             )
+            // A recorder, not the real presenter: the default builds an `AlertPresenter`, and an alert
+            // raised with no window on screen runs modal and would block a headless suite for ever.
+            controller.dialogues = RecordingDialogues()
         }
     }
 

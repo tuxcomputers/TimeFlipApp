@@ -60,7 +60,13 @@ final class AlertPresenter: DialoguePresenter {
             }
         }
 
-        guard let window else {
+        // **Visible, not merely present**, and the difference was a bug. `SettingsWindowController` builds its
+        // `dialogues` from a `lazy var window`, so asking it anything constructs the window -- and constructing
+        // it does not show it, `makeWindow` only centring it. A sheet begun on a window nobody has opened is
+        // never drawn and its completion never runs, so an alert raised with Settings shut was silent. The one
+        // that can reach here is `showPINNotRecorded`, during a background login that rotates the PIN and
+        // cannot write it down, which the app itself calls the one fault it cannot put right on its own.
+        guard let window, window.isVisible else {
             // **Modal, and answered before this returns.** The app has nothing else on screen to interact
             // with, and somebody who starts the app and walks away has to find the question exactly where they
             // left it rather than a launch that quietly carried on.

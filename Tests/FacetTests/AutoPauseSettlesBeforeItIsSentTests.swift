@@ -66,9 +66,13 @@ final class AutoPauseSettlesBeforeItIsSentTests: XCTestCase, @unchecked Sendable
     /// wired (`deviceRadio`), so there is no such thing as a window without one here; passing it in is only what
     /// makes that visible at the top of each test.
     private func window() -> SettingsWindowController {
-        SettingsWindowController(
+        let made = SettingsWindowController(
             debugLog: debugLog, categories: nil, faces: nil, settings: settings, radio: BluetoothRadio(debugLog: nil, scheduler: HandDrivenScheduler())
         )
+        // A recorder, not the real presenter: the default builds an `AlertPresenter`, and an alert raised
+        // with no window on screen runs modal and would block a headless suite for ever.
+        made.dialogues = RecordingDialogues()
+        return made
     }
 
     private func descendants(of root: NSView) -> [NSView] {
