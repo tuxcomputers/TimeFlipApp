@@ -458,8 +458,9 @@ its `default` returning "unnamed" both went, an enum having no fallthrough.
 **So the whole of the menu bar's meaning is shared.** `StatusItemTitle` decides the line in the bar and
 `StatusItemMenu` decides the dropdown -- which lines there are, what each says, whether it can be chosen
 and what choosing it does -- and both are in `FacetCore` with tests that run on both platforms. The
-identifiers a check addresses them by are shared too, reaching `AXIdentifier` on a Mac and
-`com.canonical.dbusmenu`'s `GetLayout` here. What `FacetLinux.MenuBar` has to do is render an answer it is
+identifiers a check addresses them by are shared too, reaching `AXIdentifier` on a Mac and --
+**this half is wrong, corrected 2026-09-13 below** -- nothing at all here, a dbusmenu item carrying its
+label and its enabled state and no identifier this app chose. What `FacetLinux.MenuBar` has to do is render an answer it is
 handed, which is the shape it already had.
 
 The portable colour type for everything else is still **`Colour`**, four sRGB `Double`s, covering
@@ -539,6 +540,10 @@ org.kde.StatusNotifierWatcher -> RegisteredStatusNotifierItems
 GetLayout(0, -1, [label]) -> id=2 Pause, id=3 Settings, id=4 Quit
 AboutToShow(0); Event(2, "clicked", "", 0)   -> the app recorded: a menu item was chosen, Pause
 ```
+
+**Two corrections to those two lines, both measured 2026-09-13 and both written up below.** Those ids are
+libdbusmenu's own numbering and are reassigned on every rebuild, so a check cannot hold one; and
+`AboutToShow` reaches nothing in the app at all, so it is not what makes the layout current.
 
 `Event(4, "clicked", ...)` on *Quit* ended the process cleanly, exit 0, no window left behind. So the
 whole menu-bar half of the suite is reachable without a mouse, without focus and without reading pixels
@@ -629,6 +634,81 @@ anybody would test it.
 Confirmed working -- with the directory copied next to the binary and the build path hidden, the same
 probe applied the schema without complaint. Whatever item 11 produces, its install layout has to carry
 that directory, and something should check it rather than trusting it.
+
+---
+
+## Found: the whole device half works on this platform, and three things about the tray were wrong
+
+**Measured on the Linux box against the real cube, 2026-09-13.** The first end-to-end run of
+`FacetLinux` with a TimeFlip2 in the room. It paired, rotated the PIN into the login keyring,
+reconnected on a later launch, brought in the cube's own history and filed a `time_entry` -- and it
+turned up three faults on the way, each invisible to the 737 hermetic tests.
+
+### What worked, in the order it happened
+
+| | |
+|---|---|
+| **Scan and reach** | `BlueZCubeRadio` found the cube by name, ordered the room and connected. On a later launch the remembered handle cut the window short, which is `CubeReachSequence`'s shortcut working over BlueZ |
+| **Login** | The vendor default was accepted (`commandResult: 02`, finding 4), the PIN was rotated to six fresh digits, the cube proved it by taking a second login on the new one, and `SecretToolStore` kept it |
+| **Pairing rows** | `paired`, `device_uuid`, `device_name`, `device_info` and `connection` all written. **`device_uuid` holds `E8:DB:D8:CF:F9:0F` verbatim**, which is `DeviceHandle` being the address rather than a packed UUID |
+| **The cube's own state** | Clock set and confirmed by `0x07`; the four Device Information strings; battery 100%; all eight TimeFlip characteristics subscribed |
+| **Face colours and settings** | Twelve `0x11` writes, LED brightness and blink period, and the cube's `systemState` requests answered as they arrived |
+| **History** | `0x01`/`0x02` frames parsed, `device_event` rows written, and a finished segment became `time_entry` 1 -- eighteen seconds filed under Break |
+| **The quit sequence** | Pause, read back, lock, read back, in that order, then the link given up |
+| **Driving it with no mouse** | Every control above was reached through `com.canonical.dbusmenu` on the tray item: `GetLayout` to read, `Event` to press. Pair, Pause, Unlock and Quit all landed |
+
+### `AboutToShow` reaches nothing, so a tray menu cannot be rebuilt as it opens
+
+**`MenuBar` hung its rebuild on the `GtkMenu` `show` signal and it never fired once.** Measured with a
+two-item probe indicator and a separate process calling the panel's own method:
+
+```
+17:42:50  set_menu
+17:42:50  signal show          <- emitted by app_indicator_set_menu itself
+17:42:54  AboutToShow(0) -> False, and no signal fires on the widget
+```
+
+So there is no equivalent of `NSMenuDelegate.menuNeedsUpdate` available through an `AppIndicator`: the
+`DbusmenuServer` that would have to forward the panel's request belongs to libayatana-appindicator and
+is not handed out. `MenuBar` re-reads the menu on its own tick instead, and rebuilds only when what it
+should say differs from what it is saying.
+
+**What it cost before that**: the menu was built once at launch and never again, so a paired, connected
+app went on offering *Pair a cube* with Pause and Lock insensitive over a live device.
+
+### A dbusmenu item carries a label and nothing this app chose
+
+**No identifier crosses**, which corrects what this file said above under *Found: a GTK3 app is
+drivable*. The 2026-09-08 spike read `GetLayout(0, -1, [label])` and recorded ids 2, 3 and 4 -- those are
+libdbusmenu's own numbering, assigned per rebuild, and they change every time the menu is rebuilt.
+Measured 2026-09-13 on a probe that set both:
+
+```
+first.set_name("widget-name-pair")                     -> does not cross
+first.get_accessible().set_description("pair-cube")    -> does not cross
+GetLayout answers: {'label': 'first'}                  -> and `enabled`, when it is false
+```
+
+So `StatusItemMenu.Item.identifier` reaches `AXIdentifier` on the Mac and reaches **nothing** here, and
+a scripted check on this platform addresses a tray item by its label. That is a difference between the
+platforms worth designing the Linux checks around rather than discovering in one.
+
+**The `Event` signature is `isvu`**, not `issu`: the data argument is a variant, so python-dbus needs
+`dbus.String("", variant_level=1)` and an explicit `signature="isvu"` or the call is refused with
+`Type of message, "(issu)", does not match expected type "(isvu)"`.
+
+### BlueZ answers a read twice, and a shared-core read-back was taking the wrong one
+
+**A `read` on a characteristic produces the reply *and* a `PropertiesChanged` carrying the same value a
+few milliseconds later.** Visible all over the trace as two identical `ble-rx` rows.
+
+That is a platform fact and harmless on its own. What it found was not:
+`CubeCommandChannel.isAwaitingResult` reported the *intention* to read rather than the read, so a value
+arriving between writing the question and issuing the read was taken as the answer. Every login on this
+box lost the cube's `0x10` state to the duplicate of the `0x17` before it, and a quit reported `The cube
+would not take auto-pause 0m` about a write the cube had narrated as `autopause OFF` and confirmed as
+zero two hundred milliseconds later. Fixed in `FacetCore`; the window exists on the Mac too and whether
+CoreBluetooth ever delivers into it is not something this box can answer.
 
 ---
 
