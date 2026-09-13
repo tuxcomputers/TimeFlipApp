@@ -57,8 +57,9 @@ which items unblock the most, and where the milestone is.
 2. ~~**16, the clock.**~~ **Done 2026-09-11**: `GLibScheduler`, injected from `main.swift`.
 3. ~~**17, `CubeGatt`.**~~ **Done 2026-09-11**: `BlueZCubeGatt`, 22 tests, unverified on a cube.
 4. ~~**18, `CubeRadio`.**~~ **Done 2026-09-11**: `BlueZCubeRadio`, 21 tests, unverified on a cube.
-5. **19, compose the device half.** ⇐ **the milestone.** Written and booted 2026-09-11, and the cube
-   answered it on 2026-09-13. Open on one physical turn of the cube and nothing else.
+5. ~~**19, compose the device half.** ⇐ **the milestone.**~~ **Done 2026-09-13**: written and booted
+   2026-09-11, and the cube answered every part of it two days later, down to a face turn filing a
+   `time_entry`.
 6. ~~**20, the menu bar onto the core modules**, then **21, the dialogues.**~~ Both done 2026-09-11.
 7. **22 is not a task**, it is a warning about the one part of the Mac that is not ready for you.
 
@@ -67,43 +68,6 @@ were edits to this side's files that nobody had compiled, and they compile; 25, 
 in three places -- a decision written independently here that now exists once in `FacetCore` -- and all three
 were taken. Two of them were not merely duplicates: the reach here had no settle wait and never paid for its
 own shortcut, and the narrowed `togglePause` left a menu item that looked live and did nothing.
-
-## 19. Compose the device half in `main.swift`, and the app starts working
-
-> **Run against the cube on 2026-09-13, and almost all of it is confirmed.** (Linux.) What is left is one
-> physical turn of the cube, which nobody has made yet; everything reachable without one is done.
->
-> **Confirmed on the hardware, in the order it happened.** The scan found the cube by name and ordered the
-> room; a later launch had the remembered handle cut the window short, which is `CubeReachSequence`'s
-> shortcut working over BlueZ. The vendor default was accepted, the PIN was rotated to six fresh digits,
-> the cube proved it by taking a second login on the new one, and `SecretToolStore` kept it. `paired`,
-> `device_uuid`, `device_name`, `device_info` and `connection` were all written, `device_uuid` holding
-> `E8:DB:D8:CF:F9:0F` verbatim. The clock was set and confirmed by `0x07`; the four Device Information
-> strings, the charge and all eight TimeFlip characteristics followed. Twelve `0x11` face colours, LED
-> brightness and blink period went out, and the cube's `systemState` requests were answered as they
-> arrived. History frames came back, `device_event` filled, and **a finished segment became `time_entry`
-> 1 -- eighteen seconds filed under Break**. A later launch reconnected on the stored PIN with no help.
-> The quit sequence ran whole: pause, read back, lock, read back, let go.
->
-> **Every control was reached with no mouse**, through `com.canonical.dbusmenu` on the tray item, which is
-> what `MenuBar`'s own comment said a scripted check would do. Pair, Pause, Unlock and Quit all landed.
->
-> **What is still owed is the face-change path**, and only that: `onFace` firing on a turn, a segment
-> closing on one category and opening on another. Every `device_event` row so far is face 8. The cube is
-> paired, unlocked and live on this box, so it is one turn away.
->
-> **The open measurement this item named cannot be taken here yet.** Whether a `0x15` rename moves BlueZ's
-> `Name` the way it moves CoreBluetooth's needs something that renames the cube, and renaming is a Device
-> tab control on the Mac and a control this platform does not have. `BlueZCubeGatt` still reports a device
-> `PropertiesChanged` as `nameArrived`, so there is somewhere for it to show up when there is a way to ask.
->
-> **Three faults came out of the run and all three are fixed**, none of them visible to the 737 hermetic
-> tests: the tray menu was built once at launch and never again; a quit reported the cube as having gone
-> away and armed a reconnect into a dying process; and `CubeCommandChannel` answered a read-back on
-> whatever arrived first rather than on what it read, which cost every login the cube's `0x10` state and
-> produced one false report that a command had been refused. The last is `FacetCore` and is
-> `docs/handover-mac.md` item 25.
-
 
 ## 22. Not a task: what is not ready for you yet
 
