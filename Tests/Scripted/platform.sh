@@ -139,7 +139,22 @@ platform_quit_app() {
                 || echo "  quit-app would not press; falling back to a kill"
             ;;
         linux)
-            platform_not_yet "quitting the app -- there is no Linux app to quit" 11
+            # **One call where the Mac needs two**, and that is the whole of the difference between the
+            # platforms here. A status item's menu items do not exist in the accessibility tree until a
+            # real mouse event has opened it, so that side has to click and then press; the tray menu on
+            # this side is a D-Bus object whose items can be read and chosen without opening it at all.
+            # `Tests/Methods.md` Method 18.
+            #
+            # Said out loud when it fails, never swallowed: a Quit that did not happen makes the wait
+            # after it time out and report whatever it was waiting on, which is what
+            # `>/dev/null 2>&1` on the macOS press cost this suite twice (see `CLAUDE.md`).
+            local output status
+            output=$(python3 scripts/tray-menu.py --press Quit 2>&1)
+            status=$?
+            if [ "$status" -ne 0 ]; then
+                echo "  the tray Quit would not press (exit $status)${output:+: $output}"
+                echo "  falling back to a kill"
+            fi
             ;;
     esac
 }
