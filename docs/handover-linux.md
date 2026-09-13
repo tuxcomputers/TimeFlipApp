@@ -181,3 +181,29 @@ and the comparison is against the constant instead of a table: a cube running so
 cube already off is told nothing. Nothing was added to `linkSettled`, which still blind-sends only the two
 commands that have no read-back. So the Linux side needs no new wiring, only the deletion above.
 
+## 25. Your `Reach` can go: the sequence it duplicates is in the core now
+
+**`CubeReachSequence` landed on 2026-09-13**, the last of candidate 1's five clusters. It holds the order, the
+queue, the not-tried-twice set, the settle wait before each candidate, `anyRefused` telling "none of them was
+ours" from "nothing was there", and the shortcut where the remembered handle turning up cuts the scan window
+short and then has to be paid for if that device refuses the PIN.
+
+**`BlueZCubeRadio` has its own `Reach`** with its own `tried` and `anyRefused`, written when there was nothing
+to share. That is the second implementation candidate 1 predicted and the reason it was worth doing: two
+copies of these decisions will not stay in step, and the shortcut in particular is subtle enough that a
+difference would be found by a user rather than by a test.
+
+**What it needs from you.** Three closures, the same shape `CubeResetProof` takes: `tryThis(handle,
+candidates, rotatingTo)` begins one login attempt, `scanAgain()` opens a second window, and `finished(handle,
+outcome)` says the reach is over. Feed it `scanEnded(found:remembered:previouslyKnown:isBusy:)` when a window
+closes, `shouldCutTheWindowShort(for:)` on each advertisement, and `candidateEnded(_:isBusy:)` when a login
+ends. `tryNext` is deliberately private: `scanEnded` and `candidateEnded` each end in one, and a caller that
+also called it would skip a device with nothing failing.
+
+**`CubeReachSequenceTests` is what it should behave like**, thirteen tests with no radio in them, and they run
+on your side too.
+
+**Nothing of yours was changed for this.** Your `Reach` still compiles and still works; this is an offer to
+delete it, not a break to repair. The one thing worth checking as you go is whether your loop makes a decision
+mine does not, in which case say so here rather than keeping both.
+

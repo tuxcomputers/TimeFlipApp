@@ -656,7 +656,7 @@ they get in the way. The window is one fixed width as a first consequence, and t
 
 | | Candidate | State |
 | --- | --- | --- |
-| 1 | Radio seam below the sequencing | **four clusters of five done**; the reach and candidate order is the last |
+| 1 | Radio seam below the sequencing | **done**, all five clusters |
 | 2 | `CubeRadio` is a hypothetical seam | **done**, `InMemoryCubeRadio` is the second adapter |
 | 3 | One secret store | **done** |
 | 4 | The daily limit asked five ways | **done** |
@@ -673,8 +673,19 @@ testable at all. `DeviceLoginTests` is the first test that file has ever had, an
 immediately by catching a canonical-UUID bug that compiled perfectly.
 
 That took two clusters with it: the PIN rotation machine, `rotatingTo` and `rotated` being `DeviceLogin`'s
-now, and the history fetch. **The reset proof followed on 2026-09-11**, so the last cluster is the reach and
-candidate order.
+now, and the history fetch. **The reset proof followed on 2026-09-11 and the reach on 2026-09-13**, which
+finishes the candidate.
+
+**`CubeReachSequence` is the last of the five.** The order, the queue, the not-tried-twice set, the settle
+wait, `anyRefused` telling "none of them was ours" from "nothing was there", and the shortcut being paid for
+are all decided in `FacetCore` now; `BluetoothRadio` keeps the scan and the connect and is 1,245 lines from
+1,351. Thirteen tests, and the one that matters covers the shortcut, which nothing checked before: the window
+is cut short because the remembered handle turned up, that device refuses the PIN, and the room is owed a
+proper look before the answer may be "nothing is here".
+
+**The "not writing it twice" half of the argument is now collectable.** `BlueZCubeRadio` holds its own `Reach`
+with its own `tried` and `anyRefused`, written while there was nothing to share. It can go; that is item 25 of
+`handover-linux.md`.
 
 **`CubeResetProof` is what the reset became**, and it is the shape to copy for the reach: the window, the
 retry cadence, the vendor-PIN-only rule, the let-go-either-way and reporting exactly once are all decided in
