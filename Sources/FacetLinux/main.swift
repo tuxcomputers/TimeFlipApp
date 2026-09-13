@@ -406,10 +406,31 @@ let statusMenu = StatusItemMenu(
     cube: cubeReading,
     isLimitReached: { dailyLimit.isLimitReached },
     openSettings: nil,
-    // **The app's own clock, and closing the open segment is the whole of what stopping it means here.** On the
-    // Mac this is the Faces tab's own control; this platform has none, so a segment on an app face can only have
-    // been inherited from a launch on the other machine.
-    togglePause: { deviceEvents.closeOpenSegment(at: Date()) },
+    // **The app's own clock, which is `ManualClock` and is the same on both platforms** (2026-09-13). This used
+    // to close the open segment and stop there, on the reasoning that a platform with no Faces tab has no way to
+    // pick a category and so nothing to resume. That was wrong about its own menu: closing a segment leaves
+    // `timingState` at `.paused` rather than `.idle`, because the manual face still carries the category, so the
+    // Pause item stayed sensitive and a second press did nothing at all -- which is precisely the item that looks
+    // live and does nothing that `StatusItemMenu` says it has no way to render.
+    //
+    // It is reachable here without a Faces tab: `DailyLimitWatch` closes a manual segment when a category spends
+    // its limit, and a launch can inherit one from the other machine. Adopting the shared module also brings the
+    // refusal with it -- a resume against a spent limit is refused rather than merely greyed.
+    togglePause: {
+        guard ManualClock.toggle(
+            timing: timingReadout,
+            events: deviceEvents,
+            isLimitReached: dailyLimit.isLimitReached,
+            debugLog: debugLog
+        ) != nil else { return }
+        // **The same funnel `settingsWindow.onTimingChanged` is on the Mac.** Both of these stand themselves down
+        // while nothing is being timed, and this is the one path on this platform that starts the app's own clock:
+        // without the first, a resumed segment would never be grown and the figure would sit still.
+        historyTimer.resumeIfStopped()
+        dailyLimit.resumeIfStopped()
+        // The bar is not redrawn from here, `menuBar` not existing yet at this point in the composition. Its own
+        // tick repaints within the second, and the menu has closed on the press either way.
+    },
     toggleCubePause: {
         cubeLock.togglePause { _ in
             historyIngestor.refresh(because: "the cube was paused from the menu bar")

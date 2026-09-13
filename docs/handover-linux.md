@@ -127,29 +127,6 @@ worth sharing should come out into the core as you find them, the same way every
 here when you hit one**, rather than reimplementing it: a rule spelled twice is the thing this whole model
 exists to prevent.
 
-## 26. `ManualClock` exists, and your `togglePause` is deliberately narrower than it
-
-**Your comment gives the reason and it is a good one**: "closing the open segment is the whole of what stopping
-it means here. On the Mac this is the Faces tab's own control; this platform has none, so a segment on an app
-face can only have been inherited from a launch on the other machine."
-
-**So this is a choice to make rather than a bug to fix.** `ManualClock.toggle` in `FacetCore` is what the Mac's
-three controls now share: it reads before writing, refuses a resume against a spent daily limit, closes or
-starts a segment on one moment, and reads back what the table holds. Yours closes and stops there.
-
-**What adopting it would change**, so the choice is made on what it does rather than on tidiness:
-
-- **Pause would become resumable** from the Linux menu bar. Today a second press does nothing, because there is
-  nothing that starts a segment. Whether that is wanted on a platform with no way to pick a category is your
-  call and is the real question here.
-- **A spent daily limit would refuse the resume.** Moot while nothing can resume, and not moot afterwards.
-- The two log rows would become `Timing: running <name>` and `Timing: stopped <name>`, which
-  `05-faces-timing` reads on the Mac.
-
-**If you keep the narrowing, say so in `ManualClock`'s doc comment rather than only here.** Two answers to one
-question is what this model exists to prevent, and a deliberate difference that is written down where the
-shared one can be read is not that. An undocumented one is.
-
 ## 27. `CubeReports` exists, and five of your radio callbacks are it, near-verbatim
 
 **Written independently and they agree, which is the good case and still the hazard.** `CubeReports` landed on

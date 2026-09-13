@@ -2,11 +2,18 @@ import Foundation
 
 /// Starting and stopping the app's own clock, which is not the cube's and not a window's.
 ///
-/// **Three controls land here and one of them is not in a window at all.** The status item's right half and the
+/// **Four controls land here and two of them are not in a window at all.** The status item's right half and the
 /// dropdown's Pause item both reach this with Settings shut, and the Timing column's glyph reaches it with the
-/// window open. That is why it is here: a decision three surfaces share, one of which the Settings window does
-/// not own, was living in `SettingsWindowController` (candidate 8 of
+/// window open. That is why it is here: a decision those three surfaces share, one of which the Settings window
+/// does not own, was living in `SettingsWindowController` (candidate 8 of
 /// `docs/architecture-review-2026-09.md`).
+///
+/// **The fourth is the Linux menu bar's Pause item** (2026-09-13), and it is here for a reason worth keeping: that
+/// platform has no Faces tab, so it looked as though it had nothing to resume and could close the open segment and
+/// stop there. Closing one leaves `timingState` at `.paused` rather than `.idle` -- the manual face still carries
+/// the category -- so the item stayed sensitive and a second press did nothing, which is the item that looks live
+/// and does nothing `StatusItemMenu` exists to make unrenderable. A platform with fewer ways in still needs the
+/// same answer from the one it has.
 ///
 /// **The refusal is the enforcement rather than the courtesy.** Both controls grey themselves when the daily
 /// limit is spent, which is the courtesy; this is what makes finding another button useless. It is also why the
