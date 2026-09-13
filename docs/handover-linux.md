@@ -62,12 +62,12 @@ which items unblock the most, and where the milestone is.
 6. ~~**20, the menu bar onto the core modules**, then **21, the dialogues.**~~ Both done 2026-09-11.
 7. **22 is not a task**, it is a warning about the one part of the Mac that is not ready for you.
 
-**Five more arrived from the Mac after this list was written, and only two of them gate anything.** 23 and 24
-are edits already made to your files that nobody has compiled, so a build will refuse until they are right:
-take those first. 25, 26 and 27 are offers rather than tasks, and they are all the same offer in three places,
-which is that a decision you wrote independently now exists once in `FacetCore`: the reach, the app's own
-clock, and what the app does when the radio says something. None of them blocks a build and none of them is
-urgent; each removes a second copy of something that agrees today.
+**Five more arrived from the Mac after this list was written, and one of them still gates anything.** 24 is an
+edit already made to your files that nobody has compiled, so a build will refuse until it is right: take that
+first. 25, 26 and 27 are offers rather than tasks, and they are all the same offer in three places, which is
+that a decision you wrote independently now exists once in `FacetCore`: the reach, the app's own clock, and
+what the app does when the radio says something. None of them blocks a build and none of them is urgent; each
+removes a second copy of something that agrees today.
 
 ## 19. Compose the device half in `main.swift`, and the app starts working
 
@@ -127,52 +127,6 @@ to a Linux Settings window you are building it, not slotting into it -- and the 
 worth sharing should come out into the core as you find them, the same way everything above did. **Say so
 here when you hit one**, rather than reimplementing it: a rule spelled twice is the thing this whole model
 exists to prevent.
-
-## 23. The core stopped saying `UUID`, and four of your files changed unverified
-
-**`DeviceHandle` replaces `UUID` as what the core calls one cube** (`Sources/FacetCore/DeviceHandle.swift`). It
-wraps a `String`, and the core does exactly two things with one: compares two for equality, and orders a list of
-them so a room scanned twice is asked in the same order twice. It never parses one and never builds one from
-parts. Whatever an adapter puts in comes back to that adapter unread.
-
-**Why, and it is your side that was paying for it.** `UUID` was CoreBluetooth's shape reaching into the circle,
-and the cost landed here: `BlueZAddress` existed to pack six address bytes into the last six bytes of a UUID
-behind a `face7000-` marker, and to check the marker on the way back out so a Mac-written row was refused rather
-than dialled. That is 84 lines and 6 tests spent making an address look like something it is not.
-
-**So `BlueZAddress` and `BlueZAddressTests` are deleted, and the address is now the handle.** Every decode
-became the identity function:
-
-    device(_:)      radio.tree().device(withAddress: id.value)
-    connect(_:)     radio.tree().device(withAddress: id.value)
-    disconnect(_:)  radio.disconnect(address: id.value)
-    scannedDevices  DeviceHandle(device.address)
-
-**What I changed in your files**: `BlueZCubeRadio.swift` (the fourteen callback signatures, the internal
-dictionaries and sets, the three decodes, one `UUID()` placeholder that is now `DeviceHandle("")`, and the
-`BlueZLink` doc comment that described the mapping), `BlueZRadio.swift` (the one encode), and
-`BlueZCubeRadioTests.swift` (`ours` and `theirs` are now the addresses verbatim, which reads better than it
-did).
-
-**Two more sites were missed and are fixed (Mac, 2026-09-13).** `main.swift` compared
-`settings.string("device_uuid", field: "uuid")` against `id.uuidString` in `onLoginEnded` and `onDeviceName`,
-and a `DeviceHandle` has no such member: both now say `id.value`. Found by reading your callbacks rather than
-by anything failing, which is the whole problem with editing files I cannot build.
-
-**None of it is compiled.** `FacetLinux` is not in this platform's package and your BlueZ tests are behind
-`#if canImport(CDBus)`, so they built to nothing here. `swift build && swift test` on your side is what says
-the retype is right. **If it does not build, the fix is yours and this item stays put with a line saying what
-broke**, which is exactly what your item 23 said to me this morning.
-
-**Two things to look at rather than trust.** I mapped `Set<UUID>`, `[UUID:` and `[UUID]` by pattern, so a
-collection I did not anticipate may have been missed or wrongly caught. And `BlueZCubeRadio` had a
-`reaching?.preferred ?? UUID()` that is now `DeviceHandle("")`: it preserves the behaviour, but an empty handle
-as a placeholder is worth a second look now that the type can hold one meaningfully.
-
-**What this is not.** It is not a portable identity. The handle is still platform-specific and still meaningless
-on the other machine, which is why `database/011_setting.sql` now says so in both directions and says it must
-never be synced. The owner settled on 2026-09-11 that only times and categories go to the Facet server, and that
-no recorded time says which device produced it, so nothing needs an identity that outlives a pairing.
 
 ## 24. Double tap is off for good, and your `main.swift` changed unverified
 

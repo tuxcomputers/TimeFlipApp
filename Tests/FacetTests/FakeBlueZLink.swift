@@ -22,7 +22,7 @@ final class FakeBlueZLink: BlueZLink {
 
     /// What the scan sees, and what BlueZ says about each device.
     var devices: [ScannedDevice] = []
-    var records: [UUID: BlueZObjectTree.Device] = [:]
+    var records: [DeviceHandle: BlueZObjectTree.Device] = [:]
 
     private(set) var poweredOn = 0
     private(set) var discoveriesStarted = 0
