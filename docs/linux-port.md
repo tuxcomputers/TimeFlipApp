@@ -941,17 +941,28 @@ Roughly in dependency order. Nothing here is started.
    waiting, and `cancel` settles whoever is waiting. That last-but-one is the case that actually broke a
    sign-in once. Mutation-checked rather than assumed: the code assertion was pointed at a wrong value
    and the test failed, so it is really talking to a socket.
-10. **The BlueZ adapter: the Linux slot in the radio square.** Not a backend to write behind whatever
-   `BluetoothRadio` happens to present, which is how this item read before the ports remodel. The radio is
-   a port, `CubeRadio`, and the protocol reasoning that used to sit inside `BluetoothRadio` and
-   `DeviceLogin` -- the command channel, the queue, the read-back matrix, which commands can be confirmed
-   at all -- is in `FacetCore` and is the same on both platforms. **What this slot owes is transport**:
-   connect, read, write, subscribe, and the answers handed back up the arm in the shape the port names.
+10. ~~**The BlueZ adapter: the Linux slot in the radio square.**~~ **Done, and proven on the cube
+   2026-09-13.** Not a backend written behind whatever `BluetoothRadio` happens to present, which is how
+   this item read before the ports remodel. The radio is a port, `CubeRadio`, and the protocol reasoning
+   that used to sit inside `BluetoothRadio` and `DeviceLogin` -- the command channel, the queue, the
+   read-back matrix, which commands can be confirmed at all -- is in `FacetCore` and is the same on both
+   platforms. **What this slot owed was transport**: connect, read, write, subscribe, and the answers
+   handed back up the arm in the shape the port names.
 
-   `scripts/linux-ble-probe.py` is the working reference for every D-Bus call it needs -- and the whole of
-   what it needs is **11 methods and 2 signals**: `GetManagedObjects`, `Get`/`GetAll`/`Set`,
-   `StartDiscovery`, `StopDiscovery`, `Connect`, `Disconnect`, `ReadValue`, `WriteValue`, `StartNotify`,
-   `StopNotify`, with `PropertiesChanged` and `InterfacesAdded` to listen to.
+   `BlueZCubeRadio`, `BlueZCubeGatt`, `BlueZBusLink`, `BlueZGatt`, `BlueZObjectTree` and `SystemBus` are
+   that slot. Every call the item listed is made bar two, and both are absences with reasons:
+   `Get`/`GetAll` are not used because `GetManagedObjects` answers the whole tree in one call and the
+   adapter reads properties out of it, and `InterfacesAdded` is not listened to because the scan reads the
+   tree on its own clock instead -- which `BlueZCubeRadio`'s doc comment argues for, libdbus dispatching
+   into its own loop being the half that does not ask GLib and libdbus to share a file descriptor.
+
+   **What it did on hardware**, on 2026-09-13: scan, reach, connect, resolve, log in, rotate the PIN,
+   read the four Device Information strings and the charge, subscribe to all eight characteristics, send
+   twelve face colours and the settings commands, fetch history, and give the link back on a quit. A face
+   turn arrived as a notification and closed one segment into a `time_entry` while opening another.
+
+   `scripts/linux-ble-probe.py` remains the working reference for the D-Bus calls, and is still the way to
+   ask the cube something with no app in the way.
 
    **The read-back discipline comes free, and that is the point of the arm.** `CLAUDE.md` requires every
    command with a read-back to be sent and then read back, and the two measured traps in the `0x10` answer
@@ -1113,6 +1124,12 @@ Roughly in dependency order. Nothing here is started.
       raises and what the answers to it mean. None of it is written twice.
     - **What a toolkit draws** is this item: an indicator, a window, the widgets on five tabs, and the
       dialogs. GTK for all of it, and no decisions in any of it.
+
+    **The menu bar is now a working surface rather than a sketch** (2026-09-13). It draws the shared
+    readout, its dropdown carries the cube's state, today's totals per category, Pause, Lock and Quit, and
+    every one of them works -- pairing, pausing, unlocking and quitting a real cube were all done through
+    it. Its one Linux-specific lesson is written up above: there is no *about to open* hook to be had
+    through an `AppIndicator`, so the menu is re-read on the same tick as the label.
 
     The menu bar is the worked example and it is done on both sides. `MenuBar` takes a label and a list of
     items as closures, reads them and remembers nothing; `MenuBarController` renders the same answers into
