@@ -88,8 +88,14 @@ final class MenuBar {
     /// from `items()` every tick, and this is only what the panel was last handed. What it buys is that the
     /// panel is not handed a fresh layout once a second for no reason -- libdbusmenu tells its client the
     /// layout changed, and a client rebuilding a menu under somebody's pointer is worse than the second it
-    /// saves. While a category is being timed the figures move every second and it rebuilds every second,
-    /// which is the honest cost of a menu that carries a running total.
+    /// saves.
+    ///
+    /// **In practice it rebuilds rarely, and that is worth knowing rather than assuming either way.** Measured
+    /// against the cube 2026-09-13: with a category being timed for ten minutes the layout did not change once,
+    /// because the totals in this menu are `TimeEntryStore.totals`, which counts segments that have *finished*.
+    /// The ticking figure is the bar's label, which is not part of the menu. So a rebuild happens when the cube
+    /// connects or goes, when a segment closes, and when the categories change -- which is what a menu opened by
+    /// hand would have been rebuilt for anyway.
     private var handedOver: [Line] = []
 
     /// One drawn line, reduced to what a reader can tell apart. **Not `StatusItemMenu.Item`**, which carries a
