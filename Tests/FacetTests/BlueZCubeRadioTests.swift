@@ -56,6 +56,16 @@ final class BlueZCubeRadioTests {
         clock.tickAll(after: BlueZCubeRadio.scanSeconds)
     }
 
+    /// The settle wait `CubeReachSequence` puts before every candidate.
+    ///
+    /// **A connect is one of these behind the window closing**, which is the archive's measurement rather than
+    /// caution: connecting while the previous attempt's teardown is still running fails in milliseconds and says
+    /// nothing about the cube (finding 8). It is here rather than folded into `look` and `closeTheWindow` because
+    /// it is a separate wake and a test that drove it by accident would be asserting on a sequence it did not mean.
+    private func settle() {
+        clock.tickAll(after: CubeReachSequence.settleSeconds)
+    }
+
     /// One turn of the poll that waits for the services to resolve.
     private func lookForResolution() {
         clock.tickAll(after: BlueZCubeRadio.resolvePollSeconds)
@@ -109,6 +119,7 @@ final class BlueZCubeRadioTests {
         link.add(ours, named: "TimeFlip v2.0")
 
         look()
+        settle()
 
         #expect(!radio.isScanning, "the window ended on its own rather than at fifteen seconds")
         #expect(link.discoveriesStopped == 1)
@@ -160,6 +171,7 @@ final class BlueZCubeRadioTests {
         link.add(ours, named: "TimeFlip v2.0")
 
         closeTheWindow()
+        settle()
 
         #expect(link.connects.first == ours)
     }
@@ -170,6 +182,7 @@ final class BlueZCubeRadioTests {
         reachForOurs()
         link.add(ours, named: "TimeFlip v2.0")
         look()
+        settle()
 
         lookForResolution()
         #expect(link.gatts.isEmpty, "no login has begun on a device whose tree has not been read")
@@ -183,12 +196,44 @@ final class BlueZCubeRadioTests {
         reachForOurs()
         link.add(ours, named: "TimeFlip v2.0")
         look()
+        settle()
 
         clock.tickAll(after: BlueZCubeRadio.resolveSeconds)
 
         #expect(link.gatts.isEmpty)
-        #expect(outcomes.map(\.outcome) == [.unreachable], "the reach reports once, not once per device")
         #expect(link.disconnects == [ours], "and the link it was holding is let go of")
+        // **The window was cut short to reach this device, so the room is owed a proper look before the answer may
+        // be that nothing is here.** That is the debt `CubeReachSequence` keeps and this file used to drop.
+        #expect(outcomes.isEmpty, "nothing is reported yet: the shortcut has still to be paid for")
+        #expect(link.discoveriesStarted == 2, "so it looks again")
+
+        closeTheWindow()
+
+        #expect(outcomes.map(\.outcome) == [.unreachable], "the reach reports once, not once per device")
+    }
+
+    @Test func testTheShortcutIsPaidForWhenTheRememberedCubeIsNotOurs() throws {
+        // **The remembered handle is a hint and not a gate**, and nothing this app can see is unique to a cube
+        // (finding 8), so the device it names can be somebody else's. Cutting the window short for it and then
+        // answering "nothing is here" would be saying that about a scan that stopped after one answer.
+        reachForOurs(presenting: ["123456"])
+        link.add(ours, named: "TimeFlip v2.0")
+        look()
+        settle()
+        link.resolve(ours)
+        lookForResolution()
+
+        try answerThePIN(accepted: false)
+
+        #expect(outcomes.isEmpty, "the reach is not over")
+        #expect(link.discoveriesStarted == 2, "the room gets the look the shortcut skipped")
+
+        // A second cube was in the room all along and the first window never waited long enough to see it.
+        link.add(theirs, named: "TimeFlip v2.0", address: "AA:BB:CC:DD:EE:FF")
+        closeTheWindow()
+        settle()
+
+        #expect(link.connects == [ours, theirs], "and it is tried, rather than the reach ending on the shortcut")
     }
 
     @Test func testAConnectThatFailsMovesOnRatherThanEndingTheReach() {
@@ -197,6 +242,7 @@ final class BlueZCubeRadioTests {
         link.add(ours, named: "TimeFlip v2.0")
 
         closeTheWindow()
+        settle()
 
         #expect(outcomes.map(\.outcome) == [.unreachable])
     }
@@ -207,6 +253,7 @@ final class BlueZCubeRadioTests {
         reachForOurs()
         link.add(ours, named: "TimeFlip v2.0")
         look()
+        settle()
         link.resolve(ours)
         lookForResolution()
 
@@ -223,6 +270,7 @@ final class BlueZCubeRadioTests {
         reachForOurs(presenting: ["123456", "000000"])
         link.add(ours, named: "TimeFlip v2.0")
         look()
+        settle()
         link.resolve(ours)
         lookForResolution()
 
@@ -238,10 +286,12 @@ final class BlueZCubeRadioTests {
         link.add(theirs, named: "TimeFlip v2.0", address: "AA:BB:CC:DD:EE:FF")
         link.add(ours, named: "TimeFlip v2.0")
         closeTheWindow()
+        settle()
         link.resolve(ours)
         lookForResolution()
 
         try answerThePIN(accepted: false)
+        settle()
 
         // Not reported, either: telling the reconnect loop about one refusal would have it offer manual mode on
         // the first colleague's cube that answered.
@@ -253,6 +303,7 @@ final class BlueZCubeRadioTests {
         reachForOurs(presenting: ["123456"])
         link.add(ours, named: "TimeFlip v2.0")
         closeTheWindow()
+        settle()
         link.resolve(ours)
         lookForResolution()
 
@@ -270,6 +321,7 @@ final class BlueZCubeRadioTests {
         reachForOurs()
         link.add(ours, named: "TimeFlip v2.0")
         closeTheWindow()
+        settle()
         link.resolve(ours)
         lookForResolution()
         let gatt = try #require(link.gatts.last)
@@ -288,6 +340,7 @@ final class BlueZCubeRadioTests {
         reachForOurs()
         link.add(ours, named: "TimeFlip v2.0")
         look()
+        settle()
         link.resolve(ours)
         lookForResolution()
         try answerThePIN(accepted: true)
@@ -304,6 +357,7 @@ final class BlueZCubeRadioTests {
         reachForOurs()
         link.add(ours, named: "TimeFlip v2.0")
         look()
+        settle()
         link.resolve(ours)
         lookForResolution()
         try answerThePIN(accepted: true)
@@ -320,6 +374,7 @@ final class BlueZCubeRadioTests {
         reachForOurs()
         link.add(ours, named: "TimeFlip v2.0")
         look()
+        settle()
         link.resolve(ours)
         lookForResolution()
         try answerThePIN(accepted: true)

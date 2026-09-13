@@ -85,7 +85,7 @@ final class BlueZCubeRadio: CubeRadio {
 
     private(set) var connectedDevice: DeviceHandle?
 
-    var isReachingForCube: Bool { reaching != nil || attempt != nil }
+    var isReachingForCube: Bool { reach.isRunning || attempt != nil }
 
     /// **Always `false`, and it means it.** A factory reset is asked for from the Device tab, which this platform
     /// does not have; there is no path here that starts one, so there is none to be waiting on. `DeviceReconnector`
@@ -118,7 +118,30 @@ final class BlueZCubeRadio: CubeRadio {
     /// draws its `isPaused`.
     private(set) var cubeStatus: DeviceCommandRules.Status?
 
-    private var reaching: Reach?
+    /// Going to find a cube, which is `CubeReachSequence` in the core: the order, the queue, the
+    /// not-tried-twice set, the settle wait before each candidate, the shortcut and which of the two answers a
+    /// failure is are all decided there and are the same on both platforms. What stays here is the scan and the
+    /// connect, which is what an adapter is.
+    private lazy var reach: CubeReachSequence = CubeReachSequence(
+        scheduler: scheduler,
+        tryThis: { [weak self] id, candidates, rotatingTo in
+            self?.beginAttempt(on: id, presenting: candidates, rotatingTo: rotatingTo)
+        },
+        scanAgain: { [weak self] in self?.beginScan() },
+        finished: { [weak self] preferred, outcome in
+            self?.endReach(reporting: outcome, for: preferred ?? DeviceHandle(""))
+        },
+        debugLog: debugLog
+    )
+
+    /// What the table calls the cube, read by whoever started the reach and held for as long as it runs.
+    ///
+    /// **The scan's, not the sequence's**, which is the split the core module draws: which advertisement is worth
+    /// asking at all is this adapter's filter, and the order they are asked in is decided in `FacetCore`. The Mac
+    /// holds these two in exactly the same place and for the same reason.
+    private var remembered: String?
+    private var previouslyKnown: String?
+
     private var attempt: Attempt?
 
     private var scanPoll: ScheduledWake?
@@ -135,27 +158,13 @@ final class BlueZCubeRadio: CubeRadio {
         self.debugLog = debugLog
     }
 
-    /// A run at getting back to this app's cube: which PINs to present, and every device still worth presenting them
-    /// to.
-    ///
-    /// **There is no "the" device here, and that is the point** -- see this type's own note. `preferred` is a hint
-    /// and never a gate: worth trying first when it turns up, worth nothing when it does not.
-    private struct Reach {
-        let preferred: DeviceHandle?
-        let candidates: [String]
-        let rotatingTo: String?
-        let remembered: String?
-        let previouslyKnown: String?
-        var queue: [DeviceHandle] = []
-        var tried: Set<DeviceHandle> = []
-        /// Whether anything refused a PIN, which is what tells "nothing was in range" from "none of them was ours".
-        var anyRefused = false
-    }
-
     /// One device being tried, and which of the PINs it is on.
     private struct Attempt {
         let id: DeviceHandle
         let candidates: [String]
+        /// Handed over by `CubeReachSequence` with the candidate rather than read from a reach this no longer
+        /// holds: what to leave the cube on is decided once, when the reach begins.
+        let rotatingTo: String?
         var index = 0
         var pin: String { candidates.isEmpty ? DeviceLoginRules.defaultPIN : candidates[index] }
     }
@@ -171,13 +180,11 @@ final class BlueZCubeRadio: CubeRadio {
     ) {
         guard connectedDevice != id else { return }
         begin(
-            reaching: Reach(
-                preferred: id,
-                candidates: candidates,
-                rotatingTo: rotatingTo,
-                remembered: remembered,
-                previouslyKnown: previouslyKnown
-            ),
+            preferring: id,
+            candidates: candidates,
+            rotatingTo: rotatingTo,
+            remembered: remembered,
+            previouslyKnown: previouslyKnown,
             because: "Reaching for the paired cube: scanning, and every device with the name will be tried"
         )
     }
@@ -189,26 +196,35 @@ final class BlueZCubeRadio: CubeRadio {
     /// press; here it is the menu bar's *Pair a cube*, there being no window.
     func pair(presenting candidates: [String], rotatingTo: String?) {
         begin(
-            reaching: Reach(
-                preferred: nil,
-                candidates: candidates,
-                rotatingTo: rotatingTo,
-                // **No remembered name**, deliberately: an unpaired app has none, and `DeviceScanRules` still
-                // matches anything carrying the vendor's name, which is what a factory-fresh cube advertises.
-                remembered: nil,
-                previouslyKnown: nil
-            ),
+            preferring: nil,
+            candidates: candidates,
+            rotatingTo: rotatingTo,
+            // **No remembered name**, deliberately: an unpaired app has none, and `DeviceScanRules` still
+            // matches anything carrying the vendor's name, which is what a factory-fresh cube advertises.
+            remembered: nil,
+            previouslyKnown: nil,
             because: "Looking for a cube to pair with: every device with the name will be tried"
         )
     }
 
-    private func begin(reaching: Reach, because reason: String) {
+    private func begin(
+        preferring preferred: DeviceHandle?,
+        candidates: [String],
+        rotatingTo: String?,
+        remembered: String?,
+        previouslyKnown: String?,
+        because reason: String
+    ) {
         guard !isReachingForCube else {
             debugLog?.record(.login, "Already busy with a device; not looking again")
             return
         }
         debugLog?.record(.login, reason)
-        self.reaching = reaching
+        // **Held here rather than in the sequence**, the sequence deciding the order and this deciding which
+        // advertisements are in the running at all. A second window opened by `scanAgain` reads them again.
+        self.remembered = remembered
+        self.previouslyKnown = previouslyKnown
+        reach.begin(preferring: preferred, candidates: candidates, rotatingTo: rotatingTo)
         beginScan()
     }
 
@@ -224,12 +240,15 @@ final class BlueZCubeRadio: CubeRadio {
     private func beginScan() {
         do {
             guard try link.powerOn() else {
-                endReach(reporting: .unreachable, because: "the Bluetooth adapter would not power on")
+                // **Through the sequence rather than around it**, so a reach that cannot even look is ended the
+                // same way as one that looked and found nothing: it drops its state, cancels its settle wait and
+                // reports once through `finished`. Reporting here directly would leave a sequence still running.
+                reach.giveUp(because: "the Bluetooth adapter would not power on")
                 return
             }
             try link.startDiscovery()
         } catch {
-            endReach(reporting: .unreachable, because: Self.describe(error))
+            reach.giveUp(because: Self.describe(error))
             return
         }
         isScanning = true
@@ -268,21 +287,21 @@ final class BlueZCubeRadio: CubeRadio {
     private func readWhatIsThere() {
         refreshWhatIsThere()
 
-        // **The remembered identifier may end the window early, and only it.** Anything else eligible is worth
-        // trying but is not worth cutting the look short for: a room may hold a cube that answers a moment later
-        // and is the one this app paired with.
-        guard let reaching, let preferred = reaching.preferred else { return }
-        guard eligible(from: found, for: reaching).contains(where: { $0.id == preferred }) else { return }
-        debugLog?.record(.scan, "The remembered cube answered, so the scan window ends here")
-        closeTheScan()
-        beginTryingWhatWasFound()
+        // **Whether an advertisement is worth cutting the window short for is `CubeReachSequence`'s question**,
+        // and the answer is the remembered handle and nothing else. It answers `true` once per reach, and the
+        // shortcut is then owed a proper look if that device turns out not to be this app's -- which is the half
+        // this file used to be missing entirely.
+        for device in eligible(from: found) where reach.shouldCutTheWindowShort(for: device) {
+            debugLog?.record(.scan, "The remembered cube answered, so the scan window ends here")
+            closeTheScan()
+            beginTryingWhatWasFound()
+            return
+        }
     }
 
-    private func eligible(from devices: [ScannedDevice], for reaching: Reach) -> [ScannedDevice] {
+    private func eligible(from devices: [ScannedDevice]) -> [ScannedDevice] {
         devices.filter {
-            DeviceScanRules.isEligible(
-                $0, remembered: reaching.remembered, previouslyKnown: reaching.previouslyKnown
-            )
+            DeviceScanRules.isEligible($0, remembered: remembered, previouslyKnown: previouslyKnown)
         }
     }
 
@@ -301,38 +320,23 @@ final class BlueZCubeRadio: CubeRadio {
         isScanning = false
     }
 
+    /// The scan window has closed, so what it found goes to the sequence and the asking begins.
+    ///
+    /// **Filtered here and ordered there.** `DeviceScanRules.reachOrder` orders and never filters, so an adapter
+    /// whose scan lists everything in the room -- which BlueZ's does -- has to say which of them are in the running
+    /// before handing them over. The Mac filters as the advertisement arrives instead and hands over all of it.
     private func beginTryingWhatWasFound() {
-        guard var reaching else { return }
-        let candidates = eligible(from: found, for: reaching).filter { !reaching.tried.contains($0.id) }
-        reaching.queue = DeviceScanRules.reachOrder(
-            candidates,
-            preferring: reaching.preferred,
-            remembered: reaching.remembered,
-            previouslyKnown: reaching.previouslyKnown
+        reach.scanEnded(
+            found: eligible(from: found),
+            remembered: remembered,
+            previouslyKnown: previouslyKnown,
+            isBusy: { [weak self] in self?.attempt != nil }
         )
-        self.reaching = reaching
-        debugLog?.record(.login, "\(reaching.queue.count) devices to try")
-        tryNextCandidate()
     }
 
-    private func tryNextCandidate() {
-        guard var reaching else { return }
-        guard !reaching.queue.isEmpty else {
-            // **Which of the two endings is the whole of what this decides.** Something refusing a PIN means the
-            // cube was there and was not ours, or ours has lost the PIN; nothing at all means no cube answered. The
-            // reconnect loop tells the user different things about them.
-            endReach(
-                reporting: reaching.anyRefused ? .wrongPIN : .unreachable,
-                because: reaching.anyRefused
-                    ? "everything that answered refused this app's PINs"
-                    : "nothing that answered was a cube"
-            )
-            return
-        }
-        let id = reaching.queue.removeFirst()
-        reaching.tried.insert(id)
-        self.reaching = reaching
-        attempt = Attempt(id: id, candidates: reaching.candidates)
+    /// One candidate, chosen by the sequence after its settle wait.
+    private func beginAttempt(on id: DeviceHandle, presenting candidates: [String], rotatingTo: String?) {
+        attempt = Attempt(id: id, candidates: candidates, rotatingTo: rotatingTo)
         connectToTheAttempt()
     }
 
@@ -380,7 +384,7 @@ final class BlueZCubeRadio: CubeRadio {
     // MARK: - logging in
 
     private func beginLogin(on device: BlueZObjectTree.Device) {
-        guard let attempt, let reaching else { return }
+        guard let attempt else { return }
         let id = attempt.id
         onLoginBegan?(id)
         debugLog?.record(.login, "Presenting a PIN to \(device.name.isEmpty ? device.address : device.name)")
@@ -388,7 +392,7 @@ final class BlueZCubeRadio: CubeRadio {
         login = DeviceLogin(
             gatt: link.gatt(for: device),
             pin: attempt.pin,
-            rotatingTo: reaching.rotatingTo,
+            rotatingTo: attempt.rotatingTo,
             debugLog: debugLog,
             scheduler: scheduler,
             rotated: { [weak self] pin in self?.onPINChanged?(pin) },
@@ -410,8 +414,10 @@ final class BlueZCubeRadio: CubeRadio {
     private func loginEnded(_ id: DeviceHandle, _ outcome: DeviceLoginOutcome) {
         guard outcome != .loggedIn else {
             connectedDevice = id
-            reaching = nil
             attempt = nil
+            // **Told before anything else**, so a sequence that still thinks a candidate is running cannot arrange
+            // another one behind a link that is up. It drops the reach and cancels the settle wait.
+            reach.candidateEnded(.loggedIn)
             watchTheLink()
             onLoginEnded?(id, .loggedIn)
             return
@@ -422,7 +428,9 @@ final class BlueZCubeRadio: CubeRadio {
         if outcome == .wrongPIN, var attempt, attempt.index + 1 < attempt.candidates.count {
             attempt.index += 1
             self.attempt = attempt
-            reaching?.anyRefused = true
+            // **Nothing is reported to the sequence here.** This device has not finished answering: it has refused
+            // one PIN of several, and the reach only hears about a device once it has run out of them. That is also
+            // where `anyRefused` is set, so the count it decides between the two endings on stays one per device.
             debugLog?.record(.login, "That PIN was refused; presenting the next one")
             letGoOfTheLink(id, because: "a refused PIN, before the next one is presented")
             connectToTheAttempt()
@@ -441,23 +449,24 @@ final class BlueZCubeRadio: CubeRadio {
         guard let attempt else { return }
         let id = attempt.id
         self.attempt = nil
-        if outcome == .wrongPIN { reaching?.anyRefused = true }
+        // **The link goes before the sequence is told**, which is what the settle wait after it is for: connecting
+        // while the previous teardown is still running fails in milliseconds and says nothing about the next cube.
         letGoOfTheLink(id, because: "the device was not this app's cube")
-        guard reaching != nil else { return }
-        tryNextCandidate()
+        reach.candidateEnded(outcome, isBusy: { [weak self] in self?.attempt != nil })
     }
 
     /// The reach is over, one way or the other, and this is the one place it is reported.
     ///
-    /// **A reach with no remembered identifier still reports**, which is why the fallback is a fresh `UUID` rather
+    /// **A reach with no remembered identifier still reports**, which is why the fallback is an empty handle rather
     /// than silence: pairing is a reach for a cube this app has never met, and whatever asked for it is waiting to
     /// hear. `BluetoothRadio` does the same and for the same reason. Nothing downstream reads the identifier when
-    /// the outcome is not `loggedIn`.
-    private func endReach(reporting outcome: DeviceLoginOutcome, because reason: String) {
-        let id = reaching?.preferred ?? DeviceHandle("")
-        debugLog?.record(.login, "The reach ended: \(reason)")
+    /// the outcome is not `loggedIn`, and `main.swift` compares it against `device_uuid`, which no row ever holds
+    /// as an empty string.
+    ///
+    /// **Which of the two answers this is was decided by `CubeReachSequence`**, from whether anything refused a
+    /// PIN, and it is the sequence that wrote the line saying so. What is left here is letting the scan go.
+    private func endReach(reporting outcome: DeviceLoginOutcome, for id: DeviceHandle) {
         closeTheScan()
-        reaching = nil
         attempt = nil
         onLoginEnded?(id, outcome)
     }
