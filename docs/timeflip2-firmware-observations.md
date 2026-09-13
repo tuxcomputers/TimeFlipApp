@@ -510,6 +510,27 @@ and not an off switch -- a knock hard enough is still a knock -- which is why `d
 rather than on: the gesture stops the clock on any knock hard enough, including one through the desk the cube is
 sitting on.
 
+### 11a. The double-tap registers survive a factory reset
+
+**`0xFF` does not put them back.** Measured 2026-09-13 across scripted run 180, which resets the cube in
+`52-device-reset` and re-pairs in `53-device-reconnect`: the `0x17` answer was read **20 times over the whole
+run**, twice inside the reset script and three times in the reconnect that followed it, and every one of them
+reported `Threshold: 90, Limit: 20, Latency: 50, Window: 0`. `0x16` was not sent once in the entire run.
+
+That is worth writing down because the sheet the app shows before a reset says it erases "face colours, task
+settings, name, and password", and it is easy to read the accelerometer registers into that list. They are not
+in it.
+
+**What follows for anybody testing this.** Once the gesture has been turned off there is nothing in the app or
+in `Tests/Scripted` that can turn it back on: the Device tab's control was removed on 2026-09-11, nothing reads
+`double_tap_settings`, and a reset does not restore the factory `window`. So a check that wants the app to
+*notice a disagreement and correct it* cannot be arranged. `59-double-tap` tried and failed on exactly that in
+run 180, and now checks what can be observed: the cube reports the gesture off, and nothing is written to it.
+
+**It also means the app's own send is a one-off in practice.** The registers were last written by a build that
+still had the control, and they have held ever since, across resets. `DeviceSettingsSync` still compares on
+every connection, which is what would put a cube right if anything ever did move them.
+
 ## 12. The advertisement carries no service UUID, and a scan filtered on one finds nothing
 
 **The cube does not put its service UUID in its advertisement**, so a scan filtered on
