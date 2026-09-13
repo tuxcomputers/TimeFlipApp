@@ -353,6 +353,27 @@ final class BlueZCubeRadioTests {
         #expect(linksEnded == [ours], "so whatever holds per-link state lets go of it")
     }
 
+    @Test func testALinkTheAppLetGoOfIsNotACubeGoingAway() throws {
+        // **The distinction `BluetoothRadio` draws with `isDisconnectingDeliberately`.** Whatever holds per-link
+        // state has to let go of it however the link ended, and the reconnect loop must hear only about a cube
+        // that went away: what it does with the news is back off and arrange another attempt. Measured on the
+        // Linux box 2026-09-13, a quit reported a drop and armed attempt 2 into a process that was ending.
+        reachForOurs()
+        link.add(ours, named: "TimeFlip v2.0")
+        look()
+        settle()
+        link.resolve(ours)
+        lookForResolution()
+        try answerThePIN(accepted: true)
+
+        radio.disconnect(because: "the app is quitting")
+
+        #expect(radio.connectedDevice == nil)
+        #expect(link.disconnects == [ours], "the link really was given back")
+        #expect(linksEnded == [ours], "and everything holding per-link state was told")
+        #expect(dropped.isEmpty, "but nothing was told the cube went away, because it did not")
+    }
+
     @Test func testALinkThatIsStillUpIsNotReportedAsGone() throws {
         reachForOurs()
         link.add(ours, named: "TimeFlip v2.0")

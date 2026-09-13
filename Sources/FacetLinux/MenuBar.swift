@@ -13,11 +13,22 @@ import Foundation
 /// box): an application node has its windows as children and never its indicator, exactly as the macOS
 /// status item is absent from `AXMenuBar`. A scripted check reaches this over D-Bus instead --
 /// `com.canonical.dbusmenu`'s `GetLayout` reads the items and `Event` chooses one. See
-/// `docs/linux-port.md`.
+/// `docs/linux-port.md`, which also records what `GetLayout` does **not** carry: a menu item crosses as its
+/// label and whether it is enabled, and no identifier travels with it.
 ///
-/// **Nothing here holds what it shows.** The label is asked for on every tick and the menu is rebuilt when
-/// somebody opens it, both from closures that go to the database -- which is `CLAUDE.md`'s first rule, and
+/// **Nothing here holds what it shows.** The label is asked for on every tick and the menu is asked for on
+/// every tick beside it, both from closures that go to the database -- which is `CLAUDE.md`'s first rule, and
 /// the reason the menu cannot come to disagree with the Faces tab about what is being timed.
+///
+/// **The tick is what redraws the menu, and that is forced rather than chosen** (2026-09-13). This used to
+/// rebuild on the `GtkMenu`'s `show` signal, which is the Linux answer to `NSMenuDelegate.menuNeedsUpdate`
+/// and would have been the right one. Measured on this box: a panel opening the menu calls
+/// `com.canonical.dbusmenu`'s `AboutToShow`, which reaches no signal on the widget at all, and the one
+/// `show` a `GtkMenu` behind an `AppIndicator` ever emits is emitted by `app_indicator_set_menu` itself --
+/// before this file had even connected its handler. So the menu was built once, at launch, and never again:
+/// it went on offering *Pair a cube* under a paired, connected app, with Pause and Lock insensitive over a
+/// live cube. There is no interception to be had, the `DbusmenuServer` being libayatana-appindicator's own,
+/// so the menu is re-read on the clock like the label.
 ///
 /// **It decides nothing, as of 2026-09-11.** What the line says is `StatusItemReadout`'s, which is the core module
 /// that also holds the first-reading latch, the tick decision and the two `debug_log` rows a change is worth; what
@@ -70,6 +81,26 @@ final class MenuBar {
     private var shown: [UnsafeMutablePointer<GtkWidget>] = []
     private var actions: [Action] = []
 
+    /// The lines GTK is currently drawing, for the one question the tick asks: is what it should say now
+    /// different from what it is saying.
+    ///
+    /// **Not a copy of anything true either**, and it is the same kind of value `shown` is: the answer is read
+    /// from `items()` every tick, and this is only what the panel was last handed. What it buys is that the
+    /// panel is not handed a fresh layout once a second for no reason -- libdbusmenu tells its client the
+    /// layout changed, and a client rebuilding a menu under somebody's pointer is worse than the second it
+    /// saves. While a category is being timed the figures move every second and it rebuilds every second,
+    /// which is the honest cost of a menu that carries a running total.
+    private var handedOver: [Line] = []
+
+    /// One drawn line, reduced to what a reader can tell apart. **Not `StatusItemMenu.Item`**, which carries a
+    /// closure and so cannot be compared -- and the closures are all re-entrant reads of the table, so what
+    /// changes between one tick and the next is always one of these three.
+    private struct Line: Equatable {
+        let title: String
+        let isSeparator: Bool
+        let isChoosable: Bool
+    }
+
     init(debugLog: DebugLog?,
          scheduler: Scheduler,
          readout: StatusItemReadout,
@@ -112,17 +143,33 @@ final class MenuBar {
         app_indicator_set_status(indicator, APP_INDICATOR_STATUS_ACTIVE)
     }
 
-    /// Throws away the menu as it stands and builds it again from `items()`.
+    /// Reads what the menu should say and rebuilds it if that is not what it is saying.
+    ///
+    /// **The read always happens; only the drawing is conditional.** `items()` goes to the database, so this
+    /// asks the same question the label does and at the same moment. What is skipped when the answer has not
+    /// moved is throwing eleven widgets away and building eleven more, which is work for GTK and a layout
+    /// change for whatever panel is drawing it.
+    private func rebuildIfChanged() {
+        let wanted = items()
+        let lines = wanted.map {
+            Line(title: $0.title, isSeparator: $0.isSeparator, isChoosable: $0.choose != nil)
+        }
+        guard lines != handedOver else { return }
+        handedOver = lines
+        rebuild(from: wanted)
+    }
+
+    /// Throws away the menu as it stands and builds it again from what was just read.
     ///
     /// **Rebuilt rather than edited.** Working out which rows changed and patching them is how a menu comes
     /// to show a category that was retired ten seconds ago: the rows are cheap and the question "what
-    /// should be here now" has one answer, which is what `items()` returns.
-    private func rebuild() {
+    /// should be here now" has one answer, which is what `items()` returned.
+    private func rebuild(from wanted: [StatusItemMenu.Item]) {
         for widget in shown { gtk_widget_destroy(widget) }
         shown.removeAll()
         actions.removeAll()
 
-        for item in items() {
+        for item in wanted {
             let widget: UnsafeMutablePointer<GtkWidget>
             if item.isSeparator {
                 widget = gtk_separator_menu_item_new()
@@ -154,13 +201,14 @@ final class MenuBar {
         }
     }
 
-    /// Draws the item again now, rather than waiting for the next tick.
+    /// Draws the item and its menu again now, rather than waiting for the next tick.
     ///
-    /// **What it is for is the states the tick does not cover.** The label is refreshed once a second, which is
-    /// right for a running clock and wrong for everything else: a cube connecting, a pairing being written, a link
-    /// dropping. Each of those changes what the item says with nothing else about to redraw it.
+    /// **What it is for is the states the tick does not cover promptly enough.** A second is right for a running
+    /// clock and too slow for a cube connecting, a pairing being written or a link dropping -- each of which
+    /// changes both the line and what is in the menu, and none of which has anything else about to redraw it.
     func redraw() {
         refreshLabel()
+        rebuildIfChanged()
     }
 
     /// Puts the current reading beside the icon.
@@ -204,19 +252,9 @@ final class MenuBar {
 
     /// Hands the menu to the indicator and does not return: `gtk_main` is the run loop from here.
     func run() -> Never {
-        rebuild()
+        rebuildIfChanged()
         refreshLabel()
         facet_indicator_set_menu(indicator, menu)
-
-        // **Rebuilt as it opens, which is when somebody is about to read it.** The alternative is a timer
-        // rewriting a menu that may be on screen, and a total that was right when the timer last fired is
-        // exactly the second copy `CLAUDE.md` forbids.
-        facet_on_show(menu, { _, data in
-            guard let data else { return }
-            MainActor.assumeIsolated {
-                Unmanaged<MenuBar>.fromOpaque(data).takeUnretainedValue().rebuild()
-            }
-        }, Unmanaged.passUnretained(self).toOpaque())
 
         // **A second, because it is a clock.** This is the one place a value is re-read on a timer rather
         // than at a point of use, which `CLAUDE.md` names as a case that has to say so: the label shows a
@@ -229,7 +267,7 @@ final class MenuBar {
         // same call the six core modules make. `mayGroup` is deliberately not given: a figure showing seconds
         // that settles alongside some other wake is a figure that visibly skips one.
         repaint = scheduler.wake(in: 1, repeating: true) { [weak self] in
-            self?.refreshLabel()
+            self?.redraw()
         }
 
         debugLog?.record(.launch, "The menu bar item is up")

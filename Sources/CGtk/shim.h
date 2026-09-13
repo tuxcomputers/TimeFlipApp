@@ -39,14 +39,17 @@ static inline gulong facet_on_activate(GtkWidget *item,
     return g_signal_connect(item, "activate", G_CALLBACK(handler), data);
 }
 
-/* The menu being opened. What it is for is rebuilding the items at the moment somebody looks at them,
-   rather than on a timer that would be rewriting a menu while it is on screen -- which is `CLAUDE.md`'s
-   first rule applied to a menu: the totals are read when they are wanted, not held and refreshed. */
-static inline gulong facet_on_show(GtkWidget *menu,
-                                   void (*handler)(GtkWidget *, gpointer),
-                                   gpointer data) {
-    return g_signal_connect(menu, "show", G_CALLBACK(handler), data);
-}
+/* **There is no wrapper for the menu being opened, and that is measured rather than an omission.**
+
+   One belonged here: rebuilding the items at the moment somebody looks at them is what the macOS side does
+   through `NSMenuDelegate.menuNeedsUpdate`, and it is `CLAUDE.md`'s first rule applied to a menu. It was
+   `g_signal_connect(menu, "show", ...)` until 2026-09-13, and it never fired once.
+
+   Measured on the Linux box with a two-item probe indicator: a panel opening the menu calls
+   `com.canonical.dbusmenu`'s `AboutToShow`, which returns FALSE and reaches no signal on the `GtkMenu` at
+   all, and the single `show` such a menu ever emits is emitted by `app_indicator_set_menu` itself. The
+   `DbusmenuServer` that would have to forward it belongs to libayatana-appindicator and is not handed out,
+   so there is nothing to hook. `MenuBar` re-reads the menu on its own tick instead and says so. */
 
 /* **The dialogue square's GTK slot needs four wrappers, and two of them are the variadic problem again.**
 

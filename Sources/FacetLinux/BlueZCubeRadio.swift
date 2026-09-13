@@ -495,7 +495,16 @@ final class BlueZCubeRadio: CubeRadio {
         dropTheLink(id, because: "the cube stopped answering")
     }
 
-    private func dropTheLink(_ id: DeviceHandle, because reason: String) {
+    /// The link is over, and `wasDeliberate` says which of the two kinds of over it is.
+    ///
+    /// **`onLinkEnded` fires either way and `onConnectionDropped` does not**, which is the distinction
+    /// `BluetoothRadio` draws with `isDisconnectingDeliberately` and it is not cosmetic. Whatever holds per-link
+    /// state has to let go of it however the link ended; the reconnect loop must hear only about a cube that went
+    /// away, because what it does with the news is back off and arrange another attempt. Measured on this box
+    /// 2026-09-13: a quit reported a drop, so the trace carried `The link went: the app is quitting` followed by
+    /// `Connection down: the cube stopped answering` about the same moment, and the loop scheduled attempt 2 into a
+    /// process that was ending.
+    private func dropTheLink(_ id: DeviceHandle, because reason: String, wasDeliberate: Bool = false) {
         linkPoll?.cancel()
         linkPoll = nil
         connectedDevice = nil
@@ -508,14 +517,18 @@ final class BlueZCubeRadio: CubeRadio {
         cubeStatus = nil
         debugLog?.record(.status, "The link went: \(reason)")
         onLinkEnded?(id)
+        guard !wasDeliberate else { return }
         onConnectionDropped?(id)
     }
 
     /// Gives the cube back, which is what a quit does with it.
+    ///
+    /// **The one deliberate way a link ends on this platform.** The Mac has three -- the Settings window closing,
+    /// another device being chosen on the Device tab, and the quit -- and none of the first two exists here.
     func disconnect(because reason: String) {
         guard let id = connectedDevice else { return }
         try? link.disconnect(id)
-        dropTheLink(id, because: reason)
+        dropTheLink(id, because: reason, wasDeliberate: true)
     }
 
     // MARK: - asking the cube things
