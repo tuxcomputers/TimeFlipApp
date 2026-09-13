@@ -26,7 +26,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=3
+#
+# **Four, not three: the relink's own `pass` counts.** Declared as three in the rewrite and run 181 stopped the
+# whole suite on the mismatch with nothing actually wrong, which is `finish` working as intended.
+EXPECTED_CHECKS=4
 start "the cube's double tap, which is off and is left alone"
 
 require_a_paired_cube "there is no cube to ask about its double tap"
