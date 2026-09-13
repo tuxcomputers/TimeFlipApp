@@ -33,3 +33,92 @@ for something is to write it down where the other will look.
 6. **When you have done everything you can, write what you want back.** Add items to
    [handover-linux.md](handover-linux.md) for the other machine. A blank file on both sides is the
    finished state.
+
+## 25. `CubeCommandChannel` changed under you, and only a scripted run can say it is right there
+
+**A read-back was answering on whatever arrived first rather than on what it read.**
+`isAwaitingResult` reported `isReadingBack`, which is set before the question is even written, and
+`DeviceLogin` routes command-result values by it -- so anything landing between the write and the
+read was taken as the reply. That is the exact thing this type's own comments say makes a `0x10`
+answer worthless: it carries no echoed command byte, and the characteristic frequently holds the
+previous command's reply.
+
+**What it cost on this side, both silent.** Every login reported *That was not an answer about the
+state of the cube*, so `cubeStatus` stayed nil through every connection and
+`DeviceSettingsSync.cubeReported(status:)` never ran at all. And a quit reported *The cube would not
+take auto-pause 0m* about a write the cube had narrated as `autopause OFF` and confirmed as zero
+two hundred milliseconds later.
+
+**The trigger is BlueZ and the window is shared.** BlueZ answers a read twice, once as the reply and
+once as a `PropertiesChanged` a few milliseconds later, so the duplicate of the login's `0x17` landed
+inside the `0x10` after it. **Whether CoreBluetooth ever delivers into that window is the question,
+and this box cannot answer it.** If it does, the same two faults are on the Mac and nobody has
+noticed; if it does not, the fix costs one turn of the loop and nothing else.
+
+The fix is `isReadingTheValue`, a second flag set where the read actually goes out.
+`CubeCommandChannelTests` changed one assertion -- it pinned the old claim that for the `0x10`
+exchange the write *is* the question -- and gained one for the window. 737 tests pass here.
+
+**What I want**: a run of `51-device-connect`, `55-device-settings` and `57-cube-pause`, and a look
+at whether any `0x10` on the Mac ever answered without a `commandResult: read requested` before it.
+That last one is answerable from a trace you already have, without a cube.
+
+## 26. The cube is on a PIN this box set, so the Mac cannot log into it until you clear it
+
+Pairing from Linux rotated it off the vendor default, which is `DevicePINRules.rotates(from:)`
+working as designed, and the new PIN is in this machine's login keyring where the Mac cannot reach
+it. The cube was on `000000` when I started -- confirmed with `scripts/linux-ble-probe.py`, which
+writes nothing -- so whatever left it there, it is not there now.
+
+**Taking the batteries out and putting them back returns it to `000000`** (measured 2026-08-11,
+finding in `docs/timeflip2-firmware-observations.md`), and the Mac's reconnect candidates already
+append the vendor default, so a pairing from that side will simply work again afterwards.
+
+**Nothing else of the cube's was changed on purpose**, but say so out loud rather than assuming: the
+face colours were re-sent from this box's twelve faces, LED brightness is 50%, blink period 15s, and
+auto-pause is now zero where it was five minutes. Only two of those twelve faces carry a category
+here (`Break` on 8, `Meeting` on 2), so a Mac pairing will re-send its own.
+
+**This item is here to be read, not done.** Delete it once you have the cube back.
+
+## 27. Twelve compiler artefacts are committed at the repository root
+
+`AlertPresenter-2.d`, `.dia`, `.swiftdeps` and `.swiftmodule`, and the same four each for
+`CoreBluetoothGatt-2` and `RunLoopScheduler-2`. They are tracked, not ignored, and they arrived in
+`db58b96` ("All nineteen alerts onto the port"). About 250 KB of intermediate output from a macOS
+build that wrote into the working directory.
+
+**Yours to remove rather than mine**, because they came off a Mac build and I cannot tell whether
+anything there still expects them. `git rm` on the twelve and a line in `.gitignore` is the whole of
+it, unless the build that produced them is still writing there, in which case that is the thing to
+fix.
+
+## 28. Does a pairing on the Mac ever restart the history timer? I think it cannot
+
+`historyTimer.start()` at launch does nothing when nothing is being timed and no cube is connected,
+which is every launch whose cube is out of range at the time. `resumeIfStopped()` is reached only
+from `settingsWindow.onTimingChanged`, and reading the eight places that fires -- a rename, a limit
+raised, a retire, the Timing column, a face given a category, the manual toggle -- none of them is a
+cube connecting. `CubeReports.changed` on your side is `devicePane?.show(deviceSettings())` and
+nothing more.
+
+So a Mac launch that finds its cube a minute later looks to me like one whose periodic history fetch
+stays dead for the rest of the session. Not fatal, because `onCubeReady` fetches once when the link
+comes up and `onFace` fetches on every turn -- which is why it would never be noticed -- but
+`fetch_history_interval_seconds` is a safety net and it would not be there.
+
+**On this side it is wired and it visibly works**: `onLoginEnded` calls `historyTimer.resumeIfStopped()`
+after the pairing rows, and the trace goes *History timer not started, nothing is being timed* at
+launch and *History timer started, asking every 10s* the moment the cube is paired.
+
+I have not touched `FacetMac`. If I have read it wrong, say so here and I will take the item back.
+
+## 29. `CLAUDE.md` says the scripted suite is set aside, and run 183 happened this afternoon
+
+The section *The scripted suite is set aside until the Linux port is finished* says not to ask for a
+run and to expect `All tests pass` to stay red. `Tests/Scripted/last-run-mac.md` records run 183
+finishing at 17:01 today, 793 of 793, clean tree, gate clear.
+
+Both cannot be current. **Item 25 asks for a run on that basis**, so if the suite really is still set
+aside, say so and I will treat 25 as owed rather than outstanding. If it is back, the paragraph in
+`CLAUDE.md` is what wants deleting -- and it is your file to delete it from.
