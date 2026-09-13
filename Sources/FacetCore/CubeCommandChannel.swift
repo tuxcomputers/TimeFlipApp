@@ -51,6 +51,22 @@ package final class CubeCommandChannel {
     /// two arrive on the same characteristic and are otherwise indistinguishable.
     private var isReadingBack = false
 
+    /// Whether the read of the command result has actually gone out.
+    ///
+    /// **A second flag, because `isReadingBack` answers a different question**: that one means this exchange is
+    /// going to want an answer, and it is set before the question is even written. The window between the two is
+    /// real and a value arriving inside it is somebody else's -- which is the whole of what this type's own
+    /// comments say makes a `0x10` reply trustworthy, since that reply carries no echoed command byte and the
+    /// characteristic frequently holds the previous command's.
+    ///
+    /// **Measured on the Linux box, 2026-09-13**, where the window is wide enough to be hit every time. BlueZ
+    /// answers a read on a characteristic twice -- once as the read's own reply and once as a `PropertiesChanged`
+    /// a few milliseconds later -- so the duplicate of the login's `0x17` double-tap answer landed inside the
+    /// window opened by the `0x10` that follows it. Every login on that platform reported `That was not an answer
+    /// about the state of the cube`, and the app never learned the cube's lock, pause or auto-pause delay at all.
+    /// Nothing failed: the reconciliation that depends on it simply never ran.
+    private var isReadingTheValue = false
+
     /// Exchanges waiting their turn, in the order they were asked for.
     ///
     /// **Waiting, not refused.** This channel used to answer `false` to anything arriving while it was busy, which
@@ -121,7 +137,9 @@ package final class CubeCommandChannel {
     ///
     /// Reported so the login's delegate can keep asking the questions in the order it always has: the double-tap
     /// read is offered the value first, then this, then the login's own `Step`.
-    package var isAwaitingResult: Bool { isReadingBack }
+    /// **The read, not the intention.** See `isReadingTheValue`: between arming an exchange and reading the
+    /// characteristic, anything arriving on it belongs to whatever asked before this did.
+    package var isAwaitingResult: Bool { isReadingTheValue }
 
     /// Sends a command and reports whether the cube took it.
     ///
@@ -137,6 +155,7 @@ package final class CubeCommandChannel {
             self.pendingCommand = reported
             self.pendingReadBack = DeviceCommandRules.readBack(for: payload)
             self.isReadingBack = false
+            self.isReadingTheValue = false
             self.armDeadline()
             // The bytes themselves go into the trace as `ble-tx` by the transport, so what this row adds is why
             // they went.
@@ -188,7 +207,7 @@ package final class CubeCommandChannel {
     /// Ignored unless this channel is the one waiting for it, which is what keeps a reply meant for the double-tap
     /// read or for the login's own `Step` from being taken as a verdict on a command.
     package func resultArrived(_ value: Data?) {
-        guard isReadingBack else { return }
+        guard isReadingTheValue else { return }
         answered(value)
     }
 
@@ -304,6 +323,7 @@ package final class CubeCommandChannel {
             finishExchange(took: false, status: nil)
             return
         }
+        isReadingTheValue = true
         readResult()
     }
 
@@ -348,6 +368,7 @@ package final class CubeCommandChannel {
         deadline = nil
         scheduledSeconds = nil
         isReadingBack = false
+        isReadingTheValue = false
         pendingReadBack = nil
         let reportCommand = pendingCommand
         let reportStatus = pendingStatus

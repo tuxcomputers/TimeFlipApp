@@ -176,12 +176,15 @@ final class CubeCommandChannelTests {
 
         channel.askStatus { answered = $0 }
         #expect(wire.transmitted == [DeviceCommandRules.status])
-        // Already awaiting a result, because for this exchange the write *is* the question.
-        #expect(channel.isAwaitingResult == true)
+        // **Not awaiting a result yet, though the question has gone out.** This read `true` until 2026-09-13, on
+        // the reasoning that for this exchange the write *is* the question -- and that is the window a value
+        // arriving from the exchange before this one lands in.
+        #expect(channel.isAwaitingResult == false)
         #expect(wire.reads == 0)
 
         channel.acknowledged(landed: true)
         #expect(wire.reads == 1)
+        #expect(channel.isAwaitingResult == true, "and only now, with the read actually out")
 
         channel.resultArrived(answer(locked: true, autoPauseMinutes: 300))
         #expect(answered??.isLocked == true)
@@ -189,6 +192,27 @@ final class CubeCommandChannelTests {
         // A locked cube reports itself paused whatever its pause byte says, which is the second measured trap and
         // is `DeviceCommandRules`' to enforce. Asserted here so the channel is shown to pass it through unaltered.
         #expect(answered??.isPaused == true)
+    }
+
+    @Test("A value arriving before the read has gone out belongs to whoever asked before this did")
+    func aValueBeforeTheReadIsSomebodyElses() {
+        let channel = self.channel()
+        var answered: DeviceCommandRules.Status??
+
+        channel.askStatus { answered = $0 }
+        // The previous exchange's answer, arriving late. **Measured rather than imagined** (Linux, 2026-09-13):
+        // BlueZ answers a read twice, once as the reply and once as a `PropertiesChanged` a few milliseconds
+        // later, so the login's `0x17` double-tap answer arrives again inside the window the `0x10` after it
+        // opens. It is twenty bytes beginning `17`, and it is not a status.
+        channel.resultArrived(Data([0x17, 0x3A, 0x5A, 0x3B, 0x14, 0x3C, 0x32, 0x3D] + Array(repeating: 0, count: 12)))
+
+        #expect(answered == nil, "nothing was reported, because nothing was asked yet")
+        #expect(wire.reads == 0)
+
+        channel.acknowledged(landed: true)
+        channel.resultArrived(answer(autoPauseMinutes: 5))
+
+        #expect(answered??.autoPauseMinutes == 5, "and the real answer still lands")
     }
 
     @Test("Whatever the cube says about itself is published, whichever question drew it out")
