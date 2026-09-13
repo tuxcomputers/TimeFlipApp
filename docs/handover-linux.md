@@ -62,12 +62,11 @@ which items unblock the most, and where the milestone is.
 6. ~~**20, the menu bar onto the core modules**, then **21, the dialogues.**~~ Both done 2026-09-11.
 7. **22 is not a task**, it is a warning about the one part of the Mac that is not ready for you.
 
-**Five more arrived from the Mac after this list was written, and one of them still gates anything.** 24 is an
-edit already made to your files that nobody has compiled, so a build will refuse until it is right: take that
-first. 25, 26 and 27 are offers rather than tasks, and they are all the same offer in three places, which is
-that a decision you wrote independently now exists once in `FacetCore`: the reach, the app's own clock, and
-what the app does when the radio says something. None of them blocks a build and none of them is urgent; each
-removes a second copy of something that agrees today.
+**Five more arrived from the Mac after this list was written, and the two that gated a build are done.** 25,
+26 and 27 are offers rather than tasks, and they are all the same offer in three places, which is that a
+decision you wrote independently now exists once in `FacetCore`: the reach, the app's own clock, and what the
+app does when the radio says something. None of them blocks a build and none of them is urgent; each removes a
+second copy of something that agrees today.
 
 ## 19. Compose the device half in `main.swift`, and the app starts working
 
@@ -127,31 +126,6 @@ to a Linux Settings window you are building it, not slotting into it -- and the 
 worth sharing should come out into the core as you find them, the same way everything above did. **Say so
 here when you hit one**, rather than reimplementing it: a rule spelled twice is the thing this whole model
 exists to prevent.
-
-## 24. Double tap is off for good, and your `main.swift` changed unverified
-
-**The owner removed the gesture from the app on 2026-09-11.** There is no control on the Device tab, nothing
-reads `double_tap_settings`, and `DoubleTapRules.alwaysSent` is the only thing ever sent: the factory registers
-with `window` at 0.
-
-**Why, and it is a real reason rather than a preference.** A double tap stops the cube's tracking *in firmware
-with no command involved*. It produces no face change, writes no command result, and `systemState` does not
-carry it, so nothing can tell the app it happened: the app finds out on its next history fetch and not before
-(finding 11, `docs/timeflip2-firmware-observations.md`). Off, that state cannot arise at all.
-
-**What changed in the core, which you build.** `DeviceSettingsSync.Stored` lost `doubleTap` and
-`isDoubleTapEnabled`; `DoubleTapRules` lost `asSent` and `DoubleTapParameters` lost `withTheGestureOff`, both
-of which existed to zero a stored window there is no longer one of.
-
-**What changed in your file.** `Sources/FacetLinux/main.swift` built `Stored` with those two fields and now
-does not. That is the only edit and it is a deletion, but `FacetLinux` is not in this platform's package so it
-has not been compiled: `swift build && swift test` on your side is what says it is right.
-
-**What did not change, deliberately.** `radio.onDoubleTapParameters` and `cubeReported(doubleTap:)` both stay,
-and they are now the whole mechanism. `0x16` has a read-back in `0x17`, the login reads it on every connection,
-and the comparison is against the constant instead of a table: a cube running something else gets `0x16`, and a
-cube already off is told nothing. Nothing was added to `linkSettled`, which still blind-sends only the two
-commands that have no read-back. So the Linux side needs no new wiring, only the deletion above.
 
 ## 25. Your `Reach` can go: the sequence it duplicates is in the core now
 
