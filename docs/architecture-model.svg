@@ -83,24 +83,25 @@
     <text x="640" y="552" font-size="10.5">DeviceEventRecorder · DevicePairingRecorder</text>
 
     <!-- band 3: what it does over time -->
-    <rect x="462" y="574" width="356" height="52" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+    <rect x="442" y="574" width="396" height="64" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
     <text x="640" y="592" font-size="9.5" fill="#64748b" letter-spacing="1.2">WHAT IT DOES OVER TIME</text>
-    <text x="640" y="608" font-size="10.5">CubeLock · FaceColourSync · DeviceSettingsSync</text>
-    <text x="640" y="620" font-size="10.5">HistoryIngestor · CalendarSync · DeviceReconnector</text>
+    <text x="640" y="608" font-size="10.5">DeviceLogin · CubeCommandChannel · CubeReachSequence · CubeResetProof</text>
+    <text x="640" y="620" font-size="10.5">CubeLock · FaceColourSync · DeviceSettingsSync · DeviceReconnector</text>
+    <text x="640" y="632" font-size="10.5">HistoryIngestor · CalendarSync · ManualClock · CubeReports</text>
 
     <!-- band 4: what it says -->
-    <rect x="502" y="642" width="276" height="38" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
-    <text x="640" y="660" font-size="9.5" fill="#64748b" letter-spacing="1.2">WHAT IT SAYS</text>
-    <text x="640" y="674" font-size="10.5">StatusItemTitle · DurationFormat · ReportEntryText</text>
+    <rect x="472" y="654" width="336" height="38" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="640" y="672" font-size="9.5" fill="#64748b" letter-spacing="1.2">WHAT IT SAYS</text>
+    <text x="640" y="686" font-size="10.5">StatusItemTitle · StatusItemMenu · Dialogue · DurationFormat</text>
   </g>
 
   <!-- arms between bands, inside the circle -->
   <g stroke="#94a3b8" stroke-width="1.2" marker-end="url(#arrowSmall)" opacity="0.7">
     <line x1="640" y1="490" x2="640" y2="502"/>
     <line x1="640" y1="558" x2="640" y2="570"/>
-    <line x1="640" y1="626" x2="640" y2="638"/>
+    <line x1="640" y1="638" x2="640" y2="650"/>
   </g>
-  <text x="640" y="700" text-anchor="middle" font-size="10" fill="#94a3b8" font-style="italic">modules inside link to one another freely</text>
+  <text x="640" y="712" text-anchor="middle" font-size="10" fill="#94a3b8" font-style="italic">modules inside link to one another freely</text>
 
   <!-- ══════════ squares ══════════ -->
   <!-- each: title, then a slot per platform. macOS filled, the others waiting.

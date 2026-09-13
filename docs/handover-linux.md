@@ -62,6 +62,11 @@ which items unblock the most, and where the milestone is.
 6. ~~**20, the menu bar onto the core modules**, then **21, the dialogues.**~~ Both done 2026-09-11.
 7. **22 is not a task**, it is a warning about the one part of the Mac that is not ready for you.
 
+**Three more arrived from the Mac after this list was written, and none of them blocks the others.** 23 and 24
+are edits already made to your files that nobody has compiled, so they come first only in the sense that a
+build will refuse until they are right. 25 is an offer rather than a task: `CubeReachSequence` exists now, so
+`BlueZCubeRadio`'s own `Reach` can go whenever you want the deletion.
+
 ## 19. Compose the device half in `main.swift`, and the app starts working
 
 > **Written, hermetically green, and half run. Stays put until a cube has answered it.** (2026-09-11, Linux.)
@@ -109,7 +114,13 @@ and the settings-write ordering into the core, and it stopped there deliberately
 `docs/architecture-ports-plan.md` item 6 has one row left (`renameDevice`/`sendRename`) and the honest
 statement about the rest is that it is view construction and tab wiring, which is what an adapter is *for*.
 
-So `SettingsWindowController` is 3,487 lines of AppKit and **there is no port to fill for it**. When you get
+**Two more things came out of it after this was written (Mac, 2026-09-13), and the warning still stands.**
+`ManualClock` took the app's own clock, which three controls reach and one of them is not a window at all;
+`CubeReports` took what the app does when the radio says something, including both of the reconnect loop's
+feedback inputs. Neither is a port and neither helps you draw a window: they are decisions that were in the
+wrong file, and taking them out is why the number below keeps falling.
+
+So `SettingsWindowController` is 3,206 lines of AppKit and **there is no port to fill for it**. When you get
 to a Linux Settings window you are building it, not slotting into it -- and the decisions it makes that are
 worth sharing should come out into the core as you find them, the same way everything above did. **Say so
 here when you hit one**, rather than reimplementing it: a rule spelled twice is the thing this whole model

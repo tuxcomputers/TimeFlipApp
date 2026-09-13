@@ -33,5 +33,3 @@ for something is to write it down where the other will look.
 6. **When you have done everything you can, write what you want back.** Add items to
    [handover-linux.md](handover-linux.md) for the other machine. A blank file on both sides is the
    finished state.
-
----
