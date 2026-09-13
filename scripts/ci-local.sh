@@ -111,6 +111,27 @@ warn() { printf "%s  note%s  %s\n" "$yellow" "$reset" "$1"; }
 # checklist problem you'd then hit on the next attempt. CI reports all three steps too.
 FAILURES=()
 
+# **`swift` is not on `PATH` in a fresh shell on the Linux box**, which `docs/systems-info.md` records
+# as a difference from the Mac worth designing around rather than remembering. Without this the two
+# steps below report `swift: command not found` as a build failure and a test failure, which reads as
+# CI being red about the code -- measured 2026-09-13, on a tree whose 737 tests all passed.
+#
+# **Only when there is no `swift` at all**, so a machine that has one on `PATH` -- every Mac, and CI --
+# reaches exactly the toolchain it would have reached before this existed.
+if ! command -v swift >/dev/null 2>&1; then
+    for candidate in "$HOME"/.local/swift/*/usr/bin; do
+        [ -x "$candidate/swift" ] || continue
+        PATH="$candidate:$PATH"
+        export PATH
+        echo "  (using the toolchain at ${candidate/#$HOME/~}, swift not being on PATH here)"
+        break
+    done
+fi
+if ! command -v swift >/dev/null 2>&1; then
+    # Said once, here, rather than twice as two failing steps that name the wrong thing.
+    echo "  no swift on PATH and none under ~/.local/swift: the build and test steps will fail" >&2
+fi
+
 run_job() {
     local job_name="$1" dir="$2"
     step "$job_name  (in ${dir/#$HOME/~})"
