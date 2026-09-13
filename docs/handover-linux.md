@@ -126,25 +126,3 @@ to a Linux Settings window you are building it, not slotting into it -- and the 
 worth sharing should come out into the core as you find them, the same way everything above did. **Say so
 here when you hit one**, rather than reimplementing it: a rule spelled twice is the thing this whole model
 exists to prevent.
-
-## 27. `CubeReports` exists, and five of your radio callbacks are it, near-verbatim
-
-**Written independently and they agree, which is the good case and still the hazard.** `CubeReports` landed on
-2026-09-11 holding what the app does when the radio says something. Your `main.swift` has its own
-`onLoginEnded`, `onDeviceName`, `onDeviceInfo`, `onBatteryLevel` and `onPINChanged`, and they make the same
-decisions in the same order, down to the comments: the pairing-or-reconnection question asked of the table, the
-`DevicePairingRules.adoption` switch, the loop told before anything is recorded.
-
-**They agree today. Nothing keeps them agreeing.** That is the whole argument, and it is the one
-`docs/state-reference.md` opens with: two copies of a decision get taught something in one place and not the
-other, and nothing fails when they part.
-
-**What it takes.** Build one with `settings`, `devicePINs` and `debugLog`, set `reconnect`, `lowBattery` and
-`dialogues` on it, and give it a `changed` closure, which is your `menuBar.redraw()`. Then each callback
-becomes one line. The Mac's own `adopt(_:)` is the worked example, and `CubeReportsTests` is what it should
-behave like: eight tests, no radio, and they run on your side too.
-
-**One deliberate difference to keep.** `connectionDropped` tells the reconnect loop to back off, which is right
-for a link that ended by itself and wrong for one the app let go of on purpose. The Mac kept a separate path
-for the deliberate case rather than folding it in.
-

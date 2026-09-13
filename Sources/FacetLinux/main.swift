@@ -539,16 +539,24 @@ historyIngestor.onChanged = {
 
 // MARK: - what the radio says happened
 
+// The app's half of everything the radio reports: the rotated PIN, the pairing rows, the reconnect loop's feedback
+// and the low-battery warning.
+//
+// **The same module the Mac reaches through `SettingsWindowController`** (adopted here 2026-09-13). The five
+// callbacks below were written here independently and made the same decisions in the same order, down to the
+// comments -- which is the good case and still the hazard `docs/state-reference.md` opens with: two copies of one
+// decision get taught something in one place and not the other, and nothing fails when they part.
+//
+// **`changed` is the redraw and nothing else.** `CubeReports` decides and records; what is on screen is the
+// caller's, which on this platform is one menu bar and on the Mac is a pane.
+let reports = CubeReports(settings: settings, devicePINs: devicePINs, debugLog: debugLog)
+reports.reconnect = reconnector
+reports.lowBattery = lowBattery
+reports.dialogues = dialogues
+reports.changed = { menuBar.redraw() }
+
 if let radio {
-    // **The cube is on the new PIN by the time this runs**, and it has proved it by logging in with it, so a
-    // failure here is the app losing a PIN the cube already has. The write happens on its own line rather than
-    // inside a logging call: `debugLog?.record(...)` is optional chaining, so with no logger its argument is never
-    // evaluated and the PIN would go unrecorded in exactly the build that has no log to notice.
-    radio.onPINChanged = { pin in
-        let recorded = DevicePINSource(keychain: devicePINs, debugLog: debugLog).record(pin)
-        guard !recorded.isRecorded else { return }
-        debugLog?.record(.pin, "Neither store would keep the new PIN, so the cube now has one this app has not got")
-    }
+    radio.onPINChanged = { pin in reports.pinChanged(to: pin) }
 
     // **Whether the two PIN stores are saying different things, asked once, here.** They disagree only after a
     // Keychain write that failed, and only the cube can say which is right -- so the answer waits for a login, and
@@ -565,63 +573,33 @@ if let radio {
     }
 
     radio.onLoginEnded = { id, outcome in
-        // **Told either way, and before the recording.** A failure is what starts the next attempt, so the loop
-        // has to hear about the ones that did not work.
-        reconnector?.noteOutcome(outcome)
-        // **Only a login that got all the way through writes anything.** A refused PIN, a device that turned out
-        // not to be a TimeFlip and a cube that stopped answering all leave the table exactly as it was.
+        // **What the radio found, and only when the login got all the way through.** A refused PIN, a device that
+        // turned out not to be a TimeFlip and a cube that stopped answering all leave the table exactly as it was,
+        // and `CubeReports` is where that is decided along with which of pairing and reconnecting this is.
+        reports.loginEnded(outcome, with: outcome == .loggedIn ? radio.device(id) : nil)
         guard outcome == .loggedIn else { return }
-        let device = radio.device(id)
-        let alreadyPaired = settings.flag("paired", field: "paired") == true
-            && settings.string("device_uuid", field: "uuid") == id.value
-        if alreadyPaired {
-            pairing.recordReconnection(with: device)
-        } else {
-            pairing.recordPairing(with: device)
-        }
         // **What the app is doing has just changed, and only this says so.** Timing by hand is what being unpaired
         // means, so writing `paired` is what makes this app follow a cube; the timer and the limit watch had both
         // stood down under a launch with nothing to follow, and this is the funnel that puts them back on their
-        // feet.
-        menuBar.redraw()
+        // feet. It stays here rather than in `CubeReports`, which decides and records and deliberately does not
+        // drive the app's own clocks.
         historyTimer.resumeIfStopped()
         dailyLimit.resumeIfStopped()
         forcedPause.check()
     }
 
     // **The one confirmation a rename ever gets**, arriving a second or two into a connection. It is also what
-    // notices a cube renamed in the vendor's app.
-    radio.onDeviceName = { id, name in
-        // **Only for the cube this app is paired to**, read from the table at this moment: every connection
-        // reports a name, including ones made to a device that turns out to be somebody else's.
-        guard settings.string("device_uuid", field: "uuid") == id.value else {
-            debugLog?.record(.pair, "Ignoring the name \(name): it is not the cube this app is paired to")
-            return
-        }
-        switch DevicePairingRules.adoption(
-            of: name,
-            current: settings.string("device_name", field: "name"),
-            previouslyKnown: settings.string("device_name", field: "previous_name")
-        ) {
-        case .unchanged, .stale:
-            return
-        case .adopt:
-            pairing.recordName(name, because: "the cube said so on connecting")
-            menuBar.redraw()
-        }
-    }
+    // notices a cube renamed in the vendor's app. Whether to adopt it is `CubeReports`', and so is the check that
+    // it came from the cube this app is actually paired to.
+    radio.onDeviceName = { id, name in reports.nameArrived(name, from: id) }
 
     // What the cube says it is, arriving after the pairing rather than with it: the four Device Information reads
     // run once the login is over and take a moment.
-    radio.onDeviceInfo = { _, info in
-        pairing.recordInfo(info)
-    }
+    radio.onDeviceInfo = { _, info in reports.deviceInfoArrived(info) }
 
     // **Nothing is written down**, which makes this the one radio callback that files nothing: the charge has no
     // row and is not going to get one.
-    radio.onBatteryLevel = { _, _ in
-        lowBattery.reconsider(because: "a charge arrived")
-    }
+    radio.onBatteryLevel = { _, _ in reports.chargeArrived() }
 
     radio.onCubeStatus = { _, status in
         menuBar.redraw()
@@ -667,14 +645,10 @@ if let radio {
         for letGo in linkEnders { letGo() }
     }
 
-    radio.onConnectionDropped = { _ in
-        pairing.recordConnectionLost(because: "the cube stopped answering")
-        menuBar.redraw()
-        // **After the row is down, not before.** The loop's first act is to ask whether the app is already
-        // connected, and a reconnect that succeeded before the drop was written down would leave `connected` false
-        // under a live link.
-        reconnector?.noteDropped()
-    }
+    // **The link ending by itself, which is the only way one ends on this platform.** The Mac keeps a second path
+    // for a link it let go of on purpose -- choosing another device on the Device tab -- because telling the
+    // reconnect loop to back off is right for the first and wrong for the second. There is no such control here.
+    radio.onConnectionDropped = { _ in reports.connectionDropped(because: "the cube stopped answering") }
 
     // What the cube says about its own condition, which it volunteers on connecting and whenever something changes.
     radio.onSystemState = { _, state in
