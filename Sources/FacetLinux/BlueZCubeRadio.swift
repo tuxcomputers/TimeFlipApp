@@ -495,7 +495,7 @@ final class BlueZCubeRadio: CubeRadio {
         dropTheLink(id, because: "the cube stopped answering")
     }
 
-    /// The link is over, and `wasDeliberate` says which of the two kinds of over it is.
+    /// The link is over, and `isDisconnectingDeliberately` says which of the two kinds of over it is.
     ///
     /// **`onLinkEnded` fires either way and `onConnectionDropped` does not**, which is the distinction
     /// `BluetoothRadio` draws with `isDisconnectingDeliberately` and it is not cosmetic. Whatever holds per-link
@@ -504,7 +504,7 @@ final class BlueZCubeRadio: CubeRadio {
     /// 2026-09-13: a quit reported a drop, so the trace carried `The link went: the app is quitting` followed by
     /// `Connection down: the cube stopped answering` about the same moment, and the loop scheduled attempt 2 into a
     /// process that was ending.
-    private func dropTheLink(_ id: DeviceHandle, because reason: String, wasDeliberate: Bool = false) {
+    private func dropTheLink(_ id: DeviceHandle, because reason: String, isDisconnectingDeliberately: Bool = false) {
         linkPoll?.cancel()
         linkPoll = nil
         connectedDevice = nil
@@ -517,7 +517,7 @@ final class BlueZCubeRadio: CubeRadio {
         cubeStatus = nil
         debugLog?.record(.status, "The link went: \(reason)")
         onLinkEnded?(id)
-        guard !wasDeliberate else { return }
+        guard !isDisconnectingDeliberately else { return }
         onConnectionDropped?(id)
     }
 
@@ -528,7 +528,7 @@ final class BlueZCubeRadio: CubeRadio {
     func disconnect(because reason: String) {
         guard let id = connectedDevice else { return }
         try? link.disconnect(id)
-        dropTheLink(id, because: reason, wasDeliberate: true)
+        dropTheLink(id, because: reason, isDisconnectingDeliberately: true)
     }
 
     // MARK: - asking the cube things

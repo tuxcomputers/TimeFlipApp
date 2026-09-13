@@ -72,7 +72,7 @@ wanted to work without the cube.
 | `hasGivenUpOnCube` | true / false | `DeviceReconnector.hasGivenUpOnCube`, per launch and one-way |
 | `hasReadTheCube` | true / false | `CubeFirstReading`, per launch and one-way |
 | `isConnecting` | true / false | `CubeFirstReading.isConnecting(isManualMode:)` |
-| `isDisconnectingDeliberately` | true / false | `BluetoothRadio.isDisconnectingDeliberately` |
+| `isDisconnectingDeliberately` | true / false | `BluetoothRadio.isDisconnectingDeliberately`, and the argument of `BlueZCubeRadio.dropTheLink` |
 | `isFactoryResetRunning` | true / false | today two separate flags |
 
 `isCubeConnected` is the connection, not the pairing: a paired cube in another room can be neither paused nor
@@ -99,6 +99,14 @@ about 480ms before the login settled, every time.
 `isFactoryResetRunning` is one fact currently held as two flags set and cleared independently. The sweep gives
 it one name; whether it should also be one flag is a code question, not a naming one.
 
+`isReadingTheValue` is **not** `isReadingBack` said again, and the two being one fact is what a read-back cost on
+Linux (2026-09-13). `isReadingBack` is whether this exchange is going to want an answer, and it is true from the
+moment the question is written; `isReadingTheValue` is whether the read of the command result has actually gone
+out. Everything arriving in between belongs to whoever asked before this did -- which matters because a `0x10`
+reply carries no echoed command byte and the characteristic frequently holds the previous command's. Routing on
+the first of the two had every login on that platform take the duplicate of its own `0x17` answer as the cube's
+state, and had a quit report a command refused that the cube had taken.
+
 ## 3. In-flight work
 
 | Name | Truth |
@@ -109,6 +117,7 @@ it one name; whether it should also be one flag is a code question, not a naming
 | `isCalendarSweeping` | `CalendarSync.isSweeping` |
 | `isAnotherSweepWanted` | `CalendarSync.wantsAnotherPass` |
 | `isReadingBack` | `DeviceLogin.isReadingBack` |
+| `isReadingTheValue` | `CubeCommandChannel.isReadingTheValue` |
 | `isReadingDeviceInfo` | `DeviceLogin.isReadingInfo` |
 | `isReadingDoubleTap` | `DeviceLogin.isAskingAboutTaps` |
 | `isFollowingBattery` | `DeviceLogin.isFollowingBattery` |
