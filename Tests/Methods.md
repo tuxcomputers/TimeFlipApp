@@ -473,6 +473,43 @@ that cannot be squeezed is never short of room. `LabelWidth.mayGiveWay` is the f
 long name has to be created by the check: `05-faces-timing` makes one on the Faces tab, which starts it and so puts
 it in the big label as well as in the list, then walks the tabs reading `window_width` after each.
 
+<a id="method-18"></a>
+## Method 18: Read and drive the tray menu on Linux
+
+```sh
+scripts/tray-menu.py                     # every line, with its id and whether it is sensitive
+scripts/tray-menu.py --press "Quit"      # choose one, by label
+```
+
+**No mouse, no focus, no coordinates.** The status item is absent from the accessibility tree on both
+platforms, but where a Mac needs a real `CGEvent` (Method 3), Linux exposes the menu as a D-Bus object:
+`com.canonical.dbusmenu`'s `GetLayout` reads it and `Event` chooses an item. It works while the session
+is doing something else, which is the property that matters most for a suite.
+
+**Address items by label, never by id.** No identifier crosses -- neither `gtk_widget_set_name` nor the
+accessible description -- so `StatusItemMenu.Item.identifier` reaches `AXIdentifier` on the Mac and
+reaches nothing here. What `GetLayout` answers is the label plus `enabled`, and the numeric ids are
+libdbusmenu's own, reassigned every time the menu is rebuilt.
+
+**Insensitive is reported, not pressed.** A line with no action comes back `(insensitive)` and `--press`
+refuses it with exit 1, because pressing one in AppKit silently does nothing and that is a whole class of
+check that passes while testing nothing (see `pair_a_cube` in the root `CLAUDE.md`).
+
+<a id="method-19"></a>
+## Method 19: Find the app on the session bus without hanging
+
+`scripts/tray-menu.py` asks the **bus daemon** which connection belongs to the `FacetLinux` pid, rather
+than asking each connection whether it has Facet's menu object:
+
+```python
+daemon.GetConnectionUnixProcessID(name)   # against the pids from `pgrep -f FacetLinux`
+```
+
+**Measured 2026-09-13.** The obvious version -- walk `list_names()` and call a method on each `:` name --
+blocks on the first client that does not answer, for the full 25-second reply timeout. That looks exactly
+like the app having hung, and it cost a wrong diagnosis before the cause was found. The daemon always
+answers.
+
 ## An ad-hoc build silently switches Google sync off
 
 A build made without the signing identity is a *different application* to the Keychain, so the refresh token
