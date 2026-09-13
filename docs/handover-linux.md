@@ -62,10 +62,12 @@ which items unblock the most, and where the milestone is.
 6. ~~**20, the menu bar onto the core modules**, then **21, the dialogues.**~~ Both done 2026-09-11.
 7. **22 is not a task**, it is a warning about the one part of the Mac that is not ready for you.
 
-**Three more arrived from the Mac after this list was written, and none of them blocks the others.** 23 and 24
-are edits already made to your files that nobody has compiled, so they come first only in the sense that a
-build will refuse until they are right. 25 is an offer rather than a task: `CubeReachSequence` exists now, so
-`BlueZCubeRadio`'s own `Reach` can go whenever you want the deletion.
+**Five more arrived from the Mac after this list was written, and only two of them gate anything.** 23 and 24
+are edits already made to your files that nobody has compiled, so a build will refuse until they are right:
+take those first. 25, 26 and 27 are offers rather than tasks, and they are all the same offer in three places,
+which is that a decision you wrote independently now exists once in `FacetCore`: the reach, the app's own
+clock, and what the app does when the radio says something. None of them blocks a build and none of them is
+urgent; each removes a second copy of something that agrees today.
 
 ## 19. Compose the device half in `main.swift`, and the app starts working
 
@@ -152,6 +154,11 @@ dictionaries and sets, the three decodes, one `UUID()` placeholder that is now `
 `BlueZCubeRadioTests.swift` (`ours` and `theirs` are now the addresses verbatim, which reads better than it
 did).
 
+**Two more sites were missed and are fixed (Mac, 2026-09-13).** `main.swift` compared
+`settings.string("device_uuid", field: "uuid")` against `id.uuidString` in `onLoginEnded` and `onDeviceName`,
+and a `DeviceHandle` has no such member: both now say `id.value`. Found by reading your callbacks rather than
+by anything failing, which is the whole problem with editing files I cannot build.
+
 **None of it is compiled.** `FacetLinux` is not in this platform's package and your BlueZ tests are behind
 `#if canImport(CDBus)`, so they built to nothing here. `swift build && swift test` on your side is what says
 the retype is right. **If it does not build, the fix is yours and this item stays put with a line saying what
@@ -217,4 +224,48 @@ on your side too.
 **Nothing of yours was changed for this.** Your `Reach` still compiles and still works; this is an offer to
 delete it, not a break to repair. The one thing worth checking as you go is whether your loop makes a decision
 mine does not, in which case say so here rather than keeping both.
+
+## 26. `ManualClock` exists, and your `togglePause` is deliberately narrower than it
+
+**Your comment gives the reason and it is a good one**: "closing the open segment is the whole of what stopping
+it means here. On the Mac this is the Faces tab's own control; this platform has none, so a segment on an app
+face can only have been inherited from a launch on the other machine."
+
+**So this is a choice to make rather than a bug to fix.** `ManualClock.toggle` in `FacetCore` is what the Mac's
+three controls now share: it reads before writing, refuses a resume against a spent daily limit, closes or
+starts a segment on one moment, and reads back what the table holds. Yours closes and stops there.
+
+**What adopting it would change**, so the choice is made on what it does rather than on tidiness:
+
+- **Pause would become resumable** from the Linux menu bar. Today a second press does nothing, because there is
+  nothing that starts a segment. Whether that is wanted on a platform with no way to pick a category is your
+  call and is the real question here.
+- **A spent daily limit would refuse the resume.** Moot while nothing can resume, and not moot afterwards.
+- The two log rows would become `Timing: running <name>` and `Timing: stopped <name>`, which
+  `05-faces-timing` reads on the Mac.
+
+**If you keep the narrowing, say so in `ManualClock`'s doc comment rather than only here.** Two answers to one
+question is what this model exists to prevent, and a deliberate difference that is written down where the
+shared one can be read is not that. An undocumented one is.
+
+## 27. `CubeReports` exists, and five of your radio callbacks are it, near-verbatim
+
+**Written independently and they agree, which is the good case and still the hazard.** `CubeReports` landed on
+2026-09-11 holding what the app does when the radio says something. Your `main.swift` has its own
+`onLoginEnded`, `onDeviceName`, `onDeviceInfo`, `onBatteryLevel` and `onPINChanged`, and they make the same
+decisions in the same order, down to the comments: the pairing-or-reconnection question asked of the table, the
+`DevicePairingRules.adoption` switch, the loop told before anything is recorded.
+
+**They agree today. Nothing keeps them agreeing.** That is the whole argument, and it is the one
+`docs/state-reference.md` opens with: two copies of a decision get taught something in one place and not the
+other, and nothing fails when they part.
+
+**What it takes.** Build one with `settings`, `devicePINs` and `debugLog`, set `reconnect`, `lowBattery` and
+`dialogues` on it, and give it a `changed` closure, which is your `menuBar.redraw()`. Then each callback
+becomes one line. The Mac's own `adopt(_:)` is the worked example, and `CubeReportsTests` is what it should
+behave like: eight tests, no radio, and they run on your side too.
+
+**One deliberate difference to keep.** `connectionDropped` tells the reconnect loop to back off, which is right
+for a link that ended by itself and wrong for one the app let go of on purpose. The Mac kept a separate path
+for the deliberate case rather than folding it in.
 

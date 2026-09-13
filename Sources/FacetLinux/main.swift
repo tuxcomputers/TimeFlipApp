@@ -552,7 +552,7 @@ if let radio {
         guard outcome == .loggedIn else { return }
         let device = radio.device(id)
         let alreadyPaired = settings.flag("paired", field: "paired") == true
-            && settings.string("device_uuid", field: "uuid") == id.uuidString
+            && settings.string("device_uuid", field: "uuid") == id.value
         if alreadyPaired {
             pairing.recordReconnection(with: device)
         } else {
@@ -573,7 +573,7 @@ if let radio {
     radio.onDeviceName = { id, name in
         // **Only for the cube this app is paired to**, read from the table at this moment: every connection
         // reports a name, including ones made to a device that turns out to be somebody else's.
-        guard settings.string("device_uuid", field: "uuid") == id.uuidString else {
+        guard settings.string("device_uuid", field: "uuid") == id.value else {
             debugLog?.record(.pair, "Ignoring the name \(name): it is not the cube this app is paired to")
             return
         }
