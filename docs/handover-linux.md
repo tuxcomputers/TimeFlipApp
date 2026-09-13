@@ -57,16 +57,16 @@ which items unblock the most, and where the milestone is.
 2. ~~**16, the clock.**~~ **Done 2026-09-11**: `GLibScheduler`, injected from `main.swift`.
 3. ~~**17, `CubeGatt`.**~~ **Done 2026-09-11**: `BlueZCubeGatt`, 22 tests, unverified on a cube.
 4. ~~**18, `CubeRadio`.**~~ **Done 2026-09-11**: `BlueZCubeRadio`, 21 tests, unverified on a cube.
-5. **19, compose the device half.** ⇐ **the milestone.** Written and booted 2026-09-11; open until a cube
-   has answered it.
+5. **19, compose the device half.** ⇐ **the milestone.** Written and booted 2026-09-11, and the cube
+   answered it on 2026-09-13. Open on one physical turn of the cube and nothing else.
 6. ~~**20, the menu bar onto the core modules**, then **21, the dialogues.**~~ Both done 2026-09-11.
 7. **22 is not a task**, it is a warning about the one part of the Mac that is not ready for you.
 
-**Five more arrived from the Mac after this list was written, and the two that gated a build are done.** 25,
-26 and 27 are offers rather than tasks, and they are all the same offer in three places, which is that a
-decision you wrote independently now exists once in `FacetCore`: the reach, the app's own clock, and what the
-app does when the radio says something. None of them blocks a build and none of them is urgent; each removes a
-second copy of something that agrees today.
+~~**Five more arrived from the Mac after this list was written.**~~ **All five done 2026-09-13.** 23 and 24
+were edits to this side's files that nobody had compiled, and they compile; 25, 26 and 27 were the same offer
+in three places -- a decision written independently here that now exists once in `FacetCore` -- and all three
+were taken. Two of them were not merely duplicates: the reach here had no settle wait and never paid for its
+own shortcut, and the narrowed `togglePause` left a menu item that looked live and did nothing.
 
 ## 19. Compose the device half in `main.swift`, and the app starts working
 
