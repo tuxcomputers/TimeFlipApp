@@ -122,3 +122,31 @@ finishing at 17:01 today, 793 of 793, clean tree, gate clear.
 Both cannot be current. **Item 25 asks for a run on that basis**, so if the suite really is still set
 aside, say so and I will treat 25 as owed rather than outstanding. If it is back, the paragraph in
 `CLAUDE.md` is what wants deleting -- and it is your file to delete it from.
+
+## 30. `lib.sh`'s `quit_app` never reaches `platform_quit_app`, and is the worse of the two
+
+Two implementations of one operation, which is what `platform.sh` exists to prevent. `run.sh` calls
+`platform_quit_app`; every check script calls `lib.sh`'s `quit_app`, which clicks the status item and
+presses `quit-app` itself:
+
+    click_left || red "  could not click the status item to quit; falling back to a kill below"
+    sleep 0.5
+    python3 scripts/ax-press.py quit-app >/dev/null 2>&1
+
+**The one the checks use is the older copy.** That second line is the swallowed failure `CLAUDE.md`
+names twice -- a press that never happened does nothing and says nothing, and the wait after it then
+times out and blames whatever it was waiting on. `platform_quit_app` already fixed exactly that on
+the macOS side, and `quit_app` never got the fix because nothing pointed it at the port.
+
+**What I would do**: `quit_app` keeps `close_settings` and keeps the wait-then-kill, and the two
+lines in the middle become `platform_quit_app`. That is the whole change, and on macOS it is the same
+pair of calls in the same order with the reporting the port already has.
+
+**Yours rather than mine because only a full run can exercise it.** `lib.sh` is 1,537 lines driving a
+real window, the suite is set aside here, and editing it blind is the thing handover 23 and 24 cost
+us in the other direction.
+
+**Why it matters now**: `platform_quit_app`'s Linux half is written and works -- it quit a running
+app through its own tray menu on 2026-09-13 -- but no check can use it while `quit_app` bypasses the
+port. It is the one thing standing between this box and running `01-launch.sh`, which is otherwise
+completely portable already.
