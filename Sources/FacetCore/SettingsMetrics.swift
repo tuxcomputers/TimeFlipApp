@@ -69,9 +69,9 @@ package enum SettingsMetrics {
     /// there is one answer -- and this is where the number lives. It is also the width every pane is hosted at by
     /// `SettingsMetricsTests`, which is what makes that suite's measurements the same measurements the window makes.
     ///
-    /// **The Mac still has its own copy**, in `SettingsWindowController.Layout`, and reading it from here is one of
-    /// the things `docs/handover-mac.md` asks for: two numbers for one width is the hazard the rule exists to stop,
-    /// and it cannot be closed from the Linux box, which cannot compile that target.
+    /// **Both windows read it from here as of 2026-09-16.** `SettingsWindowController.Layout` declared its own copy
+    /// until then, which was two numbers for one width and exactly the hazard the rule exists to stop; its three
+    /// names remain, as aliases onto these, so that file still reads as layout at its call sites.
     package static let windowWidth: CGFloat = 640
 
     /// What the window opens at, and the least it can be shrunk to. **The height is free**, which is the half of the

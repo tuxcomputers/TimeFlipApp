@@ -28,14 +28,19 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     }
 
     private enum Layout {
-        // Provisional, and deliberately generous rather than fitted to five empty panes: the window
-        // is sized for the content it is about to hold so the numbers do not have to be re-tuned as
-        // each pane arrives. The tab that ends up needing the most room is what should set these,
+        // **The window's three numbers are `SettingsMetrics`', not this file's** (2026-09-16). They were declared
+        // here until the Linux window needed the same three and read them from the core, which left two copies of a
+        // number `CLAUDE.md` states as a rule -- *the window is one width, 640* -- one of them private to a target
+        // the other machine cannot build. That is the two-answers hazard in its plainest form, so the copies are
+        // gone and the reasoning behind the numbers travelled with them: they are provisional and deliberately
+        // generous rather than fitted, and the tab that ends up needing the most room is what should set them,
         // measured, once it exists.
+        //
+        // Kept as names here rather than spelled at the three call sites, so `makeWindow` still reads as layout.
         /// The one width the window ever has. See `makeWindow`.
-        static let fixedWidth: CGFloat = 640
-        static let defaultHeight: CGFloat = 680
-        static let minimumHeight: CGFloat = 400
+        static let fixedWidth = SettingsMetrics.windowWidth
+        static let defaultHeight = SettingsMetrics.windowDefaultHeight
+        static let minimumHeight = SettingsMetrics.windowMinimumHeight
         /// Around the Close button, and between it and the panes above.
         static let buttonPadding: CGFloat = 12
         static let buttonSpacing: CGFloat = 6

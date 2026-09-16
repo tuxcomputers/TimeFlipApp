@@ -105,16 +105,6 @@ about before you start:
 already core; and the icon and colour pickers are the same two rules with two toolkits over them. Neither
 is a duplicate today -- they are view construction -- so I have left them alone.
 
-## 32. The Settings window's width is in `SettingsMetrics` now
-
-`SettingsMetrics.windowWidth` is 640, with `windowDefaultHeight` 680 and `windowMinimumHeight` 400 beside
-it, which is where the Linux window reads them from. `SettingsWindowController.Layout` still declares its
-own three, so there are two copies of a number `CLAUDE.md` states as a rule -- *the window is one width,
-640* -- and one of them is private to a file this box cannot build.
-
-**Three lines to delete and three references to repoint.** The docs on the core ones carry your own
-reasoning across, including that the numbers are provisional and generous rather than fitted.
-
 ## 33. The icon artwork is reached through a symlink, and it should probably move
 
 `Sources/FacetLinux/Resources/Icons` is a symlink to `Sources/FacetMac/Resources/Icons`, so both
