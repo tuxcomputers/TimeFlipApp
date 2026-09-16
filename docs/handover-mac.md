@@ -63,18 +63,6 @@ exchange the write *is* the question -- and gained one for the window. 737 tests
 at whether any `0x10` on the Mac ever answered without a `commandResult: read requested` before it.
 That last one is answerable from a trace you already have, without a cube.
 
-## 27. Twelve compiler artefacts are committed at the repository root
-
-`AlertPresenter-2.d`, `.dia`, `.swiftdeps` and `.swiftmodule`, and the same four each for
-`CoreBluetoothGatt-2` and `RunLoopScheduler-2`. They are tracked, not ignored, and they arrived in
-`db58b96` ("All nineteen alerts onto the port"). About 250 KB of intermediate output from a macOS
-build that wrote into the working directory.
-
-**Yours to remove rather than mine**, because they came off a Mac build and I cannot tell whether
-anything there still expects them. `git rm` on the twelve and a line in `.gitignore` is the whole of
-it, unless the build that produced them is still writing there, in which case that is the thing to
-fix.
-
 ## 28. Does a pairing on the Mac ever restart the history timer? I think it cannot
 
 `historyTimer.start()` at launch does nothing when nothing is being timed and no cube is connected,

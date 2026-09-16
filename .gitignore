@@ -22,3 +22,12 @@ google-client.json
 
 # Built by scripts/package.sh: a disk image to send somebody, not something to commit.
 /dist/
+
+# Swift compiler intermediates, if a build ever writes them into the working directory again.
+# Twelve of these were committed in `db58b96` and removed on 2026-09-16; a clean `rm -rf .build &&
+# swift build` does not reproduce them, so nothing in the build wants them there now. The rule is
+# here so that whatever produced them once cannot commit them a second time unnoticed.
+/*.d
+/*.dia
+/*.swiftdeps
+/*.swiftmodule

@@ -639,6 +639,29 @@ radio.onFace = { _, _ in
     // paused, because every frame carries that in its face byte -- see `timingReadout.cubePauseState`.
     historyIngestor.refresh(because: "the cube was turned")
 }
+// **What a link coming up has to put back on its feet**, and the mirror of `linkEnders` below: that list is what a
+// link *ending* has to let go of, and this is the same question asked in the other direction. Both of these clocks
+// stand themselves down whenever there is nothing to follow, which is every launch whose cube is out of range at the
+// time, so a cube arriving has to be one of the moments that start them again.
+//
+// **The history timer was missing from here and stayed dead for the rest of such a launch.** Found by the Linux box
+// reading this file from the other side of the desk (`docs/handover-mac.md` item 28) and confirmed here on
+// 2026-09-16: `historyTimer.resumeIfStopped` was reached only from `settingsWindow.onTimingChanged`, and not one of
+// the eight paths that fires is a cube connecting. It was never noticed because the timer is a safety net rather than
+// the mechanism -- `onCubeReady` below fetches once and `onFace` fetches on every turn, so history still arrived and
+// only `fetch_history_interval_seconds` quietly stopped meaning anything.
+//
+// **`dailyLimit` was already covered** by `historyIngestor.onChanged`, and is here as well because both belong to the
+// same question and a list with one of the two on it invites the next person to add theirs to the wrong place. Cheap
+// where it does nothing: `resumeIfStopped` returns at once if the tick is already up, and both refuse to start unless
+// something really is running -- which at this moment it is not, the fetch not having landed yet.
+//
+// **A named list rather than two calls**, so `ClockResumeFanOutTests` can read it. A third module that stands its own
+// clock down and is not added here fails the same way: silently, and only on the launches where the cube is late.
+let clocksResumedOnLink: [() -> Void] = [
+    historyTimer.resumeIfStopped,
+    dailyLimit.resumeIfStopped,
+]
 // **The link coming up is its own reason to ask, and it used to be nobody's.** The fetch on connect happened only
 // because the face read that follows a login produced a flip nobody had made, so the log said "the cube was turned"
 // about a cube sitting still, and a cube whose faces characteristic went missing would have brought back no history at
@@ -653,6 +676,7 @@ radio.onFace = { _, _ in
 // reasons to ask, and the one that arrives second is simply not needed yet.
 radio.onCubeReady = { _ in
     historyIngestor.refresh(because: "the link came up")
+    for resume in clocksResumedOnLink { resume() }
 }
 // **Every face, every time the link comes up, and nothing remembered between times.** `0x11` has no read-back, so the
 // only record of what a cube is showing would be a note the app wrote to itself -- which is the second copy of a fact
