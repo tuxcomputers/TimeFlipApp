@@ -207,6 +207,11 @@ is to pull the batteries and put them back**, which returns the cube to `000000`
 [timeflip2-firmware-observations.md](timeflip2-firmware-observations.md)); both machines' reconnect candidates
 append the vendor default, so the next pairing simply works.
 
+**It was reset from the Linux box on 2026-09-16**, through that platform's new *Reset device* control, and
+confirmed the only way `0xFF` can be: the cube rebooted and came back on the vendor default. **A wipe takes the
+face colours, the task settings and the name with it** -- though the name is not lost to the app,
+`DevicePairingRecorder.recordFactoryReset` moving it into `previous_name` rather than discarding it.
+
 **That is a minute of work, so it is not a blocker and should not be written up as one.** If a machine cannot
 reach the cube, pull the batteries and pair again. Nothing in the port waits on it and no run needs to be
 planned around it.
@@ -1093,6 +1098,17 @@ worth doing whenever the suite next comes up.
 
 **Not started.** Agreed: one repo, shared core. About a third of the root `CLAUDE.md` is AppKit-specific and
 would be worse than noise in a GTK session.
+
+**The icon artwork belongs to this item** (carried from `docs/handover-mac.md` item 33 on 2026-09-17).
+`Sources/FacetLinux/Resources/Icons` is a symlink to `Sources/FacetMac/Resources/Icons`, so both platforms draw
+the same 42 SVGs and the AppKit target owns a file the GTK one needs. **Nothing about it is wrong, only
+lopsided**, and it works for a measured reason: a symlinked *directory* is followed when SwiftPM builds a
+resource bundle, which is what `Sources/FacetCore/Resources/Database` already relies on. A symlinked *file* is
+not, which is why `FacetLinux`'s own tray icon is a copy.
+
+**The tidy version is what `database/` did**: the real directory moves somewhere neither platform owns and both
+targets link it. It waits for this item because it changes `FacetMac`'s resource declaration and
+`ActivityIcon.resolveURL`'s four lookups, which is a change worth making once, with the rest of the move.
 
 ### 14 - Core - README
 

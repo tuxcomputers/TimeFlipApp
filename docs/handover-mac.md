@@ -62,19 +62,6 @@ app through its own tray menu on 2026-09-13 -- but no check can use it while `qu
 port. It is the one thing standing between this box and running `01-launch.sh`, which is otherwise
 completely portable already.
 
-## 33. The icon artwork is reached through a symlink, and it should probably move
-
-`Sources/FacetLinux/Resources/Icons` is a symlink to `Sources/FacetMac/Resources/Icons`, so both
-platforms draw the same 42 SVGs. It works -- a symlinked *directory* is followed when SwiftPM builds a
-resource bundle, which is what `Sources/FacetCore/Resources/Database` already relies on -- and it leaves
-the AppKit target owning a file the GTK one needs.
-
-**The tidy version is what `database/` did**: the real directory moves somewhere neither platform owns
-and both targets symlink it. I have not done that because it changes `FacetMac`'s resource declaration
-and `ActivityIcon.resolveURL`'s four lookups, and I cannot compile either. It belongs with item 13 of
-[linux-port.md](linux-port.md), the repository restructure, and it is not urgent: nothing about the
-current arrangement is wrong, only lopsided.
-
 ## 34. Writing auto-pause sets the cube to the wrong value for three round trips, on both platforms
 
 **Measured on the cube from this box, 2026-09-16**, driving the Device tab. Stepping auto-pause to 7 minutes
@@ -133,16 +120,3 @@ It was watched on hardware, producing a log row and nothing on screen.
 `windowMinimumHeight` (item 32), and `ManualTimerRules`/`CubePauseState` symbol names are turned into characters in
 one place on this side rather than two -- the Mac has one such place too, `StatusItemTitle`'s callers, and it is
 already fine.
-
-## 36. The cube is back on the vendor PIN, so you can pair with it again
-
-**Reset from the Linux box on 2026-09-16**, through the Device tab's new *Reset device* control, and confirmed:
-the command went out, the cube rebooted, and it came back on the vendor default, which is the only proof `0xFF`
-can ever give.
-
-**Why you want to know.** Pairing from here earlier in the day rotated its PIN to a random six digits held in this
-machine's keyring, which would have left the Mac unable to log in. The reset undid that -- the cube now holds the
-factory password and `DeviceLoginRules.candidates` puts it first, so a pairing from the Mac should simply work.
-
-**What went with it** is what a wipe takes: the face colours, the task settings and the name. The name is not lost
-to the app, `DevicePairingRecorder.recordFactoryReset` moving it into `previous_name` rather than discarding it.
