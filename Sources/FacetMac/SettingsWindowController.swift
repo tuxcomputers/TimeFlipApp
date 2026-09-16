@@ -218,6 +218,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// and doing nothing on screen.
     ///
     /// **`nil` in a layout test**, where the stores and the readout are not built, exactly as `categoryEdits` is.
+    /// The Report tab's reads, which are `FacetCore`'s. **Adopted 2026-09-17**, `docs/handover-mac.md` item 35.
+    ///
+    /// The boundary a range is measured against, its totals, the entries behind one, and whether the figures carry
+    /// seconds. All four were here and all four are pure reads, which is why this one adopts without a callback: what
+    /// is left in this file is the drawing and the log rows, and neither is a decision.
+    private lazy var reportReadout: ReportReadout? = {
+        guard let entries, let settings else { return nil }
+        return ReportReadout(entries: entries, settings: settings)
+    }()
+
     private lazy var faceEdits: FaceEdits? = {
         guard let faces, let timing, let deviceEvents else { return nil }
         let edits = FaceEdits(
@@ -1345,26 +1355,22 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             pane.adopt(change)
             return
         }
-        guard let (setting, field, value) = AppSettingsRules.destination(for: change) else { return }
-        let stored: Bool
-        switch value {
-        case let .flag(flag):
-            stored = settings.write(setting, field: field, flag)
-        case let .number(number):
-            stored = settings.write(setting, field: field, number)
-        case let .text(text):
-            stored = settings.write(setting, field: field, text)
-        }
-        debugLog?.record(
-            .field,
-            "App setting \(setting).\(field) -> \(value)\(stored ? "" : " REFUSED, the table does not hold it")"
-        )
-        guard stored else {
+        // **The write is `AppSettingWrite`'s and what to do about it is this file's**, since 2026-09-17
+        // (`docs/handover-mac.md` item 35). Which row a change lands in, what it writes and the log wording were all
+        // spelled out here as well as in the core, and the two platforms put a row back differently -- which is not a
+        // decision, so the split is at the outcome rather than at the pane.
+        switch AppSettingWrite.apply(change, to: settings, debugLog: debugLog) {
+        case .notASetting:
+            // Not a row: one of the platform requests handled above, or a change with no destination.
+            return
+        case let .refused(title):
             // Back to what the window holds first, so the row is not still showing a number the table refused while
             // an alert is up in front of it.
             pane.restore()
-            showSettingRefused(AppSettingsRules.title(for: change))
+            showSettingRefused(title)
             return
+        case .stored:
+            break
         }
         pane.adopt(change)
         if case let .debugEnabled(on) = change {
@@ -2613,9 +2619,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // Read when a group is opened, against the range on screen at that moment: the same bounds the total above the
         // entries was summed over, worked out the same way, so the rows add up to it.
         report.totalsList.entries = { [weak self, weak report] total in
-            guard let self, let report, let entries = self.entries else { return [] }
-            let bounds = self.reportBounds(start: report.start, end: report.end)
-            return entries.entries(categoryID: total.categoryID, from: bounds.start, to: bounds.end)
+            guard let self, let report else { return [] }
+            return self.reportReadout?.entries(for: total.categoryID, start: report.start, end: report.end) ?? []
         }
         report.totalsList.onToggle = { [weak self] total, isExpanded in
             self?.debugLog?.record(
@@ -2633,18 +2638,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         return report
     }
 
-    /// The instants a picked range covers, measured against the daily reset **read now**.
-    ///
-    /// One place, because two things ask: the totals, and the entries behind whichever of them is opened. A boundary
-    /// worked out twice is a boundary that can be worked out differently, and the symptom would be a column of figures
-    /// that does not add up to the number above it.
-    private func reportBounds(start: Date, end: Date?) -> (start: Date, end: Date) {
-        let reset = DayWindow.resetTime(
-            hour: settings?.integer("daily_reset_time", field: "hour"),
-            minute: settings?.integer("daily_reset_time", field: "minute")
-        )
-        return ReportRangeRules.bounds(start: start, end: end, resetHour: reset.hour, resetMinute: reset.minute)
-    }
 
     /// Reads what the picked range came to, and draws it.
     ///
@@ -2660,10 +2653,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         // Both or neither: a range measured against a default boundary while the table holds another would be a figure
         // that looks right and is not. A controller built without them -- which is what a layout test builds -- draws
         // the calendars and no totals.
-        guard let entries, let settings else { return }
-        let bounds = reportBounds(start: start, end: end)
-        let totals = entries.totals(from: bounds.start, to: bounds.end)
-        pane.show(totals, showingSeconds: settings.flag("display_seconds", field: "enabled") ?? true)
+        guard let reportReadout else { return }
+        let bounds = reportReadout.bounds(start: start, end: end)
+        let totals = reportReadout.totals(start: start, end: end)
+        pane.show(totals, showingSeconds: reportReadout.showsSeconds)
         debugLog?.record(
             .report,
             "Report totals \(Self.dayAndTime(bounds.start)) -> \(Self.dayAndTime(bounds.end)): \(totals.count) categories"

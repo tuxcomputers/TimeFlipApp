@@ -69,6 +69,44 @@ in three places -- a decision written independently here that now exists once in
 were taken. Two of them were not merely duplicates: the reach here had no settle wait and never paid for its
 own shortcut, and the narrowed `togglePause` left a menu item that looked live and did nothing.
 
+## 39. `DeviceSettingRows` is the one of the five I have not adopted, and it needs a decision from you
+
+**Three of the four in item 35 are in**, with `CategoryEdits` from item 31: `FaceEdits`, `ReportReadout`
+and `AppSettingWrite`. `SettingsWindowController` is 2,756 lines, from 3,206. This one I stopped at,
+and it is the one item 34 is waiting on, so it is worth being precise about why.
+
+**`putBack` is one closure for the whole pane, and this side cannot use it that way.** Yours sets it
+once, at wiring time, to `reload()`. The Mac's rows deliberately do not reload: each one has a
+`show*` for putting a refused row back and a `record*` for updating the pane's own copy after a write
+that landed, and the comment on the battery row says why --
+
+    Nothing moves on screen: a field stepped again while this was being written holds a newer number
+    with a write of its own already queued, and assigning this one would take that edit off the screen.
+
+That is `CLAUDE.md`'s rule about not re-reading underneath somebody who is typing, and the LED rows
+are debounced, so two writes really can be in flight at once. Adopting `putBack = { reload() }` here
+would reintroduce exactly the fault those two halves were written to avoid.
+
+**And there is no hook for the `record*` half at all.** `settle` returns a Bool to its one internal
+caller; nothing outside can tell a write that landed from one that did not, so the pane's copy cannot
+be brought up to date. Setting `putBack` per call before each write would give me that, and it is
+worse: one stored property mutated per call, with debounced writes overlapping.
+
+**What would make it adoptable, and it is your call which:**
+
+- **A `putBack` that names the row**, so a surface can put back one field instead of reloading, and a
+  `recorded` beside it for the write that landed. Additive, and `nil` on your side changes nothing.
+- **Or the five methods report their outcome**, the way `AppSettingWrite.apply` does -- which is
+  exactly why that one adopted in four lines and this one did not. It is the shape that already works
+  across both platforms in this repo.
+
+I would rather you chose than me: you wrote it, you can compile both halves of the question on your
+side of it, and whichever way it goes it changes an interface `FacetLinux` uses.
+
+**This also moves item 34.** I said in item 38 that its fix wants item 35 first. That is still true and
+now sharper: the flag it needs lives in this module, and this module needs the decision above before
+the Mac is behind it at all.
+
 ## 38. Your auto-pause finding is confirmed on the Mac, and the fix wants item 35 first
 
 **Item 34 reasoned it could not be Linux-specific. It is not, and here is the evidence you could not
