@@ -1,6 +1,10 @@
 # Facet
 
-A native macOS menu bar application for the [TimeFlip2](https://timeflip.io/) time tracking device.
+A native menu bar application for the [TimeFlip2](https://timeflip.io/) time tracking device.
+
+**macOS is the app you can use today.** A Linux build exists and works -- it pairs a cube, times it, records
+the same tables and lives in the notification area -- but it has no Settings window, no Report tab and no
+Google sign-in yet. [The Linux port](docs/linux-port.md) is the status of it, measurement by measurement.
 
 **Using Facet is documented at [facet.tux.com.au](https://facet.tux.com.au)**: installing it, pairing a cube,
 setting categories up, connecting a Google account and what everything on screen means. Everything in
@@ -12,7 +16,7 @@ This is AI-generated code all the way down, and it's worth being honest about th
 
 ## What it does
 
-Times what a TimeFlip2 cube is doing from the macOS menu bar, files it under a category, keeps the
+Times what a TimeFlip2 cube is doing from the menu bar, files it under a category, keeps the
 record in a local SQLite database and syncs it to a Google calendar of its own. With no cube paired it
 times from the app instead, into the same tables. [facet.tux.com.au](https://facet.tux.com.au) covers all of it
 from the using end.
@@ -22,6 +26,7 @@ from the using end.
 - **Firmware-update reminder**: the app reads the cube's firmware version on every connect and shows it on the Device tab, but does not yet remind anyone to go and update it. It could not do the update either way -- only the vendor's own app can flash firmware -- so this is a nudge to go there, not a feature that is half finished.
 - **Projects and costs**: the `project` table and the `cost` columns exist and nothing reads or writes them.
 - **Editing a recorded entry**: the Report tab lists what was recorded and cannot yet correct it, so a stretch recorded against the wrong category stays that way.
+- **The Linux app's windows**: the tray item works and drives a real cube, but Settings, Report and Google sign-in are not written. See [The Linux port](docs/linux-port.md), items 11 and 15.
 
 ## Working on it
 
@@ -47,14 +52,34 @@ at the point of use**, so what would elsewhere be an `AppState` is a set of smal
 `appdata.sqlite`, each asked its question at the moment the answer is wanted. Every module below
 follows from that.
 
+### Three targets, and the core is platform-blind
+
+| Target | What is in it |
+|---|---|
+| **`FacetCore`** | Everything the app decides: the stores, the rules, the database, the device protocol, what the menu bar says and what a click means. It links no UI framework and cannot find out what platform it is on |
+| **`FacetMac`** | AppKit and CoreBluetooth, and nothing that decides anything |
+| **`FacetLinux`** | GTK3, BlueZ over D-Bus, and the login keyring |
+
+**Each platform capability is a *port*: a protocol in the core named for what it does rather than for what
+performs it**, with the adapter injected by that platform's `main.swift`, which is the only file allowed to
+know both halves. A store of secrets, not a Keychain; a radio, not CoreBluetooth; a timeout source, not a
+`RunLoop`. [The architecture model](docs/architecture-model.svg) is the picture, and
+`PlatformBlindCoreTests` is what stops the core quietly acquiring an adapter.
+
+The modules below are `FacetCore`'s unless they are named as a platform's.
+
 - **main.swift**: startup, in order -- prove this is the only instance, bring the database up, then
-  claim the menu bar. From there Quit is the only way out.
-- **MenuBarController**, **StatusItemTitle**, **StatusItemClickRouter**: the status item, what it says,
-  what colour it says it in, and which half of it was clicked. The click rules live outside AppKit so
-  they can be tested.
-- **BluetoothRadio**, **DeviceLogin**, **DeviceCommandRules**: the Bluetooth driver -- one owner of the
-  central manager, the login and PIN handshake, and the vendor's command bytes. Every command with a
-  read-back defined is read back before it is believed.
+  claim the menu bar. From there Quit is the only way out. **One per platform**, and each is its own
+  composition root.
+- **StatusItemTitle**, **StatusItemReadout**, **StatusItemMenu**, **StatusItemGesture**: what the status
+  item says, what colour it says it in, what its dropdown holds and what a click means -- all of it core,
+  and all of it tested on both platforms. **MenuBarController** (AppKit) and **MenuBar** (GTK) render those
+  answers and decide nothing.
+- **DeviceLogin**, **CubeCommandChannel**, **DeviceCommandRules**: the Bluetooth driver's reasoning --
+  the login and PIN handshake, the command queue and the vendor's command bytes. Every command with a
+  read-back defined is read back before it is believed. The transport behind it is a port with two
+  adapters: **BluetoothRadio** / **CoreBluetoothGatt** on macOS, **BlueZCubeRadio** / **BlueZCubeGatt**
+  on Linux.
 - **HistoryIngestor**: brings the cube's own record of what it has been doing into `device_event`.
 - **DeviceEventRecorder**: the one writer of `device_event`, and the only thing that decides whether a
   segment opens a row, grows the open one, or closes it out.
@@ -66,7 +91,8 @@ follows from that.
   the one place that knows the order each of them goes out in.
 - **CalendarSync**, **GoogleOAuthClient**, **GoogleCalendarClient**: signing in, and sweeping every
   unsynced `time_entry` into the calendar Facet makes for itself.
-- **SettingsWindowController** and its five panes (Faces, Categories, Report, App, Device).
+- **SettingsWindowController** and its five panes (Faces, Categories, Report, App, Device). **macOS only**;
+  the Linux equivalent is item 11 of [the port](docs/linux-port.md).
 - **SettingStore**, **CategoryStore**, **FaceStore**, **TimezoneStore**, **IconStore**,
   **ColourStore**: a reader per table, over one connection held open for the life of the app. Holding
   a connection open is a different thing from holding a value.
@@ -111,7 +137,7 @@ That permission was granted to me, for this project specifically, and **does not
 - Original creator [growler](https://github.com/growler) - this project is forked from their [TimeFlipApp](https://github.com/growler/TimeFlipApp) repository
 - Special thanks to [TimeFlip](https://timeflip.io/) for the hardware device and for graciously permitting the use of their icon set in this application
 - [Timeflippers](https://github.com/bzobl/timeflippers) for the Rust TimeFlip client, which growler read while building the original app to work out what the device was actually doing, in a familiar language
-- Built with Swift and macOS native frameworks
+- Built with Swift: AppKit and CoreBluetooth on macOS, GTK3 and BlueZ on Linux, and no package dependencies on either
 
 ## Support
 

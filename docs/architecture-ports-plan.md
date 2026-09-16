@@ -6,7 +6,7 @@ the two into the code.
 
 **Scope, as set on 2026-09-10.** macOS only. Windows is not in scope. Linux code found in the core gets
 **moved but not altered**, and the Linux port resumes once the Mac matches the model. `swift test` is the
-only suite running; the scripted suite is set aside.
+only suite running; the scripted suite is low priority (`CLAUDE.md`, 2026-09-16).
 
 **The Linux half started on 2026-09-11**, which is what that scope said would happen next, and it is tracked
 in `docs/handover-linux.md` rather than here: this file is the list of *arms*, and every arm the Linux work

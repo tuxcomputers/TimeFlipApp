@@ -1,14 +1,124 @@
 # The Linux port
 
-[← Back to README](../README.md) · [BlueZ notes →](linux-bluez-port-notes.md) · [FacetCore split →](facetcore-split.md) · [The two systems →](systems-info.md)
+[← Back to README](../README.md) · [BlueZ notes →](linux-bluez-port-notes.md) · [The ports plan →](architecture-ports-plan.md) · [FacetCore split →](facetcore-split.md) · [The two systems →](systems-info.md)
 
-**The living status of running Facet on Linux.** What has been established, what is left to do, and what
-is still an open question. Every claim here is either marked as measured -- with the date and the machine
--- or marked as untested. Nothing in between, because the whole value of this file is that somebody can
-tell the difference without re-running the work.
+**The living status of running Facet on Linux.** What has been established, what is left to do, and what is
+still an open question. Every claim here is either marked as measured -- with the date and the machine -- or
+marked as untested. Nothing in between, because the whole value of this file is that somebody can tell the
+difference without re-running the work.
 
-**Keep it current in the same change that changes the answer.** A finding that lands without this file
-moving is a finding that will be measured twice.
+**Keep it current in the same change that changes the answer.** A finding that lands without this file moving
+is a finding that will be measured twice.
+
+**The to-do numbers are addresses and are never reused.** `Tests/Scripted/platform.sh`, `run.sh`, `lib.sh`,
+`scripts/check_interactive_checklists.sh`, `Sources/FacetLinux/SecretToolStore.swift`, `facetcore-split.md` and
+`architecture-review-2026-09.md` all name items of this list by number. An item that is done keeps its number
+and says so.
+
+---
+
+## What is done and what is not
+
+Every section of this page, in the order it appears. A ticked box means the section's work is finished, not
+merely that the section exists.
+
+### What is established
+
+- [x] **[The radio works](#found-the-radio-works)** -- scan, connect, resolve, log in on the vendor PIN, read
+      every characteristic the app reads, receive face turns. Measured on the cube, 2026-09-06 and again
+      through the app itself on 2026-09-13.
+- [x] **[The core compiles, and the whole of it does](#found-the-core-compiles-and-the-whole-of-it-does)** --
+      `FacetCore` entire, no `-Xcc`, no subset. The four blocking imports are all closed.
+- [x] **[The module split cost 589 access-level edits](#found-the-module-split-cost-589-access-level-edits)**
+      -- one-off, done 2026-09-07, and the method is written down for the next change of this kind.
+- [x] **[A second platform cost the core nothing](#found-a-second-platform-cost-the-core-nothing)** -- not one
+      core module needed a line changed to run on Linux. That is the ports model's central claim, audited.
+- [x] **[`@MainActor` is not the main thread here](#found-on-linux-mainactor-is-not-the-main-thread)** -- the
+      platform fact, the two ways it destroyed a run, and the two gates that now fail on the Mac the moment
+      either is reintroduced.
+- [x] **[A symlinked directory reads as empty](#found-a-symlinked-directory-reads-as-empty-and-the-bootstrap-called-that-success)**
+      -- a corelibs difference that made `DatabaseBootstrap` report an empty database as created. Both halves
+      fixed 2026-09-06.
+- [x] **[A GTK3 app is drivable, and the tray is a D-Bus object](#found-a-gtk3-app-is-drivable-and-the-tray-is-a-d-bus-object)**
+      -- press, type, toggle and read back with no mouse, while the window is covered. The tray is easier here
+      than on the Mac.
+- [x] **[The core runs from a real binary](#found-the-core-runs-from-a-real-binary-and-the-resource-bundle-would-ship-broken)**
+      -- XDG data directory, DDL through the bundle, instance lock, keyring. One packaging fault found, which
+      `docs/distribution.md` has to satisfy.
+- [x] **[The whole device half works on the cube](#found-the-whole-device-half-works-on-the-cube)** -- pair,
+      rotate the PIN, reconnect, ingest history, file a `time_entry`. Three faults found that 1,885 hermetic
+      tests could not see.
+- [x] **[CI runs the suite on both platforms](#ci-runs-the-suite-on-both-platforms)** -- four test jobs, two
+      per platform, and `all-tests-pass` requires all four.
+- [x] **[The toolkit is decided](#decided-one-process-swift-calling-gtk3-through-a-modulemap)** -- one process,
+      Swift calling GTK3 and the Ayatana indicator through a modulemap. No bindings to keep in step.
+
+### What is left
+
+**Each item says which system's code the work is in.** **macOS** is `Sources/FacetMac`, **Linux** is
+`Sources/FacetLinux`, and **Core** is `FacetCore`, `Tests/` or the repository itself, which either machine can
+do and both have to keep green. Numbers are addresses and are never reused, so the list is not in priority
+order; [what each machine owes](#what-each-machine-owes) is the same list split by system.
+
+- [x] **[1](#1---core---settle-the-mainactor-question)** - Core - Settle the `@MainActor` question. **Done
+      2026-09-06.**
+- [x] **[2](#2---macos---separate-the-platform-half-from-the-portable-half)** - macOS - Separate the platform
+      half from the portable half. **Done 2026-09-07**; `FacetCore` is 111 files and still growing as the
+      remodel moves decisions in.
+- [x] **[3](#3---core---platform-aware-data-directory)** - Core - Platform-aware data directory. **Done
+      2026-09-07.**
+- [x] **[4](#4---core---the-three-foundation-gaps)** - Core - The three Foundation gaps. **Done 2026-09-07**;
+      one of the three is guarded rather than solved, and says so.
+- [x] **[5](#5---core---make-databasebootstrap-refuse-an-empty-ddl-listing)** - Core - Make `DatabaseBootstrap`
+      refuse an empty DDL listing. **Done 2026-09-06.**
+- [x] **[6](#6---core---migrate-the-test-suite-to-swift-testing)** - Core - Migrate the test suite to
+      swift-testing. **Done 2026-09-09**, and a gate keeps it done.
+- [x] **[7](#7---linux---security-to-the-login-keyring)** - Linux - `Security` to the login keyring. **Done
+      2026-09-07**, through `secret-tool` rather than libsecret.
+- [x] **[8](#8---core---cryptokit-to-a-written-sha-256)** - Core - `CryptoKit` to a written SHA-256. **Done
+      2026-09-07.**
+- [x] **[9](#9---core---network-to-a-plain-socket-listener)** - Core - `Network` to a plain socket listener.
+      **Done 2026-09-07**; both halves live in one core file, which item 16 is about splitting.
+- [x] **[10](#10---linux---the-bluez-adapter)** - Linux - The BlueZ adapter, the Linux slot in the radio square.
+      **Done, and proven on the cube 2026-09-13.**
+- [ ] **[11](#11---linux---the-ui-filling-the-gtk-slots)** - Linux - The UI: filling the GTK slots. The menu bar
+      and the dialogues are done and work on a real cube; **the Settings window and the Report tab are not
+      started**, and there is no port to fill for either. **The largest item left.**
+- [ ] **[12](#12---linux---the-scripted-suite-on-linux)** - Linux - The scripted suite on Linux.
+      **Deliberately low priority (owner, 2026-09-16)**: neither the suite nor its Linux half is edited or run
+      until confirming a feature genuinely needs it.
+- [ ] **[13](#13---core---repo-restructure-and-the-claudemd-split)** - Core - Repo restructure and the
+      `CLAUDE.md` split. **Not started.**
+- [x] **[14](#14---core---readme)** - Core - README. **Done 2026-09-16**; it describes two platforms and the
+      three targets.
+- [ ] **[15](#15---linux---google-sign-in-on-linux)** - Linux - Google sign-in on Linux. **Not started**;
+      nothing in the Linux composition root names Google at all.
+- [ ] **[16](#16---macos--linux---split-googleloopbacklistener)** - macOS + Linux - Split
+      `GoogleLoopbackListener`. **The one item with real work on both machines**, and what empties the
+      platform-blind allowlist.
+- [ ] **[17](#17---macos---renamedevice-onto-devicesettingwrite)** - macOS - `renameDevice` onto
+      `DeviceSettingWrite`. The last unticked row of the ports plan's window arm.
+- [ ] **[18](#18---macos---confirm-the-read-back-window-on-corebluetooth)** - macOS - Confirm the read-back
+      window on CoreBluetooth. **A possible live fault on the Mac** that Linux found in shared code.
+- [ ] **[19](#19---macos---the-history-timer-never-restarts-when-a-cube-arrives-late)** - macOS - The history
+      timer never restarts when a cube arrives late. **Confirmed in the source 2026-09-16.**
+- [ ] **[20](#20---macos---remove-the-twelve-compiler-artefacts-at-the-repository-root)** - macOS - Remove the
+      twelve compiler artefacts at the repository root.
+- [x] **[21](#21---macos---reconcile-the-claudemd-scripted-suite-wording)** - macOS - Reconcile the `CLAUDE.md`
+      scripted-suite wording with the 2026-09-16 instruction. **Done 2026-09-16.**
+- [x] **[22](#22---linux---secrettoolstores-doc-comment-describes-an-arrangement-that-is-gone)** - Linux -
+      `SecretToolStore`'s doc comment describes an arrangement that is gone. **Comment fixed 2026-09-16**; a
+      redundant `#if` in the same file is left for the Linux box, which can compile it.
+- [x] **[23](#23---core---the-ci-workflows-test-counts-are-stale)** - Core - The CI workflow's test counts are
+      stale by a factor of ten. **Done 2026-09-16**, comments only.
+- [ ] **[24](#24---macos---libshs-quit_app-bypasses-platform_quit_app)** - macOS - `lib.sh`'s `quit_app`
+      bypasses `platform_quit_app`. **Mac work that blocks item 12**: no Linux check can run while every check
+      script quits through the macOS-only copy. Deferred with item 12 rather than fixed blind.
+
+### What is still open
+
+- [ ] **[Open questions](#open-questions)** -- seven, each with what would answer it. Three need the cube in
+      range of both machines at once and cannot be answered from either alone.
 
 ---
 
@@ -17,174 +127,289 @@ moving is a finding that will be measured twice.
 | Question | Answer | When |
 |---|---|---|
 | Can Linux talk to the cube? | **Yes**, every stage, on real hardware | 2026-09-06 |
-| Does the app's core compile on Linux? | **Yes -- `FacetCore` entire**, 89 files, 0 errors, 0 warnings, from a deleted `.build` in 13s | 2026-09-07, Linux |
-| Does the logic behave? | **Yes**, 432 tests pass | 2026-09-06 |
-| Can the whole test suite run? | **Under XCTest no**, `@MainActor` blocks ~60%. **Under swift-testing yes** | 2026-09-06 |
-| Does any of the suite run on Linux? | **Yes. `swift test` passes 1,095 of 1,772 tests** across 69 suites -- 590 under XCTest in 1.9s, 505 under swift-testing in 59s | 2026-09-09, Linux |
-| What is still excluded from the Linux run? | **Only what really draws or really talks to CoreBluetooth.** The exclusion list shrinks as each arm lands rather than waiting for items 10 and 11: a decision moved into `FacetCore` takes its tests with it, and they then run on both. It was 37 files when the split was made, 35 by 2026-09-10 and **32 by 2026-09-11**: the menu bar's dropdown, the quit sequence, the status item's title, `GoogleOAuthRulesTests`, `BLETraceTests` and `BlueZAddressTests` (deleted with its subject) have all gone. A gate watches it now, `EveryLinuxExclusionEarnsItsPlaceTests`, so a file that drifts clear of the platform is caught rather than noticed | ongoing, Mac |
-| Can Swift talk to BlueZ? | **Yes, in process, over libdbus.** `SystemBus` calls methods, marshals arguments both ways and receives signals with typed values; seven tests drive it against the real system bus | 2026-09-07, Linux |
-| Can it discover? | **Yes**, and the cube is found by `DeviceScanRules` -- the app's own rule, unchanged | 2026-09-07, Linux |
-| Can it drive the cube from Swift? | **Yes, every stage the app needs.** Connect, resolve, 16 characteristics by UUID, log in on the vendor PIN, read, the `0x10` status read-back parsed by the app's own rules, and **face turns arriving as notifications -- ten pushes over seven distinct faces**. Nothing but the PIN and `0x10` has been written | 2026-09-07, Linux |
-| Is there a UI? | **A menu bar item, and that settles the toolkit.** Swift calling GTK3 and `AyatanaAppIndicator3` through a modulemap, one process, one language. No Settings window yet | 2026-09-09, Linux |
-| Does the app run on Linux? | **Yes.** It boots, takes the instance lock, applies the DDL, puts an icon in the bar and quits from its own menu | 2026-09-09, Linux |
-| Can a GTK3 app be driven by a test harness? | **Yes, and the tray over D-Bus rather than AT-SPI.** Press, type, toggle and read back, all without a mouse and while the window is covered. Measured against a stand-in, not against Facet | 2026-09-08, Linux |
-| Is there a `FacetCore` target? | **Yes.** 86 files when it was made, no AppKit, and `FacetMac` builds on it. 589 access-level edits. It has grown since, and on purpose: the ports remodel moves decisions in, so **the number going up is the port getting smaller** | 2026-09-07, Mac |
-| ~~What is left before Linux can try the core?~~ | **Nothing. All four are done**: `SQLite3` has a modulemap target, `CoreGraphics` a `package typealias`, `Security` the login keyring through `secret-tool`, `CryptoKit` a written SHA-256 | 2026-09-07, Linux |
-| What is left before Linux can **run** anything? | Two empty slots, not two rewrites. Item 10 is the BlueZ transport behind the radio port; item 11 is GTK behind the menu bar, window and dialog ports. Everything either of them would have had to decide is in `FacetCore` and is tested on both platforms already | ports model, 2026-09-10 |
-| Does CI check any of this? | **Yes, since today, and it did not before.** Two Linux jobs, mirroring the macOS pair -- merge preview and branch tip -- run `swift build`, start a private `dbus-daemon`, then `swift test` on `ubuntu-latest` in a `swift:6.2-noble` container -- **1,064 tests**, being the 1,059 the Mac also runs plus 5 of the 7 D-Bus ones. `all-tests-pass` requires both. Only 2 are skipped, both needing a real BlueZ adapter | 2026-09-09, Linux |
-| Does the core actually run outside `swift test`? | **Yes.** A real binary linked against it resolves the XDG data directory, applies the DDL through the bundle, takes the instance lock against a second process and reaches the keyring. One fault found: the resource bundle (below) | 2026-09-08, Linux |
+| Does the core compile on Linux? | **Yes, `FacetCore` entire.** No `-Xcc`, no scratch package, no subset | 2026-09-07 |
+| Does the app run on Linux? | **Yes.** It boots, takes the instance lock, applies the DDL, pairs a cube, times it, files `time_entry` rows and quits from its own tray menu | 2026-09-13 |
+| Does the logic behave? | **Yes.** `swift test` is green on both platforms and has been since 2026-09-09 | 2026-09-16, Mac |
+| How much of the suite runs here? | **1,417 of 1,962 tests**, derived by counting rather than run today -- 680 under XCTest and 737 under swift-testing. The Linux box's own last report was 737, which is that swift-testing figure exactly | derived 2026-09-16; last Linux run 2026-09-13 |
+| What is still excluded? | **32 files, 545 tests, every one of them XCTest**, all needing AppKit, CoreBluetooth or a `FacetMac` type. `EveryLinuxExclusionEarnsItsPlaceTests` fails if one stops needing them | 2026-09-16, Mac |
+| Is there a UI? | **A tray item, and it works.** GTK3 and `AyatanaAppIndicator3` through a modulemap, one process, one language. **No Settings window and no Report** | 2026-09-13 |
+| Is the device half composed? | **Yes, and every part of it answered on a real cube**: scan, reach, login, PIN rotation, history, face turns, the quit sequence | 2026-09-13 |
+| Does CI check any of this? | **Yes.** Two Linux jobs mirroring the macOS pair, `swift:6.2-noble` on `ubuntu-latest`, a private `dbus-daemon` for the bus tests, 2 skipped for want of a BlueZ adapter | 2026-09-09 |
+| Can a scripted check drive the Linux app? | **The mechanism is proven and no check has run, and that is a priority rather than a blocker.** `scripts/tray-menu.py` drives the tray over D-Bus and `platform.sh` has no unfilled Linux branch left. The suite is low priority by the owner's instruction, 2026-09-16 | 2026-09-13 |
+| What does a second platform cost the core? | **Nothing, measured.** Not one `FacetCore` module needed a line changed. There is no `#if os(Linux)` anywhere in `Sources/` | 2026-09-11, re-checked 2026-09-16 |
 
-**The strategy this settles: port the core, do not reimplement it.** The Swift is portable, so the
-11,000 lines of decision logic and the hermetic suite come across rather than being rewritten against the
-documents. That was the fork the spike existed to resolve.
+**The strategy this settles: port the core, do not reimplement it.** The Swift is portable, so the decision
+logic and the hermetic suite come across rather than being rewritten against the documents. That was the fork
+the spike existed to resolve, and every measurement since has gone the same way.
 
 ## Written against the ports model
 
-**This document now describes the port as it stands once the remodel in
-[architecture-ports-plan.md](architecture-ports-plan.md) has landed**, on the owner's instruction of
-2026-09-10, so that the Linux work is planned against the shape it will actually meet rather than the one
-it was sized against. **The remodel is not finished.** That plan is where its state is tracked, arm by arm,
-and it is the newer document wherever the two disagree.
+The core states each platform capability as a port and something outside hands over the thing that does it, so
+the Linux job is not "reimplement the half that is AppKit" but "fill the empty slot in each square".
+[architecture-ports-plan.md](architecture-ports-plan.md) tracks that remodel arm by arm and is the newer
+document wherever the two disagree. `CLAUDE.md` carries the rule and
+[architecture-model.svg](architecture-model.svg) is the picture.
 
-Read it with one line held firmly in mind, because it is the difference between a plan and a fiction:
-
-- **Every measurement here was really taken, on the machine and date it names.** The radio stages against
-  the cube, D-Bus and the tray, the XDG data directory, the resource-bundle `fatalError`, the corelibs
-  symlink finding, `@MainActor` not being the main thread. Nothing in that class has been rewritten, and
-  none of it expires when code moves, because they are facts about machines rather than about the tree.
-- **Everything about which side of the line a file sits on, and what is left to write, is the finished
-  model.** Some of it is done and some is not; the plan says which.
-
-**What the model changes for this port, in one paragraph.** The core states each platform capability as a
-port and something outside hands over the thing that does it, so the Linux job stops being "reimplement the
-half that is AppKit" and becomes "fill the empty slot in each square". Everything the two platforms decide
-identically -- what the menu bar says, what its dropdown holds, what a click means, the command channel and
-its read-back discipline, the quit sequence -- is written once in `FacetCore` and is already tested on both
-platforms. What is left for Linux is genuinely GTK, genuinely BlueZ, and nothing else.
+**What this file is for, and the other is not:** this one is the record of what a machine did. Everything in
+it that is marked measured was really measured, on the date and machine it names, and none of it expires when
+code moves, because the findings are facts about machines rather than about the tree.
 
 ## The machines it was measured on
 
-**The Mac**, for anything below marked as measured there: macOS 26 (Darwin 25.6.0) on arm64, Xcode 26.6,
-**Swift 6.3.3**. That is the answer to the toolchain question this file used to carry: the Mac is not on 6.0
-and never was. `Package.swift` declares `swift-tools-version: 6.0`, which is the *language and manifest*
-level the package is written to, not the compiler that builds it -- so "does the core build under 6.0"
-remains genuinely unanswered, and a 6.0 toolchain would have to be installed to answer it. Nothing in the
-split needed a 6.2-or-later feature.
+**The Mac**: macOS 26.6.2 (Darwin 25.6.0) on arm64, **Swift 6.3.3**. `Package.swift` declares
+`swift-tools-version: 6.0`, which is the *language and manifest* level rather than the compiler, so nothing
+here says the package builds under a 6.0 toolchain and no machine has one.
 
-**The Linux box**, for the rest: Linux Mint 22.3 (Ubuntu 24.04 noble base), MATE 1.26.1, kernel 7.0.0-31-generic, adapter `hci0`
-(88:E9:FE:5F:1B:52). Cube `TimeFlip v2.0` at E8:DB:D8:CF:F9:0F, `DI_LABS` / `2.0` / `TFv4.1` / `FW_v3.64`.
+**The Linux box**: a `MacBookPro14,2` running Linux Mint 22.3 "Zena" (Ubuntu 24.04 noble base), MATE 1.26.1 on
+**X11**, kernel 7.0.0-31-generic, Intel i7-7567U, `x86_64`. Adapter `hci0` at 88:E9:FE:5F:1B:52. Cube
+`TimeFlip v2.0` at E8:DB:D8:CF:F9:0F, `DI_LABS` / `2.0` / `TFv4.1` / `FW_v3.64`.
 
-Already present, needing no installation: BlueZ 5.72, `python3-dbus`, `python3-gi`,
-`libayatana-appindicator3`, `mate-indicator-applet`. **A tray icon is native on MATE**, which is the
-desktop this is being built for and is not the case everywhere -- GNOME dropped tray support and needs an
-extension. A menu-bar-shaped app is a reasonable shape here.
+**The two machines differ by instruction set as well as by operating system**, so no built artefact is
+interchangeable and a timing figure from one is not a fact about the other.
 
-Swift 6.2 for noble is unpacked at `~/.local/swift/swift-6.2-RELEASE-ubuntu24.04` (3.2 GB). It is not on
-`PATH` by default:
+Already present on the Linux box, needing no installation: BlueZ 5.72, `python3-dbus`, `python3-gi`,
+`libayatana-appindicator3`, `mate-indicator-applet`. **A tray icon is native on MATE**, which is the desktop
+this is built for; GNOME dropped tray support and needs an extension. **X11 matters** because synthetic input
+goes through XTEST, which Wayland has no equivalent for that a normal process may call.
+
+Swift 6.2 is unpacked at `~/.local/swift/swift-6.2-RELEASE-ubuntu24.04` and is **not on `PATH` by default**:
 
 ```sh
 export PATH="$HOME/.local/swift/swift-6.2-RELEASE-ubuntu24.04/usr/bin:$PATH"
 ```
 
+Full per-machine facts are in [systems-info.md](systems-info.md), which is where they belong.
+
 ---
 
 ## Found: the radio works
 
-Full detail in [linux-bluez-port-notes.md](linux-bluez-port-notes.md); firmware behaviour in
-[timeflip2-firmware-observations.md](timeflip2-firmware-observations.md) finding 12. In short: scan,
-connect, resolve, log in on the vendor PIN, read every characteristic the app reads, and receive sixteen
-face turns live. `scripts/linux-ble-probe.py` is the run and the reference implementation.
+**Measured 2026-09-06 against the real cube**, and again through the app itself on 2026-09-13. Full detail in
+[linux-bluez-port-notes.md](linux-bluez-port-notes.md); firmware behaviour in
+[timeflip2-firmware-observations.md](timeflip2-firmware-observations.md) finding 12.
 
-Two things easier than on macOS: **no pairing agent** (`Paired: 0`, `Bonded: 0` -- the PIN is the whole of
-the authentication) and **no `sudo`**.
+Scan, connect, resolve, log in on the vendor PIN, read every characteristic the app reads, and receive face
+turns live. `scripts/linux-ble-probe.py` is the run and remains the way to ask the cube something with no app
+in the way.
 
-One trap that cost the first two runs: **do not filter discovery on the service UUID.** The cube
-advertises none. That is finding 12, and it is why `BluetoothRadio` passes `withServices: nil`.
+Two things easier than on macOS: **no pairing agent** (`Paired: 0`, `Bonded: 0` -- the PIN is the whole of the
+authentication) and **no `sudo`**.
 
-## Found: the core compiles -- and now the whole of it does
+One trap that cost the first two runs: **do not filter discovery on the service UUID.** The cube advertises
+none. That is finding 12, and it is why `BluetoothRadio` passes `withServices: nil`.
 
-**`swift build --target FacetCore` completes on Linux: 89 files, 0 errors, 0 warnings, from a deleted
-`.build` in 13 seconds** (2026-09-07). No `-Xcc`, no scratch package, no selected subset: the target as
-it stands in the tree, with its resource bundle carrying all 17 `.sql` files.
+**Finding 4 holds through a second stack.** `0x02` on the command result means a correct PIN, not the `0x01`
+the vendor spec promises. Finding 4 measured that over CoreBluetooth in August; this measured it over BlueZ
+and libdbus. Two hosts, two Bluetooth stacks, the same inverted byte -- which matters because that byte
+decides whether the right cube is let in.
 
-The spike's number was **53 files** -- the *closed set*, being those referencing nothing outside
-themselves plus Foundation, computed rather than chosen so the result was not flattered by a convenient
-selection. What stood between that and the whole target was four modules, and all four are now closed:
-`SQLite3` (a `systemLibrary` target), `CoreGraphics` (one `package typealias`), `Security` (the login
-keyring, item 7) and `CryptoKit` (a written SHA-256, item 8).
+## Found: the core compiles, and the whole of it does
 
-The date and timezone handling, which was the risk expected to bite hardest, produced **not one error**.
-The `Locale(identifier: "en_US_POSIX")` discipline throughout the codebase is why.
+**`swift build --target FacetCore` completes on Linux** (2026-09-07): the target as it stands in the tree, no
+`-Xcc`, no scratch package, no selected subset, with its resource bundle carrying every `.sql` file.
 
-**What this does and does not mean.** The portable half compiles and links its own module; nothing here
-says it *behaves*, because `swift test` still cannot run on Linux -- that is item 6, and it is now the
-single thing standing between a compiling core and a verified one. Nor is there anything to run: the
-executable is `FacetMac`, which is AppKit, so a Linux binary waits on items 9, 10 and 11.
+The spike's number was **53 files** -- the *closed set*, being those referencing nothing outside themselves
+plus Foundation, computed rather than chosen so the result was not flattered by a convenient selection. What
+stood between that and the whole target was four unguarded imports, each a hard stop hiding the next:
+
+| Import | Files then | What it is now |
+|---|---|---|
+| `SQLite3` | 4 | A `systemLibrary` target named `SQLite3`, in the graph on Linux only. **No source file changed** |
+| `Security` | 2 | The login keyring through `secret-tool`. Item 7 |
+| `CoreGraphics` | 2 | One `package typealias CGFloat = Double`. It **has to be `package`**: a plain one is `internal`, which a `package` member may not use, so the naive fix trades four missing-module errors for 22 access errors |
+| `CryptoKit` | 1 | `PortableSHA256`, compiled everywhere and called on Linux. Item 8 |
+
+Behind all four was **76 errors in three files and nothing in the other 83**: 75 diagnostics over 19 distinct
+`Security` symbols in the two Keychain stores, and one `SHA256` call in `GoogleOAuthRules`.
+
+The date and timezone handling, which was the risk expected to bite hardest, produced **not one error**. The
+`Locale(identifier: "en_US_POSIX")` discipline throughout the codebase is why.
+
+**`SQLite3` needs the modulemap even with `libsqlite3-dev` installed** -- measured 2026-09-07, with the package
+present and `import SQLite3` failing exactly as before, because the Swift toolchain ships no `SQLite3` module
+for this platform. The package is what lets the modulemap name the real `/usr/include/sqlite3.h` and lets a
+link find `libsqlite3.so`; it is not a substitute for it. Stock Mint ships only `libsqlite3.so.0`, and the
+unversioned symlink is what `libsqlite3-dev` provides.
 
 ### The three genuine Foundation gaps
 
-| Gap | Where | Fix |
+| Gap | Where | What happened |
 |---|---|---|
-| `URLRequest`, `URLSession`, `URLResponse` moved to `FoundationNetworking` | `GoogleCalendarClient`, `GoogleEventClient`, `GoogleOAuthClient` | `#if canImport(FoundationNetworking)`. Mechanical; cleared 251 errors |
-| `abbreviatingWithTildeInPath` does not exist in corelibs | `DebugTraceRules.swift:39` | Six lines of string handling |
-| `setvbuf(stdout, ...)` | `DebugLog.swift:211` | **Unsolved.** glibc declares `stdout` as a mutable global and Swift 6 refuses every reference to it, including one captured into a `let` |
+| `URLRequest`, `URLSession`, `URLResponse` moved to `FoundationNetworking` | the three Google clients | `#if canImport(FoundationNetworking)`. Mechanical; cleared 251 errors |
+| `abbreviatingWithTildeInPath` does not exist in corelibs | `DebugTraceRules` | Written out by hand, with tests for the two edges the API gave for free: the home directory abbreviates to `~`, and a sibling whose path merely *starts* with the home path is not inside it |
+| `setvbuf(stdout, ...)` | `DebugLog` | **Guarded to Darwin rather than solved.** glibc declares `stdout` as a mutable global and Swift 6 refuses every reference to it, including one captured into a `let`. A Linux terminal loses the immediacy of the printed copy; `debug_log` still gets every row, which is the half the scripted checks read |
 
-Only the third is open, and it is one line of dev-only line buffering.
+### What the core still reaches for, and it is not an `#if`
 
-### What turned out not to be a problem
+**The platform-blind allowlist is down to one file**: `GoogleLoopbackListener`, which is two implementations in
+one file and cannot come off until it is split in two. `PlatformBlindCoreTests` fails on anything else.
 
-- **`CoreGraphics` is one `CGFloat` typealias.** Both files that import it use nothing else.
-- **`SQLite3`** needs a modulemap over the system library. The app uses 25 symbols; a hand-written header
-  covered them, so the spike needed no `libsqlite3-dev`. A real port should just install it.
-  **And it still needs the modulemap after installing it** -- measured 2026-09-07 on Linux, with
-  `libsqlite3-dev` present and `import SQLite3` failing exactly as before, because the Swift toolchain
-  ships no `SQLite3` module for this platform. The package is what lets the modulemap name the real
-  `/usr/include/sqlite3.h` and lets a link find `libsqlite3.so`; it is not a substitute for it.
-- Linking needs `libsqlite3.so`, and stock Mint ships only `libsqlite3.so.0`. That unversioned symlink is
-  what `libsqlite3-dev` provides.
+**That gate sees only violations that announce themselves.** Re-measured 2026-09-16: **10 files in `FacetCore`
+reach a platform capability with no conditional at all**, on `applicationSupportDirectory`, `Bundle.main`,
+`sqlite3_*`, `FileManager.default` or `flock`. Nine of the ten are storage or the files around it, which is not
+debt: storage was ruled off the diagram as not being a platform capability, and `import SQLite3` is the same
+line on both platforms. **`InstanceLock` is the tenth and the real one**, being `flock`, `errno` and `strerror`
+with no conditional anywhere. It is a port for Windows, and Windows is not in scope.
 
-## Found: the logic behaves
+## Found: the module split cost 589 access-level edits
 
-**432 tests passed, 1 failed**, from 29 test files under XCTest, plus **21 of 21** in the one file
-migrated to swift-testing.
+**Measured on the Mac, 2026-09-07**, by making the split rather than by counting declarations.
 
-The single XCTest failure is corelibs being *correct*: `applicationSupportDirectory` resolved to
-`~/.local/share/Facet` and the test asserts `~/Library/Application Support/Facet`. See the XDG item below.
+| | Estimated, from Linux | Measured, on the Mac |
+|---|---|---|
+| Types that had to be widened | 103 | **152** |
+| Members that had to be widened | ~511 (upper bound) | **437** |
+| **Total `package` declarations** | ~614 | **589** |
+| `public` keywords anywhere | 0 | **0**, still |
 
-**Read the 432 narrowly.** Not one of them touched `TemporaryDatabase` -- every database-backed test file
-is `@MainActor` and so was excluded from that run. The SQLite layer was compiled but unexercised until
-`CubeLockTests` was migrated, which is the first thing to have driven a real bootstrapped database on
-Linux.
+**The type count was low by half, and the reason is worth knowing before estimating this kind of change
+again.** The script counted the types `FacetMac` names directly. What the compiler asks for is those plus
+everything that comes with them: a type used in a `package` signature, a nested type behind a `package` enum
+case, and a parent that has to widen so its own nested type is reachable at all. The member count came in
+**under** its upper bound, which is what an upper bound is for.
 
-## Found: `@MainActor` blocks XCTest, and swift-testing fixes it
+**It cannot be read off one build.** The first build of `FacetMac` against `FacetCore` reported 4,801 error
+lines naming 94 types; widening those exposed the next layer, and so on for a dozen rounds. Until a type is
+visible the compiler cannot say which of its members are wanted.
 
-**Under XCTest it is fatal.** Linux discovers tests through a generated `allTests` list rather than the
-Objective-C reflection Apple platforms use, and it cannot cast an isolated test method:
+**What made the loop tractable: Swift emits `note: 'x' declared here` beside each access error, carrying the
+declaration's own file and line.** That is the whole input a widening pass needs -- no name matching, no
+inferring a receiver's type, nothing widened that the build did not point at. The first attempt matched on
+member names instead and was ambiguous for 15 of 70; the note-driven pass had no ambiguity at all.
+
+**Two guesses did creep in, and the compiler caught both**, which is the argument for the discipline rather
+than against it: `package` on three local `let`s inside function bodies, where it is a compile error rather
+than merely wrong, and a generated memberwise initialiser that had swept up locals from the function bodies of
+the struct it belonged to.
+
+**Seven memberwise initialisers had to be written by hand**, Swift not widening a synthesised one with its
+type. That is the only part of the stage that is not mechanical.
+
+**The grep to drive the loop with** is `cannot find (type )?'X' in scope`, and the useful form is the distinct
+sorted list of names inside the quotes. An `internal` declaration in another module is not visible at all
+rather than visible-and-refused, so the compiler never says "is internal and cannot be referenced"; the stage 3
+recipe in [facetcore-split.md](facetcore-split.md) still looks for that string and is wrong to.
+
+**Two files were carrying an `import AppKit` they had stopped needing**, which the Linux side could not see
+because it computed the move list from the import lines themselves. **An import line is evidence of what a file
+needed once**, and the compiler is the only authority on what it needs now.
+
+## Found: a second platform cost the core nothing
+
+**Audited 2026-09-11, after filling five Linux slots in a day, and re-checked 2026-09-16.** The claim the ports
+model makes is that a second platform is adapters and nothing else. **It held, and the number is zero**: not
+one core module needed a line changed to run on Linux. `DeviceLogin`, `DeviceReconnector`,
+`CubeCommandChannel`, `HistoryIngestor`, `HistoryTimer`, `CubeLock`, `FaceColourSync`, `DeviceSettingsSync`,
+`LowBatteryWatch`, `DailyLimitWatch`, `ForcedPauseWatch` and `QuitSequence` were all constructed in a second
+composition root and ran. **There is no `#if os(Linux)` anywhere in `Sources/`.**
+
+Where the targets stand today (2026-09-16):
+
+| Target | Files | Lines | What it is |
+|---|---|---|---|
+| `FacetCore` | 111 | 17,763 | Everything both platforms decide |
+| `FacetMac` | 37 | 13,591 | AppKit and CoreBluetooth. 3,206 of those lines are `SettingsWindowController` |
+| `FacetLinux` | 12 | 3,384 | GTK, BlueZ over libdbus, the keyring, and the composition root |
+
+**The core growing is the port shrinking.** Those numbers are not a target to hold: the remodel goes on moving
+decisions in, and `FacetMac` falling towards nothing but drawing and CoreBluetooth is the intended end of it.
+
+**Three things had to move, and each is the same shape**: a decision written down inside a platform target that
+the second platform needed too.
+
+- **The BLE trace.** Ten `debug_log` wordings keyed on `CBUUID` in `FacetMac`. They are read back by
+  `Tests/Scripted` with `LIKE` and `GLOB`, so they are interface, and a second radio would have written a
+  second copy that diverged one row at a time.
+- **The seeded device settings.** Five numbers inside an AppKit view. They are `database/011_setting.sql`'s own
+  seeds and any composition root reading a fresh database needs them.
+- **The Settings line in the dropdown.** `StatusItemMenu` always drew one, and this platform has no window to
+  open. `openSettings` is optional now and `nil` means the line is not offered.
+
+**One thing went the other way and is worth naming as a limit.** The Linux menu carries lines the Mac has no
+equivalent for -- a list of today's totals standing in for a Report tab, a pairing control standing in for a
+Device tab. Those are that platform's composition root's, marked as such, and they are what item 22 of
+[handover-linux.md](handover-linux.md) predicts: a second platform finds decisions the first never had to make.
+
+**And one asymmetry turned out to be the argument for a port rather than a cost of one.** `Dialogue.wayOut`
+carries a *position*, because AppKit relocates a button titled Cancel and takes Return off the way out. GTK
+relocates nothing, so the Linux adapter honours the field in one line. A port whose shape was chosen by one
+platform's difficulty cost the other nothing.
+
+**One core type changed shape because of this port, and it was an improvement rather than a concession.**
+`DeviceHandle` is an opaque token the adapter mints and the core never reads. It used to be a `UUID`, which was
+CoreBluetooth's shape reaching into the circle: BlueZ has no such identifier, only the device's real address,
+so the Linux side had to pack six address bytes into the last six of a UUID behind a marker and check the
+marker on the way back out. Eighty-four lines and six tests existed to make an address look like something it
+is not. They are gone, and a Linux adapter stores the address as the address.
+
+## Found: on Linux, `@MainActor` is not the main thread
+
+Two separate faults, both fatal, both invisible to the author, and both now guarded.
+
+### An isolated `XCTestCase` aborts the entire run
+
+Linux discovers tests through a generated list rather than the Objective-C reflection Apple platforms use, and
+it cannot cast an isolated test method:
 
 ```
 Could not cast '(CubeLockTests) -> @MainActor () -> ()' to '(CubeLockTests) -> () -> ()'
 ```
 
-One such class aborts the whole run with SIGABRT -- not a skip, a crash that takes every other test with
-it. **60 of 100 test files** and **58 of 116 source files** carry `@MainActor`. Stripping it from the tests
-does not work: they are isolated precisely because the sources they call are.
+**One such class aborts the whole test executable** -- not a skip, a crash that takes every other test with it.
+Measured twice over: on 2026-09-10 three such files had reappeared and **671 XCTest tests reported nothing at
+all**, the only output being that message naming one class.
 
-**Under swift-testing it works.** `CubeLockTests`, the file that crashed the XCTest run, was migrated and
-**all 21 tests were discovered and passed**, isolation intact, against a real bootstrapped database.
-That settles the strategy: the suite migrates to swift-testing rather than being rewritten or abandoned.
+**The shape of the fault is why it does not stay fixed on its own.** The author cannot see it, the machine that
+can see it is not the one being typed at, and the failure names one file while destroying the run of every
+other. Nothing in the source says the attribute is dangerous.
 
-### What the migration actually costs
+**`AnIsolatedXCTestCaseAbortsTheLinuxRunTests` is the guard**, and it runs on both platforms, which is the
+whole point: it fails on the Mac at the moment the attribute is typed. It reads the exclusion list **out of
+`Package.swift` rather than keeping a copy**, so a file coming off that list is checked from that moment
+without anybody remembering to say so.
 
-Mostly mechanical. A regex pass converted 49 of 52 assertions; the three it missed were the
-message-carrying forms, `XCTAssertEqual(a, b, "why")` and `XCTAssertFalse(a, "why")`.
+**Two ways out.** If the subject really is `@MainActor`, the file becomes a `@Suite @MainActor` swift-testing
+suite. If it is not, the attribute is simply deleted -- which is the common case now, isolation being left
+behind by a subject that moved into the core and stopped touching AppKit.
 
-**The 2026-09-09 pass converted 264 of 264**, across the last four files, with a string- and comment-aware
-converter rather than a plain regex -- which is what the message-carrying forms need, along with two traps a
-regex walks into. An operand whose top level holds an operator binding looser than `==` has to be
-parenthesised, or `XCTAssertEqual(a ?? b, c)` becomes `#expect(a ?? b == c)`, which compiles and asks
-`a ?? (b == c)`; and a `String` variable passed as a message is not a `Comment`, where a string literal
-becomes one on its own. Neither of those fails loudly, which is why the count was checked per file against
-the original rather than trusted.
+### And the actor is not the thread
+
+**Measured 2026-09-09.** Inside a `@Suite @MainActor` swift-testing suite on this platform:
+
+| Probe | Answer |
+|---|---|
+| `Thread.isMainThread` | **false** |
+| `RunLoop.current === RunLoop.main` | **false** |
+| a `Timer` on `RunLoop.main` in `.common`, spinning `.default` | **never fires** |
+| the same on `RunLoop.main` in `.default`, spinning `.default` | **never fires** |
+| the same on `RunLoop.current` in `.common`, spinning `RunLoop.current` | **fires at once** |
+
+The isolation is honoured -- the body really is serialised on the main actor -- but the actor is not the thread
+whose run loop `RunLoop.main` hands back. Under XCTest the two coincided.
+
+**It was confirmed the expensive way.** `WriteDebounce` and `LowBatteryWatch` both scheduled on `RunLoop.main`,
+so migrating their suites traded one load-time abort for seventeen silent failures: `WriteDebounceTests`
+reported `writes -> 0` and `written -> []` on four tests before the probe explained why.
+
+**Three ways out, and the third is the one taken.** swift-testing could run `@MainActor` on the main thread on
+Linux, which is not in this repository's gift. Or the `RunLoop` becomes a parameter -- a production change made
+for a test's benefit, where `RunLoop.main` states what the app actually wants and `RunLoop.current` would pass
+by coincidence. **Or the seam goes at "the timeout happened" rather than at "here is a RunLoop"**, which is
+smaller than threading a scheduler through two initialisers.
+
+**That is now a port rather than a workaround.** `Scheduler` is the clock arm, with `RunLoopScheduler` on the
+Mac, `GLibScheduler` on Linux and `HandDrivenScheduler` for tests, and it is the first green square on the
+figure. `PlatformBlindCoreTests.theCoreUsesItsPorts` bans `RunLoop` and `Timer.scheduledTimer` in the core
+outright -- the second because it adds to a run loop **without naming one**, which would have walked straight
+past a check that only looked for the first.
+
+**A smaller Linux-only difference found beside it.** swift-corelibs-foundation does not mark
+`RunLoop.run(mode:before:)` `@discardableResult`, so the bare call warns here where it does not on Darwin.
+
+### What the swift-testing migration cost
+
+Mostly mechanical, and the 2026-09-09 pass converted 264 assertions across the last four files with a string-
+and comment-aware converter rather than a plain regex.
 
 | XCTest | swift-testing |
 |---|---|
@@ -196,471 +421,211 @@ the original rather than trusted.
 | `setUpWithError()` | `init() throws` |
 | `tearDown()` | `deinit` -- **and this one does not map** |
 
-**The hazard, and it crashes rather than fails.** `tearDown` in this suite wraps its work in
+**The hazard, and it crashes rather than fails.** `tearDown` in this suite wrapped its work in
 `MainActor.assumeIsolated`. A `deinit` carries no actor context *even on a `@MainActor` class*, so the
-assumption traps: SIGILL, no message, after every test has already reported starting. Cleanup in a
-`deinit` has to be callable without isolation. Every `tearDown` in the suite needs looking at
-individually for this, and it is the one part of the migration that cannot be done by pattern.
+assumption traps: SIGILL, no message, after every test has already reported starting. **27 of 30 `tearDown`
+bodies were in that position** (measured 2026-09-07). Cleanup in a `deinit` has to be callable without
+isolation, and each one needs looking at individually.
 
-**Timing was not a concern, then briefly was, and is not again.** The spike measured 23.9s for 21 tests
-with `.serialized` and `--no-parallel` making no difference, because the cost was the DDL apply that
-every test pays in its own bootstrap -- the test design rather than a Linux regression.
+Seven more differences, each of which cost a compiler round or a run to find:
 
-**Then the seeded `timezone` table turned that cost into a wall** (2026-09-07). 448 zones plus 151
-aliases is 599 more statements per bootstrap, and sqlite gives every statement outside a transaction one
-of its own with an fsync attached: 6.2s per test, at which point 292 tests in parallel never finished a
-single one in ten minutes. Not contention -- each test simply held a database open for six seconds while
-the next began.
+- **A regex walks into two traps.** An operand whose top level holds an operator binding looser than `==` has
+  to be parenthesised, or `XCTAssertEqual(a ?? b, c)` becomes `#expect(a ?? b == c)`, which compiles and asks
+  `a ?? (b == c)`. And a `String` *variable* passed as a message is not a `Comment`, where a string *literal*
+  becomes one on its own. Neither fails loudly.
+- **`Testing` does not re-export Foundation** the way `XCTest` did. Seven files needed `import Foundation`.
+- **`try` is fine at the start of an `#expect` and illegal to the right of an operator.**
+  `#expect(try #require(a).isActive)` compiles; `#expect(a < try #require(b))` does not.
+- **`accuracy:` has no equivalent**, `#expect` taking one expression rather than a pair. Six colour-channel
+  comparisons went through a named `isApproximately` so the tolerance stays visible.
+- **XCTest assertions absorb a thrown error and `#expect` does not.** Hoisting an unwrap out of a comparison
+  makes the test `throws`, and the compiler is the one that says so.
+- **`.immutable` is a BSD file flag corelibs does not implement**, and a `try?` around it swallowed the
+  refusal, so a test asserting that an unwritable file is not reported as settled *failed on Linux against an
+  app behaving correctly*. The portable equivalent is taking write permission off the **file** (`0o400`) --
+  not the directory, because the write it has to refuse is in place and needs no directory permission.
+- **Cleanup is no longer deterministic.** `deinit` runs when ARC says so, and at process exit some instances
+  are never released at all, so a full run leaves a dozen or so `facet-db-*` directories in `/tmp` where XCTest
+  left none. Harmless, but the sort of thing somebody would go hunting for.
 
-**Fixed by applying each DDL file in one transaction**, which is a 64-fold difference on the seed file
-alone (3.87s to 0.06s) and takes a bootstrap from 6.2s to 0.9s. The 540 XCTest tests went from 38.1s to
-**2.0s** with it, and the 292 migrated ones run in **42s in parallel**. So the answer stands where the
-spike left it -- parallelism is fine and `.serialized` is not needed -- but for a different reason than
-it gave, and the number that matters is the per-statement fsync rather than the DDL's size.
+**Timing was a wall and then was not.** The seeded `timezone` table added 599 statements per bootstrap, and
+sqlite gives every statement outside a transaction one of its own with an fsync attached: 6.2s per test, at
+which point the suite in parallel never finished a single one in ten minutes. **Fixed by applying each DDL file
+in one transaction** -- a 64-fold difference on the seed file alone, 3.87s to 0.06s, and a bootstrap from 6.2s
+to 0.9s. The number that matters is the per-statement fsync rather than the DDL's size.
 
-### It came back twice over, so there is a check now
+## Found: a symlinked directory reads as empty, and the bootstrap called that success
 
-**Measured 2026-09-11.** The suite was cleared of isolated `XCTestCase`s on 2026-09-09 and had three again by
-2026-09-10: `QuitSequenceTests`, `StatusItemTitleTests` and three methods of `CubeNotFoundOfferTests`. Each was
-written on the Mac, where the attribute costs nothing, and each aborted the entire test executable here --
-**671 XCTest tests reported nothing at all**, and the only output was the cast message above naming one class.
-
-**The shape of the fault is why it does not stay fixed on its own.** The author cannot see it, the machine that
-can see it is not the one being typed at, and the failure names one file while destroying the run of every
-other. Nothing in the source says the attribute is dangerous.
-
-**`AnIsolatedXCTestCaseAbortsTheLinuxRunTests` is the guard**, and it runs on both platforms, which is the whole
-point: it fails on the Mac at the moment the attribute is typed. It scans `Tests/FacetTests` for a file that
-names `XCTestCase` on a non-comment line and carries a `@MainActor` on another, and it reads the exclusion list
-**out of `Package.swift` rather than keeping a copy**, so a file coming off that list is checked from that moment
-without anybody remembering to say so.
-
-**Two ways out, and which one each of the three took.** If the subject really is `@MainActor`, the file becomes a
-`@Suite @MainActor` swift-testing suite -- that is what `QuitSequenceTests` did, `CubeLockTests` being the shape,
-and the conversion table above is the whole of it. If it is not, the attribute is simply deleted: the other two
-were carrying isolation left behind by a subject that had moved into the core and stopped touching AppKit, which
-is a thing the ports remodel will keep producing.
-
-### And it does not fix everything: on Linux, `@MainActor` is not the main thread
-
-**Measured 2026-09-09**, migrating the last six files off the exclusion list. Inside a `@Suite @MainActor`
-swift-testing suite on this platform:
-
-| Probe | Answer |
-|---|---|
-| `Thread.isMainThread` | **false** |
-| `RunLoop.current === RunLoop.main` | **false** |
-| a `Timer` on `RunLoop.main` in `.common`, spinning `.default` | **never fires** |
-| the same on `RunLoop.main` in `.default`, spinning `.default` | **never fires** |
-| the same on `RunLoop.current` in `.common`, spinning `RunLoop.current` | **fires at once** |
-
-The isolation is honoured -- the body really is serialised on the main actor -- but the actor is not the
-thread whose run loop `RunLoop.main` hands back. Under XCTest the two coincided. No migrated suite had
-noticed because all 22 of them are synchronous and none of them touches a run loop.
-
-**It cost the last two files of the migration, and then it did not.** `WriteDebounce.schedule` and
-`LowBatteryWatch`'s blink timer both do `RunLoop.main.add(timer, forMode: .common)`, so under swift-testing
-here the timer lands on a run loop the test cannot drive and nobody else is running. `WriteDebounceTests`
-(7 tests) and `LowBatteryWatchTests` (10) would have traded one load-time abort for seventeen silent
-failures. It was confirmed the expensive way: the migrated `WriteDebounceTests` reported `writes -> 0` and
-`written -> []` on four tests before the probe explained why.
-
-**Resolved 2026-09-09 by not going near a run loop.** Each of the two grew a `fire()` -- the timeout body
-lifted out of the `Timer` closure into a method, which the closure then calls and so can a test. Both suites
-are migrated and the 17 tests run here. **The finding below still stands** and is why it was done that way:
-the platform fact has not changed, only this app's exposure to it.
-
-**Three ways out, and the third is the one taken.** swift-testing could run `@MainActor` on the main thread
-on Linux, which is not in this repository's gift. Or the `RunLoop` becomes a parameter of the two subjects,
-defaulting to `.main` -- a production change made for a test's benefit, and `RunLoop.main` states what the
-app actually wants: switching those call sites to `RunLoop.current` would pass the tests by coincidence and
-leave the app correct only for as long as the main actor happens to be the main thread, which is precisely
-the assumption this section measured as false. **Or the seam goes at "the timeout happened" rather than at
-"here is a RunLoop"**, which is smaller than threading a scheduler through two initialisers and leaves the
-timer plumbing untouched. That is what `fire()` is.
-
-**Which modules this still applies to, because it is five and not two.** Anything reaching for
-`RunLoop.main` has a path no `swift test` on this platform can drive, and only a `fire()` changes that:
-
-| Module | Its tests here | Has a `fire()` |
-| --- | --- | --- |
-| `HistoryTimer` | run green | yes |
-| `WriteDebounce` | run green | yes, 2026-09-09 |
-| `LowBatteryWatch` | run green | yes, 2026-09-09 |
-| `DailyLimitWatch` | run green | **no** |
-| `DeviceReconnector` | run green, 14 tests | `attempt()` is one, 2026-09-09 |
-
-`DailyLimitWatch` is the one left worth a second look: its tests pass here only because they never drive the
-timer, so that path is unverified on this platform and nothing in the suite says so. `DeviceReconnector` was
-the fifth and is done -- candidate 2 of the architecture review gave it a suite on 2026-09-09, and `attempt()`
-serves as its `fire()`, being what the backoff timer calls and all it calls.
-
-**A smaller Linux-only difference found beside it.** swift-corelibs-foundation does not mark
-`RunLoop.run(mode:before:)` `@discardableResult`, so the bare call warns here where it does not on Darwin.
-The repository's four other call sites are all in macOS-only test files, which is why it had never come up.
-
-## Found: a symlinked directory reads as empty, and the bootstrap calls that success
-
-**Two faults that compound, and the repository is already arranged to trigger them.**
-
-`FileManager.contentsOfDirectory(at:)` returns an **empty array** for a symlinked directory on Linux.
-Darwin follows the link. Measured 2026-09-06, same directory, same process:
+**Two faults that compound, and the repository was already arranged to trigger them.** Measured 2026-09-06,
+same directory, same process:
 
 | | `contentsOfDirectory(at: URL)` | `contentsOfDirectory(atPath:)` | `at:` after `resolvingSymlinksInPath()` |
 |---|---|---|---|
 | **through a symlink** | **0** | 15 | 15 |
 | the real path | 15 | 15 | 15 |
 
-`database/` at the root of this repository **used to be** the symlink, pointing into what was then
-`Sources/FacetApp/Resources/Database` (that target is called `FacetMac` now, and the link has since moved
-to `FacetCore` anyway). **Fixed 2026-09-06 by flipping it**: `database/` is now the real
-directory and the path under `Sources/` is the symlink, because the schema is shared and neither platform
-owns it -- the only reason it ever lived inside the macOS target is that SwiftPM requires a target's
-resources to sit inside the target, and SwiftPM does follow the link when bundling (verified on Linux;
-the macOS build is what the next scripted run confirms).
+Darwin follows the link. Corelibs returns an empty array.
 
-`TemporaryDatabase.ddlDirectory` moved to `database/` in the same change, so **no runtime code path
-traverses a symlink at all** now. Only SwiftPM's resource bundling does, at build time.
+**And the second fault is what turns a wrong answer into a silent one.** `DatabaseBootstrap.ensureDatabase`
+filtered the listing and applied what survived; **an empty listing applied nothing and returned successfully**
+-- `createdDatabase: true`, `filesApplied: []`, no error thrown. The result is a database with no tables,
+reported as a database that was created. That is how this was found: every setting read came back `nil` and
+nothing anywhere said why.
 
-And the second fault is what turns a wrong answer into a silent one. `DatabaseBootstrap.ensureDatabase`
-filters the listing and applies what survives; **an empty listing applies nothing and returns
-successfully** -- `createdDatabase: true`, `filesApplied: []`, no error thrown. The result is a database
-with no tables, reported as a database that was created. That is how this was found: every setting read
-came back `nil` and nothing anywhere said why.
+**Both halves are fixed** (2026-09-06). `ensureDatabase` resolves symlinks before it enumerates, and throws
+`Failure.ddlDirectoryEmpty` rather than returning success on an empty listing. The second is a fix on macOS as
+much as Linux -- a DDL directory yielding no files is never a correct outcome, and `CLAUDE.md` already carried
+the rule it broke. Verified against the exact failure case: with the DDL reachable only through a symlink, the
+21 `CubeLockTests` pass where the same arrangement previously produced a database with no tables.
 
-**Both halves are fixed** (2026-09-06). `DatabaseBootstrap.ensureDatabase` resolves symlinks before it
-enumerates, and throws a new `Failure.ddlDirectoryEmpty` rather than returning success on an empty
-listing. The second is a fix on macOS as much as Linux: a DDL directory yielding no files is never a
-correct outcome, and `CLAUDE.md` already carries the rule it broke -- nothing fails silently. The Linux
-symlink behaviour exposed it rather than causing it.
+**The link was also flipped**, in the same change. `database/` at the repository root is now the real
+directory and `Sources/FacetCore/Resources/Database` is the symlink, because the schema is shared and neither
+platform owns it; the only reason it ever lived inside a platform target is that SwiftPM requires a target's
+resources to sit inside the target. **No runtime code path traverses a symlink at all** now. Only SwiftPM's
+resource bundling does, at build time, and it follows the link on both platforms -- verified on the Mac
+2026-09-06 and again after the split moved it, with every `.sql` file present in `Facet_FacetCore.bundle`
+(17 of them today, alongside `google-client.json`).
 
-Verified against the exact failure case: with the DDL reachable only through a symlink, the 21 migrated
-`CubeLockTests` pass, where before the same arrangement produced a database with no tables and reported
-it as created.
+**One detail that looks like a fault and is not: `.process` flattens**, so the files land at the root of the
+bundle and there is no `Database/` directory in it. `DatabaseBootstrap.bundledDDLDirectory` asks for
+`001_event_type.sql` by name and strips the filename rather than asking for a directory, and its comment says
+so.
 
-### And SwiftPM does follow the symlink on macOS, which was the open risk in `7ade2c7`
+**Narrowed 2026-09-07**: this is specific to a symlinked *directory*. A symlinked **file** inside a real
+directory is listed by both spellings and read straight through by `String(contentsOf:)`. So a report to the
+corelibs tracker has a smaller and sharper case than the original finding suggested.
 
-**Measured on the Mac, 2026-09-06, and again after the split moved the link.** `swift build`, then look
-in the built bundle: all **13** `.sql` files are there. Flipping `database/` to be the real directory did
-not cost the macOS app its schema, so the commit that did it is safe on both platforms.
+**A symlinked file inside a resources directory is a different trap and is measured.** SwiftPM copies it into
+the bundle *as a symlink*, whose relative target no longer resolves from where it lands -- which is why
+`FacetLinux`'s tray icon is a copy rather than a link, and why the DDL can be a link and a single file cannot.
 
-One detail worth having written down, because it looks like a fault and is not: **`.process` flattens,
-so the files land at the root of the bundle and there is no `Database/` directory in it.** That is why
-`DatabaseBootstrap.bundledDDLDirectory` asks for `001_event_type.sql` by name and strips the filename
-rather than asking for a directory -- the code already expects this, and its comment says so.
+## Found: a GTK3 app is drivable, and the tray is a D-Bus object
 
-After the split the link lives at `Sources/FacetCore/Resources/Database` and its text is unchanged,
-`../../../database` reaching the repository root from the new depth exactly as it did from the old.
-The bundle is `Facet_FacetCore.bundle` and holds the same 13 files.
-
-## Found: a real module split needs 589 access-level edits, and it is done
-
-**Measured on the Mac, 2026-09-07**, by making the split rather than by counting declarations. This
-section replaces an estimate taken from a script on the Linux side; the estimate is left in the table
-below so the two can be compared.
-
-**`FacetCore` is real and the whole package builds on it.** 86 files in the core, 35 in `FacetMac`,
-**nothing in the core importing AppKit**, `swift build` clean with no warnings, and **1718 tests passing
-with none skipped**.
-
-| | Estimated, from Linux | Measured, on the Mac |
-|---|---|---|
-| Types that had to be widened | 103 | **152** |
-| Members that had to be widened | ~511 (upper bound) | **437** |
-| **Total `package` declarations** | ~614 | **589** |
-| `public` keywords anywhere | 0 | **0**, still |
-| `package` keywords in `FacetMac` | -- | **0** |
-
-**The type count was low by half, and the reason is worth knowing before estimating this kind of change
-again.** The script counted the types `FacetMac` names directly. What the compiler asks for is those
-plus everything that comes with them: a type used in a `package` signature, a nested type behind a
-`package` enum case, and a parent that has to widen so its own nested type is reachable at all. The
-member count came in **under** its upper bound, which is what an upper bound is for.
-
-**It cannot be read off one build.** The first build of `FacetMac` against `FacetCore` reported 4,801
-error lines naming 94 types; widening those exposed the next layer, and so on for a dozen rounds. Until
-a type is visible the compiler cannot say which of its members are wanted.
-
-**What made the loop tractable: Swift emits `note: 'x' declared here` beside each access error, carrying
-the declaration's own file and line.** That is the whole input a widening pass needs -- no name matching,
-no inferring a receiver's type, nothing widened that the build did not point at. The first attempt
-matched on member names instead and was ambiguous for 15 of 70; the note-driven pass had no ambiguity at
-all.
-
-**Two guesses did creep in, and the compiler caught both**, which is the argument for the discipline
-rather than against it: `package` on three local `let`s inside function bodies, where it is a compile
-error rather than merely wrong, and a generated memberwise initialiser that had swept up locals from the
-function bodies of the struct it belonged to.
-
-**Seven memberwise initialisers had to be written by hand**, Swift not widening a synthesised one with
-its type. That is the only part of the stage that is not mechanical. Two needed care beyond copying the
-stored properties: `DevicePINSource` stores two closures and so needs `@escaping`, and `DeviceInfo`
-needed its four optionals to keep the `nil` defaults the synthesised initialiser had given them, which
-is what `DeviceLogin` relies on when it writes `DeviceInfo()`.
-
-**The stage 3 recipe in [facetcore-split.md](facetcore-split.md) greps for the wrong string.** It looks for
-
-```
-is internal and cannot be referenced|initializer is inaccessible
-```
-
-and neither appears. An `internal` declaration in another module is not visible at all rather than
-visible-and-refused, so what the compiler actually says is:
-
-```
-error: cannot find 'CategoryStore' in scope
-error: cannot find type 'CategoryRecord' in scope
-```
-
-The grep to drive the loop with is `cannot find (type )?'X' in scope`, and the useful form is the
-distinct sorted list of names inside the quotes.
-
-## Found: the layer boundaries are better than the file count suggests, with two corrections
-
-The three structural facts below were established from Linux. **Two of them were right and one was
-incomplete**, which the compiler settled on the Mac on 2026-09-06:
-
-- **`BluetoothRadio` is named 21 times across 13 core files, and referenced in code twice.** Confirmed.
-  Both references were in `DeviceReconnector`, and they now go through a five-member `CubeRadio`
-  protocol that `BluetoothRadio` conforms to. Nothing else in the core names the radio in code.
-- **Six files import AppKit for `NSColor` and nothing else.** **Five of them do.** The sixth,
-  `StatusItemTitle`, is not a data file and cannot be made one -- see below.
-- **The one genuine leak is `AppSettingsRules` reaching into `AppSettingsPane.Change`.** **There were
-  two.** The second is `GoogleCalendarClient`, in the core, calling `GoogleCredentials.resolve()`,
-  where `GoogleCredentials` was declared inside `GoogleOAuthClient.swift` alongside the `NWListener`
-  that keeps that file on the platform side. It is pure Foundation and moved out to its own file in
-  the core, exactly as `AppSettingsPane.Change` did. The DDL is not the only resource that had to
-  follow its reader: `google-client.json` moved to `Sources/FacetCore/Resources/` with it, because
-  `GoogleCredentials.builtIn` reads it through `Bundle.module` and that accessor is per-target.
-  `.gitignore` and `scripts/generate-credentials.sh` name the new path.
-
-### The menu bar is shared, and only the drawing is the toolkit's
-
-**This section used to say the opposite**, and the correction is worth keeping because the reasoning was
-right and the conclusion still inverted.
-
-**It said:** `StatusItemTitle` was the one file on the 83-file move list the split had to refuse. Its
-colours are deliberately *semantic* AppKit ones -- `.labelColor`, `.systemCyan`, `.systemRed`,
-`.systemGreen`, `.systemYellow` -- and the file carried the reason above the property: the menu bar tints
-from the wallpaper rather than from the appearance setting, so a colour resolved before the draw is a
-frozen answer. Four fixed components cannot express that. `colourDescription` also switched on those
-constants to put the drawn line into words, which is what the scripted checks read, the accessibility tree
-carrying no colour at all. So a Linux UI would need its own equivalent regardless.
-
-**What was missed is in `colourDescription` itself.** Turning each `NSColor` back into "cyan", "green",
-"red" was the tell: the *word* was the answer all along and the `NSColor` was a detour. `StatusColour` is
-five named cases with the word as the raw value; `StatusItemTitle` chooses between them knowing nothing
-about how a Mac draws; `FacetMac.StatusColourDrawing` is a five-line table from case to `NSColor`. The
-semantic colours are still semantic and still resolve at draw time, because **what crosses the arm is the
-question rather than an answer to it**. The move deleted code rather than relocating it: `name(of:)` and
-its `default` returning "unnamed" both went, an enum having no fallthrough.
-
-**So the whole of the menu bar's meaning is shared.** `StatusItemTitle` decides the line in the bar and
-`StatusItemMenu` decides the dropdown -- which lines there are, what each says, whether it can be chosen
-and what choosing it does -- and both are in `FacetCore` with tests that run on both platforms. The
-identifiers a check addresses them by are shared too, reaching `AXIdentifier` on a Mac and --
-**this half is wrong, corrected 2026-09-13 below** -- nothing at all here, a dbusmenu item carrying its
-label and its enabled state and no identifier this app chose. What `FacetLinux.MenuBar` has to do is render an answer it is
-handed, which is the shape it already had.
-
-The portable colour type for everything else is still **`Colour`**, four sRGB `Double`s, covering
-`CategoryStore`, `TimeEntryStore`, `ColourStore`, `FaceColourRules` and `DeviceFaceRules`, converted at the
-point of drawing. That part always stood.
-
-### Two files were carrying an `import AppKit` they had stopped needing
-
-`CollapsibleSection` (a protocol with no `NS` type in it at all) and `FaceColourSync` (whose need went
-away the moment `FaceColour.colour` stopped being an `NSColor`). Both are Foundation-only now. Neither
-was visible from the Linux side, which computed the move list from the import lines themselves -- so
-**an import line is evidence of what a file needed once**, and the compiler is the only authority on
-what it needs now.
-
-### What the core imported besides Foundation, and what each became
-
-**All four are closed as of 2026-09-07**, in the order the compiler hit them -- each import being
-unguarded, each was a hard stop hiding the next:
-
-| Import | Files | What it is now |
-|---|---|---|
-| `SQLite3` | 4 | A `systemLibrary` target named `SQLite3`, depended on `.when(platforms: [.linux])` so Darwin keeps its SDK module. Needs a modulemap **and** `libsqlite3-dev`, not either/or -- see below. No source file changed |
-| `Security` | 2 (`DevicePINStore`, `GoogleTokenStore`) | The login keyring through `secret-tool` (`SecretToolStore`), branched at compile time inside both stores. Item 7 |
-| `CoreGraphics` | 2 (`SettingsMetrics`, `ReportCalendarMetrics`) | One `package typealias CGFloat = Double` in `CoreGraphicsShim`. It has to be `package` -- a plain one trades four missing-module errors for 22 access errors |
-| `CryptoKit` | 1 (`GoogleOAuthRules`) | `PortableSHA256`, 60 lines, compiled everywhere and called only on Linux. Item 8 |
-
-**All four confirmed from Linux 2026-09-07, in that order, and there is no fifth.** The compiler hits
-them one at a time -- each import is unguarded, so each is a hard stop that hides the next -- so they
-were peeled with a modulemap over the real `sqlite3.h` and a detached worktree, to see the whole list
-rather than the first of it. What is behind all four is **76 errors in three files and nothing in the
-other 83**: 75 diagnostics over 19 distinct `Security` symbols in the two Keychain stores, and one
-`SHA256` call in `GoogleOAuthRules`. Both `CoreGraphics` files compile clean once the typealias is
-right, and **`package typealias CGFloat = Double` is what right means** -- a plain one is `internal`,
-which a `package` member may not use, so the naive fix trades four missing-module errors for 22 access
-errors. Full working in the *What `FacetCore` does on this box* section of
-[systems-info.md](systems-info.md).
-
----
-
-## Found: a GTK3 app is drivable, and the tray is easier than it is on the Mac
-
-**Measured on the Linux box, 2026-09-08, against a stand-in rather than against Facet** -- there is no
-Linux app yet, so this was a 90-line Python/GTK3 process shaped like the parts a scripted check has to
-reach: a window with named controls, an `AyatanaAppIndicator3` tray item with a menu, and an append-only
-event file standing in for `debug_log`. Every claim below was confirmed twice over: the action returned
-successfully **and** the app recorded that it happened.
-
-This is the question item 12 would otherwise discover last, and it is an input to the toolkit decision
-rather than a consequence of it.
-
-### What works
+**Measured on the Linux box, 2026-09-08**, against a 90-line Python/GTK3 stand-in shaped like the parts a
+scripted check has to reach. Every claim was confirmed twice over: the action returned successfully **and** the
+app recorded that it happened.
 
 | | |
 |---|---|
 | **AT-SPI sees a GTK3 app** | Yes -- 26 applications on the accessibility bus, the probe among them |
-| **`toolkit-accessibility` does not gate it** | The gsetting reads `false` on this machine and the app was visible anyway. GTK3 loads the atk-bridge on its own; that switch is a GNOME-era control this does not depend on. **Worth knowing because the obvious first move is to turn it on**, and doing so would have credited the wrong thing |
-| **Accessible name is the `AXIdentifier` equivalent** | `widget.get_accessible().set_name("probe-start-button")` comes back as the node's `name`, and a locator is one tree walk comparing it |
-| **Pressing** | `queryAction().doAction(0)` on a `push button`, action named `click`. **No mouse event, no coordinates** |
-| **Typing** | `queryEditableText().setTextContents(...)` on a `text` node; the app's `changed` handler fired with the new text |
+| **`toolkit-accessibility` does not gate it** | The gsetting reads `false` and the app was visible anyway. GTK3 loads the atk-bridge on its own. **Worth knowing because the obvious first move is to turn it on**, and doing so would have credited the wrong thing |
+| **Accessible name is the `AXIdentifier` equivalent** | `widget.get_accessible().set_name(...)` comes back as the node's `name`, and a locator is one tree walk comparing it |
+| **Pressing** | `queryAction().doAction(0)` on a `push button`. **No mouse event, no coordinates** |
+| **Typing** | `queryEditableText().setTextContents(...)`; the app's `changed` handler fired |
 | **Toggling** | `doAction(0)` on a `check box`, read back as `STATE_CHECKED` |
-| **Reading for assertions** | Label text via `queryText().getText(0, -1)` -- `name` stays the identifier and the text is the value, which is the same split as `AXIdentifier` against `AXValue` |
+| **Reading for assertions** | Label text via `queryText().getText(0, -1)` -- `name` stays the identifier and the text is the value, the same split as `AXIdentifier` against `AXValue` |
 | **While unfocused and covered** | Yes. Another window was raised over it and made active, and the press still landed. **This is the difference that matters most for the suite** |
 
-### The tray is a D-Bus object, and that is better
+### The tray is not in the accessibility tree, and that is better here
 
-**The indicator is not in the AT-SPI tree at all** -- the application node has exactly one child, the
-frame. That is the same shape as the macOS status item, which `Tests/Methods.md` records as not being in
-`AXMenuBar`. What differs is what replaces it: on the Mac, real mouse events through
-`scripts/status-item-click.py`; here, a D-Bus object with stable ids.
+**The indicator is absent from AT-SPI entirely** -- the application node has exactly one child, the frame. That
+is the same shape as the macOS status item, which `Tests/Methods.md` records as not being in `AXMenuBar`. What
+differs is what replaces it: on the Mac, real mouse events through `scripts/status-item-click.py`; here, a
+D-Bus object.
 
 ```sh
 # it registers itself, and the watcher lists it
 org.kde.StatusNotifierWatcher -> RegisteredStatusNotifierItems
-  :1.129/org/ayatana/NotificationItem/facet_probe
 
 # the menu is a property, and com.canonical.dbusmenu reads and drives it
-GetLayout(0, -1, [label]) -> id=2 Pause, id=3 Settings, id=4 Quit
-AboutToShow(0); Event(2, "clicked", "", 0)   -> the app recorded: a menu item was chosen, Pause
+GetLayout(0, -1, [label])   # every line, with whether it is enabled
+Event(id, "clicked", "", 0) # choose one
 ```
 
-**Two corrections to those two lines, both measured 2026-09-13 and both written up below.** Those ids are
-libdbusmenu's own numbering and are reassigned on every rebuild, so a check cannot hold one; and
-`AboutToShow` reaches nothing in the app at all, so it is not what makes the layout current.
+`scripts/tray-menu.py` is that, committed, and `Tests/Methods.md` Methods 18 and 19 are how to use it. It works
+while the session is doing something else, which on macOS costs a real `CGEvent` and a frontmost app.
 
-`Event(4, "clicked", ...)` on *Quit* ended the process cleanly, exit 0, no window left behind. So the
-whole menu-bar half of the suite is reachable without a mouse, without focus and without reading pixels
--- which on macOS costs a real `CGEvent` and a frontmost app.
+**Three corrections to the first spike, all measured 2026-09-13 and all load-bearing:**
 
-**The tray label reads back too**: `XAyatanaLabel` on `org.kde.StatusNotifierItem` answered `00:00`,
-which is what `StatusItemTitle` produces on the other platform. A check can assert the menu-bar clock
-directly.
+- **No identifier crosses.** `StatusItemMenu.Item.identifier` reaches `AXIdentifier` on the Mac and reaches
+  **nothing** here. Neither `gtk_widget_set_name` nor the accessible description is carried; `GetLayout`
+  answers the label plus `enabled`. **So a Linux check addresses a tray item by its label**, and that is a
+  difference to design the checks around rather than discover in one.
+- **The numeric ids are libdbusmenu's own** and are reassigned on every rebuild, so an id read in one step is
+  meaningless in the next. The first spike recorded ids 2, 3 and 4 as though they were stable.
+- **The `Event` signature is `isvu`, not `issu`.** The data argument is a variant, so python-dbus needs
+  `dbus.String("", variant_level=1)` and an explicit signature, or the call is refused.
+
+**The tray label reads back too**: `XAyatanaLabel` on `org.kde.StatusNotifierItem` answers what
+`StatusItemReadout` produced, so a check can assert the menu-bar clock directly. Colour cannot be read -- an
+`AppIndicator` label is plain text -- which is why the readout writes the colour decisions to `debug_log`, the
+only way a check sees them on **either** platform.
 
 ### What this does not say
 
-- **It was a Python/GTK3 process.** For the one-process Swift+GTK3 candidate the bridge is GTK's work
-  rather than Python's, so the same should hold -- but that is reasoning, and this file does not count
-  reasoning as measurement. **Untested for Swift.**
-- **Nothing was run headless.** `xvfb` is not installed and this box has no passwordless `sudo`, so
-  whether the suite could run without a screen -- and therefore whether CI could ever run the Linux
-  half, which it can never do for the Mac -- is open. It is the single most valuable thing to try next.
+- **Nothing was run headless.** `xvfb` is not installed and this box has no passwordless `sudo`, so whether the
+  scripted suite could run without a screen is open.
 - **The screen was not locked.** Whether a locked session still answers is untested.
-- **No cube was involved**, so nothing here says anything about `50`-`66`.
-
-### Reproducing it
-
-The four probes are not committed, being a measurement rather than an artefact. They were: put the
-window and indicator up; enumerate `pyatspi.Registry.getDesktop(0)`; walk the tree comparing
-`node.name`; and drive `com.canonical.dbusmenu` through `dbus.SessionBus()`. `python3-pyatspi` 2.46.1
-and `at-spi2-core` 2.52.0 were already installed, and nothing was added to the machine.
-
----
 
 ## Found: the core runs from a real binary, and the resource bundle would ship broken
 
-**Measured on the Linux box, 2026-09-08.** Until tonight nothing on this platform had ever *run*
-`FacetCore` outside `swift test`. A 45-line executable was linked against the built core -- the first
-Linux binary this project has had -- and told to do what a launch does. Four of the five answers are
-good; the fifth is a fault that would have shipped.
-
-Nothing under `Sources/` was touched to get it. The probe compiles against the objects SwiftPM had
-already built:
-
-```sh
-B=.build/x86_64-unknown-linux-gnu/debug
-swiftc boot_probe.swift -I "$B/Modules" -package-name timeflipapp \
-  -Xcc -fmodule-map-file=Sources/SQLite3/module.modulemap \
-  -Xcc -fmodule-map-file=Sources/CDBus/module.modulemap \
-  $B/FacetCore.build/*.o -lsqlite3 -ldbus-1 -o boot_probe
-```
-
-`-package-name timeflipapp` is the part worth keeping: it is what makes `package` declarations visible
-from outside the module, and it is the package identity lowercased, which `description.json` is where to
-read off. Without it every `package` symbol is simply not in scope.
-
-### What works
+**Measured on the Linux box, 2026-09-08**, with a 45-line executable linked against the built core -- the first
+Linux binary this project had. Four of the five answers are good; the fifth is a fault that would have shipped.
 
 | | |
 |---|---|
-| **The data directory** | `.applicationSupportDirectory` answers `/home/harry/.local/share`, so the app's own path comes out as `~/.local/share/Facet/appdata.sqlite`. **No code change**: corelibs does the XDG layout, and `DebugTraceRules` already documented both |
-| **The DDL through the bundle** | `ensureDatabase(at:)` with no `ddlDirectory` succeeded and applied the schema. **This path had never run on Linux** -- every test passes `TemporaryDatabase.ddlDirectory` explicitly, so the bundle lookup was untested by all 906 of them |
-| **The single-instance lock** | Two real processes: the first claimed it, the second was refused `heldByAnotherInstance`. `~/.local/share/Facet/singleinstance.lock` is created on the way |
-| **The keyring** | `SecretToolStore.lookUp` for an absent secret answered `missing` rather than `unavailable`, so `secret-tool` is reachable and the two cases are being told apart as designed |
+| **The data directory** | `.applicationSupportDirectory` answers `/home/harry/.local/share`, so the app's path is `~/.local/share/Facet/appdata.sqlite`. **No code change**: corelibs does the XDG layout |
+| **The DDL through the bundle** | `ensureDatabase(at:)` with no `ddlDirectory` succeeded. **This path had never run on Linux** -- every test passes a directory explicitly, so the bundle lookup was untested by all of them |
+| **The single-instance lock** | Two real processes: the first claimed it, the second was refused `heldByAnotherInstance` |
+| **The keyring** | `SecretToolStore.lookUp` for an absent secret answered `missing` rather than `unavailable`, so the two cases are told apart as designed |
+
+**`-package-name timeflipapp` is the part worth keeping** if the probe is ever rebuilt: it is what makes
+`package` declarations visible from outside the module, and it is the package identity lowercased. Without it
+every `package` symbol is simply not in scope.
 
 ### And the fault: a shipped binary dies on its resources
 
-**`Bundle.module` on Linux is generated code with a hardcoded absolute build path in it.** SwiftPM writes
-`FacetCore.build/DerivedSources/resource_bundle_accessor.swift`, and it tries two places:
+**`Bundle.module` on Linux is generated code with a hardcoded absolute build path in it.** SwiftPM writes a
+`resource_bundle_accessor.swift` that tries the path beside the executable and then the build directory of the
+machine that compiled it:
 
 ```swift
-let mainPath = Bundle.main.bundleURL.appendingPathComponent("Facet_FacetCore.resources").path
-let buildPath = "/home/harry/git/TimeFlipApp/.build/x86_64-unknown-linux-gnu/debug/Facet_FacetCore.resources"
 guard let bundle = Bundle(path: mainPath) ?? Bundle(path: buildPath) else { Swift.fatalError(...) }
 ```
 
-So **on the machine that built it, every binary works wherever it is run** -- the fallback answers, and the
-first probe run from `/tmp` was in fact answered by that hardcoded path rather than by anything beside the
-executable. Move the same binary to a machine without that directory and it does not degrade, it dies:
+So **on the machine that built it, every binary works wherever it is run** -- the fallback answers. Move the
+same binary to a machine without that directory and it does not degrade, it dies. Measured by hiding the build
+directory for the length of one run.
 
-```
-FacetCore/resource_bundle_accessor.swift:12: Fatal error: could not load resource bundle:
-from .../deploy-bare/Facet_FacetCore.resources or /home/harry/git/TimeFlipApp/.build/...
-```
+**Two things make this worse than a missing file.** It is a `fatalError`, so
+`DatabaseBootstrap.Failure.ddlDirectoryNotFound` -- written precisely for "the DDL is not where it should be"
+-- never gets the chance to report it, and none of the careful error handling around it runs. And it is
+invisible on the build machine, which is the one place anybody would test it.
 
-Measured by hiding the build directory for the length of one run. **Two things make this worse than a
-missing file.** It is a `fatalError`, so `DatabaseBootstrap.Failure.ddlDirectoryNotFound` -- written
-precisely for "the DDL is not where it should be" -- never gets the chance to report it, and none of the
-careful error handling around it runs. And it is invisible on the build machine, which is the one place
-anybody would test it.
+**What it costs is one packaging rule**: `Facet_FacetCore.resources` goes beside the executable. Confirmed
+working with the directory copied next to the binary and the build path hidden. **That is
+[distribution.md](distribution.md)'s to satisfy**, and something should check it rather than trusting it.
+`FacetLinux/main.swift` already writes the bootstrap failure to stderr and exits non-zero, which is as far as
+the app can help.
 
-**What it costs is one packaging rule**: `Facet_FacetCore.resources` goes beside the executable.
-Confirmed working -- with the directory copied next to the binary and the build path hidden, the same
-probe applied the schema without complaint. Whatever item 11 produces, its install layout has to carry
-that directory, and something should check it rather than trusting it.
+## Found: the whole device half works on the cube
 
----
-
-## Found: the whole device half works on this platform, and three things about the tray were wrong
-
-**Measured on the Linux box against the real cube, 2026-09-13.** The first end-to-end run of
-`FacetLinux` with a TimeFlip2 in the room. It paired, rotated the PIN into the login keyring,
-reconnected on a later launch, brought in the cube's own history and filed a `time_entry` -- and it
-turned up three faults on the way, each invisible to the 737 hermetic tests.
-
-### What worked, in the order it happened
+**Measured on the Linux box against the real cube, 2026-09-13.** The first end-to-end run of `FacetLinux` with
+a TimeFlip2 in the room. It paired, rotated the PIN into the login keyring, reconnected on a later launch,
+brought in the cube's own history and filed a `time_entry` -- and it turned up three faults on the way, each
+invisible to the hermetic suite.
 
 | | |
 |---|---|
 | **Scan and reach** | `BlueZCubeRadio` found the cube by name, ordered the room and connected. On a later launch the remembered handle cut the window short, which is `CubeReachSequence`'s shortcut working over BlueZ |
 | **Login** | The vendor default was accepted (`commandResult: 02`, finding 4), the PIN was rotated to six fresh digits, the cube proved it by taking a second login on the new one, and `SecretToolStore` kept it |
-| **Pairing rows** | `paired`, `device_uuid`, `device_name`, `device_info` and `connection` all written. **`device_uuid` holds `E8:DB:D8:CF:F9:0F` verbatim**, which is `DeviceHandle` being the address rather than a packed UUID |
+| **Pairing rows** | `paired`, `device_uuid`, `device_name`, `device_info` and `connection` all written. `device_uuid` holds `E8:DB:D8:CF:F9:0F` verbatim, which is `DeviceHandle` being the address rather than a packed UUID |
 | **The cube's own state** | Clock set and confirmed by `0x07`; the four Device Information strings; battery 100%; all eight TimeFlip characteristics subscribed |
 | **Face colours and settings** | Twelve `0x11` writes, LED brightness and blink period, and the cube's `systemState` requests answered as they arrived |
 | **History** | `0x01`/`0x02` frames parsed, `device_event` rows written, and a finished segment became `time_entry` 1 -- eighteen seconds filed under Break |
 | **The quit sequence** | Pause, read back, lock, read back, in that order, then the link given up |
-| **Driving it with no mouse** | Every control above was reached through `com.canonical.dbusmenu` on the tray item: `GetLayout` to read, `Event` to press. Pair, Pause, Unlock and Quit all landed |
+| **Driving it with no mouse** | Every control above was reached through `com.canonical.dbusmenu` on the tray item. Pair, Pause, Unlock and Quit all landed |
 
-### `AboutToShow` reaches nothing, so a tray menu cannot be rebuilt as it opens
+**The read-back discipline comes free, and that is the point of the arm.** `CLAUDE.md` requires every command
+with a read-back to be sent and then read back, and the two measured traps in the `0x10` answer -- that it
+carries no echoed command byte, and that a locked cube reports itself paused whatever its pause byte says --
+are decided in `FacetCore`. This adapter cannot get them wrong differently from the Mac, because it does not
+decide them.
 
-**`MenuBar` hung its rebuild on the `GtkMenu` `show` signal and it never fired once.** Measured with a
-two-item probe indicator and a separate process calling the panel's own method:
+### The three faults, and one of them is shared
+
+**`AboutToShow` reaches nothing, so a tray menu cannot be rebuilt as it opens.** `MenuBar` hung its rebuild on
+the `GtkMenu` `show` signal and it never fired once:
 
 ```
 17:42:50  set_menu
@@ -668,696 +633,673 @@ two-item probe indicator and a separate process calling the panel's own method:
 17:42:54  AboutToShow(0) -> False, and no signal fires on the widget
 ```
 
-So there is no equivalent of `NSMenuDelegate.menuNeedsUpdate` available through an `AppIndicator`: the
-`DbusmenuServer` that would have to forward the panel's request belongs to libayatana-appindicator and
-is not handed out. `MenuBar` re-reads the menu on its own tick instead, and rebuilds only when what it
-should say differs from what it is saying.
+There is no equivalent of `NSMenuDelegate.menuNeedsUpdate` available through an `AppIndicator`: the
+`DbusmenuServer` that would forward the panel's request belongs to libayatana-appindicator and is not handed
+out. **What it cost before that was found**: the menu was built once at launch and never again, so a paired,
+connected app went on offering *Pair a cube* with Pause and Lock insensitive over a live device. `MenuBar`
+re-reads the menu on its own tick now, and rebuilds only when what it should say differs from what it is
+saying.
 
-**What it cost before that**: the menu was built once at launch and never again, so a paired, connected
-app went on offering *Pair a cube* with Pause and Lock insensitive over a live device.
+**No identifier crosses a dbusmenu item** -- written up under the tray section above, and the reason
+`scripts/tray-menu.py` addresses by label.
 
-### A dbusmenu item carries a label and nothing this app chose
+**BlueZ answers a read twice, and a shared-core read-back was taking the wrong one.** A `read` on a
+characteristic produces the reply *and* a `PropertiesChanged` carrying the same value a few milliseconds later,
+visible all over the trace as two identical `ble-rx` rows. That is a platform fact and harmless on its own.
+What it found was not: `CubeCommandChannel.isAwaitingResult` reported the *intention* to read rather than the
+read, so a value arriving between writing the question and issuing the read was taken as the answer. **Every
+login on this box lost the cube's `0x10` state** to the duplicate of the `0x17` before it, and a quit reported
+*The cube would not take auto-pause 0m* about a write the cube had narrated as `autopause OFF` and confirmed as
+zero two hundred milliseconds later.
 
-**No identifier crosses**, which corrects what this file said above under *Found: a GTK3 app is
-drivable*. The 2026-09-08 spike read `GetLayout(0, -1, [label])` and recorded ids 2, 3 and 4 -- those are
-libdbusmenu's own numbering, assigned per rebuild, and they change every time the menu is rebuilt.
-Measured 2026-09-13 on a probe that set both:
-
-```
-first.set_name("widget-name-pair")                     -> does not cross
-first.get_accessible().set_description("pair-cube")    -> does not cross
-GetLayout answers: {'label': 'first'}                  -> and `enabled`, when it is false
-```
-
-So `StatusItemMenu.Item.identifier` reaches `AXIdentifier` on the Mac and reaches **nothing** here, and
-a scripted check on this platform addresses a tray item by its label. That is a difference between the
-platforms worth designing the Linux checks around rather than discovering in one.
-
-**The `Event` signature is `isvu`**, not `issu`: the data argument is a variant, so python-dbus needs
-`dbus.String("", variant_level=1)` and an explicit `signature="isvu"` or the call is refused with
-`Type of message, "(issu)", does not match expected type "(isvu)"`.
-
-### BlueZ answers a read twice, and a shared-core read-back was taking the wrong one
-
-**A `read` on a characteristic produces the reply *and* a `PropertiesChanged` carrying the same value a
-few milliseconds later.** Visible all over the trace as two identical `ble-rx` rows.
-
-That is a platform fact and harmless on its own. What it found was not:
-`CubeCommandChannel.isAwaitingResult` reported the *intention* to read rather than the read, so a value
-arriving between writing the question and issuing the read was taken as the answer. Every login on this
-box lost the cube's `0x10` state to the duplicate of the `0x17` before it, and a quit reported `The cube
-would not take auto-pause 0m` about a write the cube had narrated as `autopause OFF` and confirmed as
-zero two hundred milliseconds later. Fixed in `FacetCore`; the window exists on the Mac too and whether
-CoreBluetooth ever delivers into it is not something this box can answer.
+**Fixed in `FacetCore`, and the window exists on the Mac too.** Whether CoreBluetooth ever delivers into it is
+not something the Linux box can answer -- it is [handover-mac.md](handover-mac.md) item 25, and it wants a
+scripted run.
 
 ---
 
-## To do
-
-Roughly in dependency order. Nothing here is started.
-
-1. ~~**Settle the `@MainActor` question.**~~ Done. It came first because it decides how the
-   test target is structured, and doing the extraction first would mean restructuring it twice.
-   **Answered 2026-09-06: swift-testing.** What is left is doing it to the other 59 files.
-2. **Separate the platform half from the portable half.** **Under way on the Mac since 2026-09-06, and
-   the `FacetCore` route was the one taken.** Stages 1 and 2 of
-   [facetcore-split.md](facetcore-split.md) are done and committed:
-   - ~~The three decouplings.~~ Done. `AppSettingsPane.Change` is now the top-level `AppSettingsChange`;
-     five of the six `NSColor` files carry `Colour`; `DeviceReconnector` depends on a `CubeRadio`
-     protocol. A fourth was needed and is done with them: `GoogleCredentials` out of
-     `GoogleOAuthClient.swift`.
-   - ~~The target, and the files into it.~~ Done. 86 files in `FacetCore`, 35 in `FacetMac`,
-     `FacetCore` compiling with 0 errors and no AppKit, the DDL and `google-client.json` moved to its
-     resources. **Those two numbers are the split as it was made and are not a target to hold**: the
-     ports remodel goes on moving decisions in, and `FacetMac` shrinking towards nothing but drawing and
-     CoreBluetooth is the intended end of it.
-   - ~~Stage 3, the access-level loop.~~ Done 2026-09-07. **589 `package` declarations**, 152 types and
-     437 members, every one of them named by the compiler.
-   - ~~Stage 5, the test target.~~ Done. `@testable import FacetCore` beside `FacetMac` in 100 files,
-     one target still. `ActivityIconTests` is the exception and says why in a comment: both targets
-     generate a `Bundle.module`, so importing both makes every use of it ambiguous.
-   - **The scripted suite has been run against the split and passed in full**, 2026-09-07 on the Mac,
-     reported by the owner. **There is no stamp**: the run was a shakedown of the suite itself rather
-     than evidence for the branch, it turned up several problems in the checks, and its changes were
-     reverted deliberately. So the split is not what those problems were -- the fixes are in
-     `Tests/Scripted/lib.sh`, `51-device-connect.sh`, `53-device-reconnect.sh` and `56-manual-mode.sh`
-     (`4bb6ff5`, `21a55b1`, `0f78510`), all of them about how a check waits rather than about what the
-     app does.
-
-     **CI is still red and correctly so.** The committed stamp is run 170 at `0f78510`
-     (`outcome: failed`, 11 scripts short), and twelve files have changed since -- the timezone seeding,
-     `TimezoneStore`, and the suite's own fixes. Clearing it needs a full run committed as a stamp,
-     which needs a cube and a person.
-
-   The `#if canImport(AppKit)` fallback was not needed and is now moot.
-3. ~~**Platform-aware data directory.**~~ **Done 2026-09-07, Mac.** The seeded `debug` row named
-   `~/Library/Application Support/Facet`, which is the wrong folder on Linux and sat in DDL both
-   platforms share. It seeds `directory` as an **empty string** now, and empty means the folder the app
-   already keeps its databases in: `DatabaseBootstrap.debugDatabaseURL(in: nil)` was already asking
-   `FileManager` for it, and `DebugTraceRules.directoryURL` already answered `nil` for empty so the
-   caller could decide what empty meant. `DebugTraceRules.defaultDirectory` is computed from
-   `applicationSupportDirectory` rather than written down, so it is the right folder on either platform.
-
-   The claim this item used to make, that the literal was in four source files and 10 test files, was
-   wrong: three of the four only mention it in doc comments and already call `applicationSupportDirectory`.
-   See the layer-boundaries section.
-
-4. ~~**The three Foundation gaps** above.~~ **Done 2026-09-07, Mac**, all three no-ops on macOS.
-   `#if canImport(FoundationNetworking)` in the three files that use `URLSession`, 28 uses.
-   `abbreviatingWithTildeInPath` written out by hand in `DebugTraceRules.stored`, with tests for the two
-   edges the API gave for free: the home directory itself abbreviates to `~`, and a sibling whose path
-   merely starts with the home path is not inside it. **`setvbuf` is guarded to Darwin rather than
-   solved** -- glibc's mutable `stdout` is still refused by Swift 6, so a Linux terminal loses the
-   immediacy of the printed copy while `debug_log` still gets every row, which is the half the scripted
-   checks read.
-5. ~~**Make `DatabaseBootstrap` refuse an empty DDL listing**, and resolve symlinks before
-   enumerating.~~ Done 2026-09-06, along with flipping `database/` to be the real directory.
-6. ~~**Migrate the test suite to swift-testing**, checking every `tearDown` by hand for the `deinit`
-   isolation trap.~~ **Done 2026-09-09, and the queue is empty for the second time -- honestly, this time.**
-   All six files it was reopened for now run here:
-
-       migrated, 93 tests:   DeviceEventRecorderTests 35 - FaceColourSyncTests 22
-                             TimeEntryRecorderTests 18 - DeviceSettingsSyncTests 18
-       migrated, 17 tests:   LowBatteryWatchTests 10 - WriteDebounceTests 7
-
-   **The last two needed more than a migration**, and not the thing the review expected. They schedule on
-   `RunLoop.main`, which never fires under a `@MainActor` swift-testing test here, so migrating them alone
-   would have traded a load-time abort for seventeen silent failures. The answer was not to inject a
-   `RunLoop` but to extract a `fire()` in each -- the timeout body as a method the tests call -- which is
-   the bargain `HistoryTimer` had already made and says so in its own doc comment. They stop touching a run
-   loop at all rather than needing one that behaves.
-
-   Linux runs **1,066 tests**: 590 under XCTest and 476 under swift-testing, 0 failures, and there is one
-   exclusion list again.
-
-   **The claim below that the `mainActorTests` list was gone because it emptied was wrong**, and wrong in
-   a way worth keeping: it emptied of the files anybody was looking at. These six were sitting on
-   `platformBoundTests` at the time, which is the list for things that cannot run here at all, so the
-   migration never saw them as candidates -- it emptied its own queue while six migratable suites hid on
-   the other list. Every one of them tests a `FacetCore` module and uses no AppKit, no CoreBluetooth and
-   no `FacetMac` type; each is a `@MainActor` `XCTestCase` subclass, which is the case that aborts the
-   whole run at load time rather than failing on its own. Migrating a file is the whole of what moves it
-   off the list.
-
-   **So the sentence below about the 48 is wrong twice over.** There are 44 now, and they are not all
-   excluded for a platform: 38 need AppKit, CoreBluetooth or a `FacetMac` type, and 6 are these, waiting
-   on exactly this item. `Package.swift` carries both lists separately for that reason -- a list of
-   exclusions that does not say which of two reasons it is will absorb the other.
-
-   **Done for everything that can run here, 2026-09-07, Linux.** All 17 portable
-   `@MainActor` suites are on swift-testing, the `mainActorTests` exclusion list is gone because it
-   emptied, and **873 of the 1725 tests pass on Linux**: 333 under swift-testing in 45s beside 540 still
-   under XCTest in 1.9s. Both figures were superseded the same day: `systems-info.md` recorded 906, from
-   366 under swift-testing, and 956 run there as of 2026-09-09.
-
-   The 48 files still excluded are excluded for needing AppKit, CoreBluetooth or a `FacetMac` type, not
-   for their testing framework, and they migrate when their platform arrives.
-
-   **Under way. 14 suites migrated, and 832 of the 1725 tests now run on Linux** (2026-09-07): 292
-   under swift-testing in 42s, beside 540 still under XCTest in 2s. 17 files are left on the
-   `mainActorTests` list, three of them for a reason worth knowing -- see below.
-
-   The structure it needed came first, and what made it possible was not the migration but getting the
-   package to build tests at all on Linux:
-
-   - `FacetMac` is no longer in the package on Linux, and neither is the executable product. `swift test`
-     builds *every* target rather than only what the tests depend on, so a declared AppKit executable
-     killed every run.
-   - The test target's dependencies are chosen by the host rather than carrying `.when(platforms:)`.
-     **SwiftPM resolves a dependency by name before it applies the condition**, so merely *naming*
-     `FacetMac` from the test target made it hunt for sources that are not there and fail the manifest.
-   - `Package.swift` carries two lists of test files to exclude on Linux, with the reason attached to
-     each: **48 platform-bound** (AppKit, CoreBluetooth or a `FacetMac` type) and **17 `@MainActor`
-     XCTestCases**. The second list is this item's work queue, 333 tests, and it shrinks as they migrate.
-     An isolated *helper* is not affected and is not listed -- only an XCTestCase subclass aborts a run.
-   - 36 files stopped importing `FacetMac`, and one carried a vestigial `import AppKit`
-     (`DeviceFaceRulesTests`). Neither was needed; the Linux build is what proved it, since a file that
-     compiles without a module needs nothing from it on either platform.
-
-   **What the mapping table above does not mention, and each cost a compiler round to find:**
-
-   - **`Testing` does not re-export Foundation** the way `XCTest` did. Seven files needed
-     `import Foundation` added.
-   - **`deinit` can do the cleanup, but only what needs no isolation.** It is never isolated, so
-     reading an isolated `var` from it is refused -- the `database` property becomes a `let`, and
-     `TemporaryDatabase` being a `Sendable` struct with a nonisolated `remove()` is what makes the rest
-     work. The `x = nil` lines the old `tearDown` bodies carried simply go: the instance is discarded
-     whole. Verified it still cleans up, with zero temporary directories left after a run.
-   - **`try` is fine at the start of an `#expect` and illegal to the right of an operator.**
-     `#expect(try #require(a).isActive)` compiles; `#expect(a < try #require(b))` does not, and those
-     three call sites were hoisted to locals.
-   - **`#expect`'s message is a `Comment`**, which a string *literal* becomes on its own. A `String`
-     expression -- a concatenation, say -- does not, and has to be interpolated.
-   - **`accuracy:` has no equivalent**, `#expect` taking one expression rather than a pair. The six
-     colour-channel comparisons went through a named `isApproximately` so the tolerance stays visible.
-
-   **The three files whose `tearDown` did isolated work turned out to need one decision each**, and the
-   answers are worth having because none was a rewrite:
-
-   - `HistoryTimerTests` called `built?.stop()`, which a `deinit` cannot. **It does not need to**:
-     `HistoryTimer` keeps its `Timer` in a `TimerHolder` whose own `deinit` invalidates it, a shape that
-     type adopted for this exact reason and documents. Releasing the suite releases the timer, which
-     stops itself, so the `stop()` was belt and braces.
-   - `DevicePINSourceTests` removes a directory, which needs no isolation at all -- a `URL` is
-     `Sendable` and `FileManager` does not care who asks.
-   - `DebugTraceFileTests` was the ordinary case written on one line, which the pattern pass missed.
-
-   **Two differences with teeth, found by running rather than reading:**
-
-   - **XCTest assertions absorb a thrown error and `#expect` does not.** Their arguments are throwing
-     autoclosures, so `try` inside one never needed the test to be `throws`. Hoisting an unwrap out of a
-     comparison makes the test `throws`, and the compiler is the one that says so.
-   - **`.immutable` is a BSD file flag corelibs does not implement**, and a `try?` around it swallowed
-     the refusal -- so a test asserting that a file which will not give up its copy is not reported as
-     settled *failed on Linux against an app behaving correctly*. The portable equivalent is taking
-     write permission off the file (`0o400`), and it had to be the **file** rather than the directory
-     because `DeveloperConfigFile.clearPIN` rewrites in place, deliberately not atomically -- an
-     in-place write needs no permission on the containing directory at all.
-
-   **One difference to know about rather than fix: cleanup is no longer deterministic.** XCTest called
-   `tearDown` itself; swift-testing's equivalent is `deinit`, which runs when ARC says so, and at process
-   exit some instances are never released at all. A full run leaves a dozen or so `facet-db-*`
-   directories in `/tmp` where XCTest left none. Harmless -- they are temporary directories in the
-   temporary directory -- but it is the sort of thing somebody would otherwise go hunting for.
-7. ~~**`Security` to libsecret.**~~ **Done 2026-09-07, Linux, and not via libsecret.** Both stores
-   branch at compile time inside their own four functions, as this item said they would, so no call site
-   changed and the Darwin bodies are untouched.
-
-   **libsecret's simple API turned out to be uncallable from Swift**: `secret_password_store_sync` and
-   friends are variadic C (measured against the installed header). In-process means the `*v_sync`
-   variants, which take a `GHashTable`, which means a second system-library target for glib-2.0, a
-   `SecretSchema` built by hand and GError plumbing -- around 200 lines and a new class of memory bug
-   against 60 for `secret-tool`. `SecretToolStore` carries the reasoning, and the swap back is entirely
-   inside that one file if packaging ever objects to depending on a binary.
-
-   **The thing that had to be right: an exit code is not the answer.** `secret-tool` exits 1 both for a
-   secret that is not there and for a keyring it cannot reach, so an empty stderr is what tells them
-   apart. Collapsing them is the fault `DevicePINStore.Lookup` exists to prevent -- the app would rotate
-   the PIN of a cube whose perfectly good PIN it merely could not read.
-
-   Verified against this machine's real keyring, twelve checks including byte-exact round trips, a
-   secret with trailing newlines, unicode, and `missing` rather than `unavailable` for an absent item.
-   The hermetic suite cannot cover any of it until item 6.
-
-   **Groundwork kept**: both `Lookup` enums answer `unavailable(Int32)` rather than `OSStatus`, which is
-   the same type on Darwin and exists everywhere.
-
-8. ~~**`CryptoKit` to swift-crypto.**~~ **Done 2026-09-07, Linux, and not with swift-crypto.**
-   `PortableSHA256` is 60 lines in the core; Darwin keeps CryptoKit and only Linux calls it. The
-   dependency was refused because `Package.swift` states it has none and the archived app's one
-   dependency was dropped for the same reason -- and because what is hashed is a public random string
-   whose wrong answer Google rejects at once. **It is compiled on both platforms and called on one**, so
-   the Mac's `swift test` covers the code Linux depends on, including a case asserting the two
-   implementations agree at every length from 0 to 200. Verified against published vectors, `sha256sum`
-   over 201 inputs, and `hashlib` at the twelve lengths where the padding changes shape.
-9. ~~**`Network` to a plain socket listener.**~~ **Done 2026-09-07, Linux.** `GoogleLoopbackListener`
-   moved out of `GoogleOAuthClient` into `FacetCore` and now has two halves behind one interface:
-   `Network` where there is `Network`, Berkeley sockets where there is not.
-
-   **The Darwin half moved across unchanged**, deliberately. It is the path a real sign-in has used, and
-   there was nothing to gain on that platform by rewriting it in sockets for the sake of having one
-   implementation -- the same reasoning as items 7 and 8.
-
-   What made the file portable enough to live in the core was taking the listener *out* of
-   `GoogleOAuthClient`, whose whole remaining tie to AppKit is **one default argument**:
-   `NSWorkspace.shared.open`, for putting a URL in front of a browser. That file stays on the platform
-   side and now says so at the top. A Linux equivalent is `xdg-open` through `Process`, and it belongs
-   with whatever starts a sign-in rather than here.
-
-   Three things the socket half had to get right, none of which the `Network` version shows:
-
-   - **`poll` with a timeout rather than a bare `accept`.** Closing a descriptor that another thread is
-     blocked in `accept` on does not reliably wake it on Linux, so the loop asks whether anything is
-     waiting and checks between asks whether it has been told to stop.
-   - **`bigEndian` rather than `htons`**, which is a C macro Swift cannot call. Same for the loopback
-     address, written as `0x7f00_0001` byte-swapped.
-   - **`SO_REUSEADDR`**, which is what `NWParameters.allowLocalEndpointReuse` asks for on the other side:
-     a port left in `TIME_WAIT` by the previous sign-in must not refuse this one.
-
-   **Both halves are covered by the same five tests** (`GoogleLoopbackListenerTests`), which drive
-   whichever one they got over a real loopback connection the way a browser would: a port is assigned and
-   two listeners get different ones, a code arrives and the browser is left looking at the right page, a
-   refusal arrives as `denied`, a `/favicon.ico` request and a mismatched state leave the listener still
-   waiting, and `cancel` settles whoever is waiting. That last-but-one is the case that actually broke a
-   sign-in once. Mutation-checked rather than assumed: the code assertion was pointed at a wrong value
-   and the test failed, so it is really talking to a socket.
-10. ~~**The BlueZ adapter: the Linux slot in the radio square.**~~ **Done, and proven on the cube
-   2026-09-13.** Not a backend written behind whatever `BluetoothRadio` happens to present, which is how
-   this item read before the ports remodel. The radio is a port, `CubeRadio`, and the protocol reasoning
-   that used to sit inside `BluetoothRadio` and `DeviceLogin` -- the command channel, the queue, the
-   read-back matrix, which commands can be confirmed at all -- is in `FacetCore` and is the same on both
-   platforms. **What this slot owed was transport**: connect, read, write, subscribe, and the answers
-   handed back up the arm in the shape the port names.
-
-   `BlueZCubeRadio`, `BlueZCubeGatt`, `BlueZBusLink`, `BlueZGatt`, `BlueZObjectTree` and `SystemBus` are
-   that slot. Every call the item listed is made bar two, and both are absences with reasons:
-   `Get`/`GetAll` are not used because `GetManagedObjects` answers the whole tree in one call and the
-   adapter reads properties out of it, and `InterfacesAdded` is not listened to because the scan reads the
-   tree on its own clock instead -- which `BlueZCubeRadio`'s doc comment argues for, libdbus dispatching
-   into its own loop being the half that does not ask GLib and libdbus to share a file descriptor.
-
-   **What it did on hardware**, on 2026-09-13: scan, reach, connect, resolve, log in, rotate the PIN,
-   read the four Device Information strings and the charge, subscribe to all eight characteristics, send
-   twelve face colours and the settings commands, fetch history, and give the link back on a quit. A face
-   turn arrived as a notification and closed one segment into a `time_entry` while opening another.
-
-   `scripts/linux-ble-probe.py` remains the working reference for the D-Bus calls, and is still the way to
-   ask the cube something with no app in the way.
-
-   **The read-back discipline comes free, and that is the point of the arm.** `CLAUDE.md` requires every
-   command with a read-back to be sent and then read back, and the two measured traps in the `0x10` answer
-   -- that it carries no echoed command byte, and that a locked cube reports itself paused whatever its
-   pause byte says -- are decided in the core. This adapter cannot get them wrong differently from the Mac,
-   because it does not decide them.
-
-   **Groundwork done 2026-09-07, Linux**: `TimeFlipUUIDs` is in the core now, its `CBUUID` accessors
-   split off into `TimeFlipUUIDs+CoreBluetooth.swift` beside the radio. What is portable about a UUID is
-   its string, and there is one real difference between the platforms in it: **the vendor's table lists
-   the seven standard UUIDs in 16-bit shorthand, CoreBluetooth accepts them that way, and BlueZ never
-   uses the shorthand at all** -- it reports `0000180f-0000-1000-8000-00805f9b34fb` for what this app
-   calls `180F`. `TimeFlipUUIDs.canonical(_:)` and `match(_:_:)` are that expansion, checked against the
-   spelling BlueZ prints on this machine. Without it every characteristic lookup would find nothing,
-   silently.
-
-   ### What is built so far
-
-   | Piece | What it does | Checked by |
-   |---|---|---|
-   | `SystemBus` | the whole of the libdbus interop: calls, marshalling both ways, signals | 7 tests against the real system bus |
-   | `DBusValue` | a D-Bus value as a plain Swift tree, so nothing above sees libdbus | the above, plus every tree test |
-   | `BlueZObjectTree` | the object tree read as records: adapters, devices, services, characteristics | 9 tests, hand-built trees |
-   | `BlueZAddress` | a Bluetooth address carried inside the `UUID` this app is written around | 6 tests, both directions |
-   | `TimeFlipUUIDs` | the UUID strings, and the 16-bit expansion BlueZ needs | 6 tests |
-   | `BlueZRadio` | power, discovery, connect, disconnect, forget | run against the real cube |
-   | `BlueZGatt` | read, write, subscribe, and the value out of a signal | run against the real cube |
-
-   **Everything above `SystemBus` is pure**, which is deliberate: the mistakes this layer makes are silent
-   ones. A UUID compared in the wrong spelling finds no characteristic and reports nothing missing, and a
-   property read without unwrapping its variant answers an empty array -- **which is a bug that happened**,
-   caught by a test rather than by a run: BlueZ wraps every property in a variant, so `Flags` and `UUIDs`
-   came back empty until `DBusValue.items` learned to see through one.
-
-   **Two decisions worth knowing about:**
-
-   - **A Bluetooth address is carried inside a `UUID` rather than widening the model.** `ScannedDevice`,
-     `CubeRadio` and the `device_uuid` row are all written in terms of a `UUID`, and BlueZ has no such
-     identifier -- it has the device's real address. So the six address bytes go in the last six bytes of a
-     UUID behind a constant marker (`face7000-0000-0000-0000-…`), which is deterministic in both
-     directions: the same cube is the same identifier on every launch and the address reads back out to
-     make a call with. The marker is *checked* when reading, so a `device_uuid` written on the Mac -- a
-     perfectly valid UUID naming nothing here -- is refused rather than aimed at six bytes of somebody
-     else's identifier.
-   - **Which advertisement is a cube is `DeviceScanRules`, unchanged.** The same rule CoreBluetooth's side
-     asks, so a renamed cube is found or lost identically on both platforms rather than by two rules that
-     have to be kept in step. Writing the probe for this taught its own lesson: `ordered` is *ordering, not
-     filtering*, as its comment says, so taking its first element answers an arbitrary device when nothing
-     is eligible at all. `isEligible` is the filter.
-
-   ### What the cube itself answered, 2026-09-07
-
-   The sequence in full, from `FacetCore`'s own code over libdbus with no subprocess: discovery found the
-   cube by `DeviceScanRules`; connect gave `ServicesResolved: true` and `Paired: false`; **16
-   characteristics** resolved, every one the app names matched from the app's own spelling -- which is the
-   16-bit expansion earning its keep; the vendor PIN went on the wire as six ASCII digits and the command
-   result read back `02`; `DI_LABS`, `2.0`, `FW_v3.64`, battery `100%`, facing `0c` came back off real
-   reads; and notifications arrived as `PropertiesChanged` signals carrying `ay`, read as `[UInt8]`.
-
-   **The address survived the factory reset** -- `E8:DB:D8:CF:F9:0F` before and after -- which
-   `systems-info.md` had down as untested, and which matters because it is a *random*-type address, the
-   kind the specification lets a device change.
-
-   **Then the face turns, confirmed the same evening.** A passive listen caught **ten pushes over seven
-   distinct faces** (`01, 04, 05, 08, 09, 0b, 0c`) as the cube was turned by hand. And the `0x10` status
-   read went out, its answer parsed by the app's own `DeviceCommandRules`: not locked, paused, auto-pause
-   5 minutes, off a cube fresh from a factory reset. So the read-back discipline `CLAUDE.md` requires is
-   available on this platform, through the same parser the Mac uses.
-
-   **Still unwritten: anything but the PIN and `0x10`.** No pause, no lock, no colour, no task parameters.
-
-   **Three things measured on the way that were not in the notes**, all now in
-   [linux-bluez-port-notes.md](linux-bluez-port-notes.md):
-
-   - **A `ReadValue` publishes a `PropertiesChanged` of its own**, so a read and a device push cannot be
-     told apart at the signal level. Found the hard way: a probe polling `faces` once a second produced 39
-     signals that all looked like notifications and were its own doing.
-   - **`le-connection-abort-by-local` is a transient**, answered when a `Connect` comes a few seconds
-     after disconnecting the same cube, and the next attempt succeeds. `BlueZRadio` retries it four times
-     and throws everything else -- it matters because a reconnect is precisely when it happens.
-   - **Two strings on the events data characteristic that are not in the recorded table.** That it carries
-     ASCII is in the vendor spec and finding 3 enumerates a table of them -- this was written up as a
-     discovery on first pass and was not one. What is new is `password OK` on a correct login and
-     `New Side: 0x00` on every face change, neither of which is in that table, and the side number is
-     always `0x00` whichever face it is.
-
-   And **finding 4 holds through a second stack**: `0x02` on the command result means a correct PIN, not
-   the `0x01` the spec promises. Finding 4 measured that over CoreBluetooth in August; this measured it
-   over BlueZ and libdbus. Two hosts, two Bluetooth stacks, the same inverted byte -- which is worth
-   having, because that byte decides whether the right cube is let in.
-
-   **Neither `BlueZRadio` nor `BlueZGatt` has a hermetic test**, and cannot: both are I/O against a daemon
-   and a device. The suite covers everything they are built on -- the bus, the value tree, the object tree,
-   the addresses, the UUIDs -- and what covers these two is a device run, which is what `Tests/Scripted/`
-   is for once there is an app on this platform to drive.
-
-   **Still unverified and first on the list**: the two-name mapping. On Darwin the advertised local name
-   never changes while `CBPeripheral.name` is the GAP name a rename moves (finding 1, seven renames). BlueZ
-   has `Name`, the remote device's own, and `Alias`, a *local* override defaulting to it -- so `Name` is the
-   closer analogue of both, and **whether a `0x15` rename moves it has not been measured**. `BlueZRadio`
-   says so at the mapping.
-
-   ### The transport is decided: libdbus, in process
-
-   **`SystemBus` in `FacetCore` is the whole of the C interop, and nothing above it sees libdbus.** It
-   answers `DBusValue`, a plain Swift tree, so the BlueZ layer will be written against Swift values.
-
-   `CDBus` is a `systemLibrary` target over `dbus/dbus.h`, Linux-only in the graph exactly as `SQLite3`
-   is. **`pkgConfig: "dbus-1"` is load-bearing rather than tidy**: libdbus needs *two* include
-   directories, the arch-dependent `dbus-arch-deps.h` living under `/usr/lib/<triple>/dbus-1.0/include`
-   while the rest is in `/usr/include/dbus-1.0`.
-
-   **What made it possible is that none of the API this app needs is variadic.** `dbus_message_append_args`
-   is, and would have been uncallable from Swift exactly as libsecret's simple API turned out to be
-   (item 7) -- but the `dbus_message_iter_*` family that replaces it is not, and that family is all of it.
-
-   **One thing the importer cannot read**: the type constants are `#define DBUS_TYPE_STRING ((int) 's')`,
-   a cast it does not follow, so `SystemBus.Kind` spells them out by value.
-
-   Proven against the real bus, seven tests: a call answering `as`, a string argument going out and a
-   boolean coming back, a refusal keeping its D-Bus error name (`org.bluez.Error.NotConnected` says what a
-   message string does not), the nested `a{oa{sa{sv}}}` object tree walked to the adapter's `Address`, a
-   byte array and an options dictionary marshalled cleanly enough that BlueZ refuses the *object* rather
-   than the arguments, and a `PropertiesChanged` signal arriving with `Discovering` as a boolean inside a
-   variant. That last one triggers its own signal by toggling discovery, so it needs nothing in range.
-
-   **A caller filters signals by what it asked for**, because not everything arriving is a match hit: the
-   bus sends `NameAcquired` to a new connection whatever it has subscribed to. Measured, not assumed.
-
-   ### What was measured before deciding, kept because it is what the decision rests on
-
-   | Route | Works? | Cost |
-   |---|---|---|
-   | **`busctl` subprocess** for method calls | **Yes.** `busctl --system --json=short call org.bluez / …GetManagedObjects` returns type-tagged JSON a `JSONDecoder` reads, and the awkward `WriteValue` shape (`aya{sv}`) parses | Nothing to install |
-   | **`busctl monitor`** for signals | **No. Refused unprivileged**: `BecomeMonitor` answers `Access denied` on the system bus | -- |
-   | **`gdbus monitor`** for signals | **Yes**, unprivileged -- it adds match rules rather than becoming a monitor, and streamed real `PropertiesChanged` from `org.bluez` including the cube at RSSI -62 | Emits GVariant **text**, not JSON, so a notification value arrives as `{'Value': <[byte 0x38, 0x00]>}` and needs a parser of its own |
-   | **`libdbus-1` with a modulemap** (the `SQLite3` pattern) | Untried | Needs `libdbus-1-dev`, which is **not installed** -- only the runtime `libdbus-1-3` 1.14.10. Its simple append API is variadic and so uncallable from Swift, but the `dbus_message_iter_*` API is not |
-   | **The D-Bus wire protocol in Swift** | Untried | No dependency at all, and the most work: SASL EXTERNAL, then marshalling, including reading `a{oa{sa{sv}}}` |
-
-   **What decided it was where the notification values are read.** Face turns arrive as signals carrying a
-   byte array, which is the app's core function, and every subprocess route leaves that path depending on a
-   parser of human-readable output -- `{'Value': <[byte 0x38, 0x00]>}` picked apart by hand. libdbus hands
-   the same bytes over typed. That is the opposite conclusion to the keyring's in item 7, and for a
-   consistent reason: there the subprocess won because the swap was contained in one file and the values
-   were strings; here the values are the point.
-11. **The UI: filling the GTK slots.** **The toolkit is decided and the first two slices are done**:
-    Swift calling GTK3 and the Ayatana indicator through `Sources/CGtk`, which is a `systemLibrary`
-    modulemap exactly as `SQLite3` and `CDBus` are, so it is one process and one language and no Swift
-    bindings to keep in step with. What exists is `Sources/FacetLinux` -- the boot, and a menu bar item
-    whose one working control is Quit.
-
-    **This is a smaller item than the file count says, and the ports remodel is why.** It used to read
-    "those are the 31 AppKit files, and they are the bulk of the port". What is in those files is now two
-    different things, and only one of them is this item:
-
-    - **What the app decides** is in `FacetCore` and is already written and already tested on both
-      platforms. The menu bar's line and its dropdown, what a click means, which category a face is filed
-      under, what a report adds up, what each Settings control may be set to, which dialog a refusal
-      raises and what the answers to it mean. None of it is written twice.
-    - **What a toolkit draws** is this item: an indicator, a window, the widgets on five tabs, and the
-      dialogs. GTK for all of it, and no decisions in any of it.
-
-    **The menu bar is now a working surface rather than a sketch** (2026-09-13). It draws the shared
-    readout, its dropdown carries the cube's state, today's totals per category, Pause, Lock and Quit, and
-    every one of them works -- pairing, pausing, unlocking and quitting a real cube were all done through
-    it. Its one Linux-specific lesson is written up above: there is no *about to open* hook to be had
-    through an `AppIndicator`, so the menu is re-read on the same tick as the label.
-
-    The menu bar is the worked example and it is done on both sides. `MenuBar` takes a label and a list of
-    items as closures, reads them and remembers nothing; `MenuBarController` renders the same answers into
-    `NSStatusItem` and `NSMenu`. Neither decides anything, and the tests for what they show run on both
-    platforms. **The remaining slots are the same job at a larger size**: the timing readout in the label
-    (`TimingReadout` is core, and the label already carries a `00:00:00` guide for it), then the Settings
-    window and its five tabs, then Report.
-
-    The dialogs are their own arm rather than part of the window work: what to show and which answer came
-    back is core, an `NSAlert` here and a `GtkMessageDialog` there. That is what stops
-    `CategoryRenameRules` taking an AppKit button index, which it did before the remodel.
-12. **The scripted suite on AT-SPI.** The largest single piece, and the only thing that can say the app
-    works. `Tests/Methods.md` techniques survive; the locator layer is new. **The mechanism is no longer a
-    question** -- the section above drove a GTK3 window and an AppIndicator menu end to end, including
-    while the window was covered and unfocused, so what is left here is the locators and the checks
-    rather than whether either can be addressed at all.
-13. **Repo restructure and the `CLAUDE.md` split.** Agreed: one repo, shared core. About a third of the
-    root `CLAUDE.md` is AppKit-specific and would be worse than noise in a GTK session. **The
-    `database/` symlink is no longer part of this item**: it used to point into the macOS bundle
-    resources and was flipped in `7ade2c7`, so `database/` is the real directory and the path under
-    `Sources/` is the link. Nothing about the restructure waits on it any more.
-14. **README.** Links this file from its docs list, and otherwise still describes a macOS-only project.
-    Rewriting it to describe two platforms waits for item 13, rather than being half-applied now.
-
-## To check
-
-Open questions, with what would answer each.
+## What is left
+
+**Mac work is in this list too, and it has to be.** Some of what the Linux port needs is a change to
+`Sources/FacetMac` or to the shared harness, and a Linux-only to-do list would leave that work with nowhere to
+live. Each item is tagged with the system whose code changes: **macOS**, **Linux**, **Core** (`FacetCore`,
+`Tests/` or the repository, which either machine can do), or **macOS + Linux** where there is real work on both.
+
+Numbers are addresses and are never reused, so the order below is historical rather than a priority.
+
+### What each machine owes
+
+**On the Mac**, seven items, and the two at the bottom are the Linux port's business rather than the Mac's own:
+
+| # | What | Does it block Linux? |
+|---|---|---|
+| [17](#17---macos---renamedevice-onto-devicesettingwrite) | `renameDevice` onto `DeviceSettingWrite` | Only when a Linux Settings window wants a rename control |
+| [18](#18---macos---confirm-the-read-back-window-on-corebluetooth) | Confirm the read-back window on CoreBluetooth | **No, but the port raised it** and it may be a live fault on the Mac |
+| [19](#19---macos---the-history-timer-never-restarts-when-a-cube-arrives-late) | The history timer never restarts when a cube arrives late | **No.** A Mac bug the Linux side does not have |
+| [20](#20---macos---remove-the-twelve-compiler-artefacts-at-the-repository-root) | Remove twelve compiler artefacts from the root | No |
+| [21](#21---macos---reconcile-the-claudemd-scripted-suite-wording) | Reconcile the `CLAUDE.md` scripted-suite wording | No |
+| [24](#24---macos---libshs-quit_app-bypasses-platform_quit_app) | `lib.sh`'s `quit_app` bypasses the port | **Yes -- it blocks [12](#12---linux---the-scripted-suite-on-linux) outright**, though 12 is low priority |
+| [16](#16---macos--linux---split-googleloopbacklistener) | The Darwin half of the listener split | **Yes**, for [15](#15---linux---google-sign-in-on-linux) |
+
+**On the Linux box:**
+
+| # | What | Size |
+|---|---|---|
+| [11](#11---linux---the-ui-filling-the-gtk-slots) | The Settings window and the Report tab | **The largest item left in the port** |
+| [15](#15---linux---google-sign-in-on-linux) | Google sign-in | Small, but wants 11 or a decision about where to put it |
+| [12](#12---linux---the-scripted-suite-on-linux) | The scripted suite | Low priority by instruction; blocked by 24 anyway |
+| [16](#16---macos--linux---split-googleloopbacklistener) | The socket half of the listener split | ~200 lines, moved rather than written |
+| [22](#22---linux---secrettoolstores-doc-comment-describes-an-arrangement-that-is-gone) | A stale doc comment | Minutes |
+
+**On either machine** ([13](#13---core---repo-restructure-and-the-claudemd-split),
+[14](#14---core---readme), [23](#23---core---the-ci-workflows-test-counts-are-stale)): the repo restructure, the
+README, and the CI workflow's stale counts. None blocks anything.
+
+### 1 - Core - Settle the `@MainActor` question
+
+**Done 2026-09-06: swift-testing.** It came first because it decides how the test target is structured, and
+doing the extraction first would have meant restructuring it twice.
+
+### 2 - macOS - Separate the platform half from the portable half
+
+**Done 2026-09-07.** `FacetCore` exists, `FacetMac` builds on it, and the whole package builds clean. Stage 3's
+589 `package` declarations are the section above. The test target is one target with
+`@testable import FacetCore` beside `FacetMac`; `ActivityIconTests` is the one exception and says why in a
+comment, both targets generating a `Bundle.module` that importing both makes ambiguous.
+
+### 3 - Core - Platform-aware data directory
+
+**Done 2026-09-07.** The seeded `debug` row named `~/Library/Application Support/Facet`, which is the wrong
+folder on Linux and sat in DDL both platforms share. It seeds `directory` as an **empty string** now, and empty
+means the folder the app already keeps its databases in. `DebugTraceRules.defaultDirectory` is computed from
+`applicationSupportDirectory` rather than written down, so it is right on either platform.
+
+### 4 - Core - The three Foundation gaps
+
+**Done 2026-09-07**, all three no-ops on macOS. The table is in the compile section above. `setvbuf` is
+**guarded to Darwin rather than solved** and says so at the call site.
+
+### 5 - Core - Make `DatabaseBootstrap` refuse an empty DDL listing
+
+**Done 2026-09-06**, along with flipping `database/` to be the real directory. The section above is the whole
+of it.
+
+### 6 - Core - Migrate the test suite to swift-testing
+
+**Done 2026-09-09**, and `AnIsolatedXCTestCaseAbortsTheLinuxRunTests` keeps it done.
+
+**The lesson that cost the most was about the two lists rather than the files.** `Package.swift` carries the
+exclusions with the reason attached, and for a while it carried two lists: one for files that cannot run here
+at all and one for files blocked only by their testing framework. **The migration emptied its own queue while
+six migratable suites sat hidden on the other list**, because a file on the platform-bound list was never a
+candidate. A list of exclusions has to say which of two reasons it is, or it absorbs the other. There is one
+list again now, and one reason.
+
+### 7 - Linux - `Security` to the login keyring
+
+**Done 2026-09-07, and not via libsecret.** `SecretToolStore` is the Linux slot in the secrets square and
+`KeychainSecretStore` is the Mac's; both composition roots hand one over and the core chooses neither.
+
+**libsecret's simple API turned out to be uncallable from Swift**: `secret_password_store_sync` and friends are
+variadic C, measured against the installed header. In-process means the `*v_sync` variants, which take a
+`GHashTable`, which means a second system-library target for glib-2.0, a `SecretSchema` built by hand and GError
+plumbing -- around 200 lines and a new class of memory bug against 60 for `secret-tool`. **The swap back is
+entirely inside that one file** if packaging ever objects to depending on a binary.
+
+**The thing that had to be right: an exit code is not the answer.** `secret-tool` exits 1 both for a secret that
+is not there and for a keyring it cannot reach, so an empty stderr is what tells them apart. Collapsing them is
+the fault `DevicePINStore.Lookup` exists to prevent -- the app would rotate the PIN of a cube whose perfectly
+good PIN it merely could not read. Verified against this machine's real keyring: twelve checks including
+byte-exact round trips, a secret with trailing newlines, unicode, and `missing` rather than `unavailable` for an
+absent item.
+
+### 8 - Core - `CryptoKit` to a written SHA-256
+
+**Done 2026-09-07, and not with swift-crypto.** `PortableSHA256` is 60 lines in the core; Darwin keeps CryptoKit
+and only Linux calls it. The dependency was refused because `Package.swift` states it has none.
+
+**It is compiled on both platforms and called on one**, so the Mac's `swift test` covers the code Linux depends
+on, including a case asserting the two implementations agree at every length from 0 to 200. Verified against
+published vectors, `sha256sum` over 201 inputs, and `hashlib` at the twelve lengths where the padding changes
+shape. `architecture-ports-plan.md` settles it as a shim rather than a port, on the ground that the `#else`
+branch is platform-free and already written, so a third platform needs nothing.
+
+### 9 - Core - `Network` to a plain socket listener
+
+**Done 2026-09-07.** `GoogleLoopbackListener` has two halves behind one interface: `Network` where there is
+`Network`, Berkeley sockets where there is not. **The Darwin half moved across unchanged**, deliberately: it is
+the path a real sign-in has used, and there was nothing to gain by rewriting it in sockets for the sake of one
+implementation.
+
+Three things the socket half had to get right, none of which the `Network` version shows:
+
+- **`poll` with a timeout rather than a bare `accept`.** Closing a descriptor that another thread is blocked in
+  `accept` on does not reliably wake it on Linux.
+- **`bigEndian` rather than `htons`**, which is a C macro Swift cannot call. Same for the loopback address.
+- **`SO_REUSEADDR`**, which is what `NWParameters.allowLocalEndpointReuse` asks for on the other side: a port
+  left in `TIME_WAIT` by the previous sign-in must not refuse this one.
+
+**Both halves are covered by the same five tests**, which drive whichever one they got over a real loopback
+connection the way a browser would. Mutation-checked rather than assumed.
+
+**This file is the last entry on `PlatformBlindCoreTests.adaptersStillInTheCore`**, and it cannot come off until
+it is split in two.
+
+### 10 - Linux - The BlueZ adapter
+
+**Done, and proven on the cube 2026-09-13.** The radio is a port, and the protocol reasoning that used to sit
+inside `BluetoothRadio` and `DeviceLogin` -- the command channel, the queue, the read-back matrix, which
+commands can be confirmed at all -- is in `FacetCore` and is the same on both platforms. **What this slot owed
+was transport.**
+
+| Piece | What it does | Checked by |
+|---|---|---|
+| `SystemBus` | the whole of the libdbus interop: calls, marshalling both ways, signals | 7 tests against the real system bus |
+| `DBusValue` | a D-Bus value as a plain Swift tree, so nothing above sees libdbus | the above, plus every tree test |
+| `BlueZObjectTree` | the object tree read as records: adapters, devices, services, characteristics | 9 tests, hand-built trees |
+| `BlueZRadio` | power, discovery, connect, disconnect, forget | run against the real cube |
+| `BlueZGatt` | read, write, subscribe, and the value out of a signal | run against the real cube |
+| `BlueZCubeGatt` | BlueZ's object tree behind the `CubeGatt` port | 22 tests against a fake transport |
+| `BlueZCubeRadio` | `CubeRadio`: the scan window, the queue, the PIN candidates, the wait for `ServicesResolved` | 23 tests over a fake link |
+
+**Everything above `SystemBus` is pure**, which is deliberate: the mistakes this layer makes are silent ones. A
+UUID compared in the wrong spelling finds no characteristic and reports nothing missing, and a property read
+without unwrapping its variant answers an empty array -- **which is a bug that happened**, caught by a test
+rather than by a run: BlueZ wraps every property in a variant, so `Flags` and `UUIDs` came back empty until
+`DBusValue.items` learned to see through one.
+
+**Three ways `BlueZCubeGatt` differs from `CoreBluetoothGatt`, each of them BlueZ rather than a choice.** It
+keeps **no characteristic table**, a BlueZ characteristic being an object path the tree can be asked for again
+-- which says something about the Mac's, that table being CoreBluetooth's design showing through. Every answer
+is **deferred by a wake of zero seconds**, because BlueZ's calls block where CoreBluetooth's do not and
+`DeviceLogin` is written against a delegate that always answers later. And a refused subscription is **reported
+rather than logged**, a subscription that silently did not happen being a cube whose face turns never arrive.
+
+**The UUID expansion earns its keep.** The vendor's table lists the seven standard UUIDs in 16-bit shorthand,
+CoreBluetooth accepts them that way, and **BlueZ never uses the shorthand at all** -- it reports
+`0000180f-0000-1000-8000-00805f9b34fb` for what this app calls `180F`. `TimeFlipUUIDs.canonical(_:)` and
+`match(_:_:)` are that expansion. Without it every characteristic lookup would find nothing, silently. **That
+was three bugs in one when the GATT port landed**: eleven `==` comparisons, a `switch` over the four Device
+Information UUIDs, and one hiding behind a local. Left in, the login would have found its characteristics,
+presented no PIN and reported nothing. `InMemoryGatt` answers in the spelling a real adapter answers in for
+exactly this reason.
+
+**Which advertisement is a cube is `DeviceScanRules`, unchanged** -- the same rule CoreBluetooth's side asks,
+so a renamed cube is found or lost identically on both platforms. Writing the probe taught its own lesson:
+`ordered` is *ordering, not filtering*, so taking its first element answers an arbitrary device when nothing is
+eligible at all. `isEligible` is the filter.
+
+**Two calls are deliberately not made.** `Get`/`GetAll` are unused because `GetManagedObjects` answers the whole
+tree in one call, and `InterfacesAdded` is not listened to because the scan reads the tree on its own clock --
+libdbus dispatching into its own loop being the half that does not ask GLib and libdbus to share a file
+descriptor.
+
+**Neither `BlueZRadio` nor `BlueZGatt` has a hermetic test, and cannot**: both are I/O against a daemon and a
+device. The suite covers everything they are built on, and what covers these two is a device run.
+
+#### The transport is libdbus, in process
+
+`CDBus` is a `systemLibrary` target over `dbus/dbus.h`, Linux-only in the graph exactly as `SQLite3` is.
+**`pkgConfig: "dbus-1"` is load-bearing rather than tidy**: libdbus needs *two* include directories, the
+arch-dependent `dbus-arch-deps.h` living under `/usr/lib/<triple>/dbus-1.0/include` while the rest is in
+`/usr/include/dbus-1.0`.
+
+**What made it possible is that none of the API this app needs is variadic.** `dbus_message_append_args` is, and
+would have been uncallable from Swift exactly as libsecret's simple API was -- but the `dbus_message_iter_*`
+family that replaces it is not, and that family is all of it. **One thing the importer cannot read**: the type
+constants are `#define DBUS_TYPE_STRING ((int) 's')`, a cast it does not follow, so `SystemBus.Kind` spells them
+out by value.
+
+**A caller filters signals by what it asked for**, because not everything arriving is a match hit: the bus sends
+`NameAcquired` to a new connection whatever it has subscribed to. Measured, not assumed.
+
+What was measured before deciding, kept because it is what the decision rests on:
+
+| Route | Works? | Cost |
+|---|---|---|
+| **`busctl` subprocess** for method calls | **Yes**, returns type-tagged JSON a `JSONDecoder` reads | Nothing to install |
+| **`busctl monitor`** for signals | **No. Refused unprivileged**: `BecomeMonitor` answers `Access denied` on the system bus | -- |
+| **`gdbus monitor`** for signals | **Yes**, unprivileged -- it adds match rules rather than becoming a monitor | Emits GVariant **text**, not JSON, so a notification value needs a parser of its own |
+| **`libdbus-1` with a modulemap** | **Chosen** | Needs `libdbus-1-dev` |
+| **The wire protocol in Swift** | Untried | No dependency, and the most work: SASL EXTERNAL, then marshalling |
+
+**What decided it was where the notification values are read.** Face turns arrive as signals carrying a byte
+array, which is the app's core function, and every subprocess route leaves that path depending on a parser of
+human-readable output. libdbus hands the same bytes over typed. **That is the opposite conclusion to the
+keyring's in item 7, and for a consistent reason**: there the subprocess won because the swap was contained in
+one file and the values were strings; here the values are the point.
+
+### 11 - Linux - The UI: filling the GTK slots
+
+**The menu bar and the dialogues are done. The Settings window and the Report tab are not started.**
+
+What exists in `Sources/FacetLinux`: the boot, the composition root, `MenuBar` (289 lines of GTK that decides
+nothing), `GtkDialoguePresenter`, and `GLibScheduler`. The tray item draws the shared readout; its dropdown
+carries the cube's state, today's totals per category, Pause, Lock and Quit; and pairing, pausing, unlocking and
+quitting a real cube were all done through it on 2026-09-13.
+
+**`GtkDialoguePresenter` is 72 lines**, a `GtkMessageDialog` modal on a nested main loop the way `NSAlert.runModal`
+is, with no parent window -- this platform's ordinary case and the Mac's nineteenth. **`wayOut` is simply honoured
+here** where AppKit has to be worked around: GTK does not relocate a button by its title, so
+`gtk_dialog_set_default_response` puts Return on the answer the core named.
+
+**Two more variadic C functions are wrapped in `Sources/CGtk/shim.h`.** `gtk_message_dialog_new` and
+`gtk_message_dialog_format_secondary_text` both take a printf format, which Swift cannot call. `"%s"` is passed
+in C and the string travels as an argument, which is also the only safe way: a heading containing a `%` would
+otherwise be read as a conversion.
+
+**What is left is genuinely a build rather than a slot.** `SettingsWindowController` is 3,206 lines of AppKit
+and **there is no port to fill for it** -- `architecture-ports-plan.md` item 6 has one row outstanding and the
+honest statement about the rest is that it is view construction and tab wiring, which is what an adapter is
+*for*. So a Linux Settings window is built rather than slotted into, and **the decisions it makes that are
+worth sharing should come out into the core as they are found**, which is the standing instruction in
+[handover-linux.md](handover-linux.md) item 22.
+
+Next in size order: the Settings window and its five tabs, then Report.
+
+### 12 - Linux - The scripted suite on Linux
+
+**Low priority, by the owner's instruction of 2026-09-16.** The suite is not to be edited and not to be run
+until confirming a feature works genuinely requires it. That is the standing answer to anything below reading
+as imminent: none of it is a job waiting to be picked up.
+
+**What follows from that, because each has already come up once:**
+
+- **A stale stamp is not an outstanding job**, and `All tests pass` being red is the expected state. Do not
+  make it green by narrowing the pathspec, editing a stamp, setting `LINUX_IS_ADVISORY` or taking the check
+  out of the workflow. A red check that is honest is worth more than a green one that is arranged.
+- **Do not edit `lib.sh`, `run.sh`, `platform.sh` or a check script** as tidy-up or alongside unrelated work.
+  A check that cannot be run cannot be validated, and editing this layer blind is what handover 23 and 24 cost
+  in the other direction.
+- **`swift test` is unaffected** and is still the thing to run on every change, on both platforms. A hermetic
+  pass is not hardware confirmation, and a device-dependent change stays **unverified and deliberately so**,
+  which is a different sentence from unverified by oversight and the one to write.
+
+**Where it had got to, so that nothing is re-derived when it comes back.** The harness is further along than
+the item has ever been, and none of this needs doing again:
+
+- **`Tests/Scripted/platform.sh` has no unfilled Linux branch left.** `platform_not_yet` is still defined and
+  is called from nowhere.
+- **`scripts/tray-menu.py` drives the tray over D-Bus**, and `Tests/Methods.md` Methods 18 and 19 are written
+  from real runs.
+- **`platform_quit_app` quit a running app through its own tray menu on 2026-09-13.**
+- **One known fault is deliberately left in place.** `lib.sh`'s `quit_app` never reaches `platform_quit_app`:
+  `run.sh` calls the port, every check script calls the older copy, which clicks the status item and presses
+  `quit-app` with `>/dev/null 2>&1` -- the swallowed failure `CLAUDE.md` names twice. It is
+  [handover-mac.md](handover-mac.md) item 30, it is the Mac's to make because only a full run can exercise it,
+  and under this priority it waits for that run rather than being fixed blind.
+- **`scripts/check_interactive_checklists.sh` already asks for a Linux stamp**, reporting the absence rather
+  than enforcing it (`LINUX_IS_ADVISORY=1`). Turning it on belongs in the same commit as the first passing
+  Linux run, not before.
+
+**Whether any of it can run headless is still the open question worth the most**, because it decides whether
+CI could ever run this half at all. It costs one `xvfb` install and one check, and it is cheap enough to be
+worth doing whenever the suite next comes up.
+
+### 13 - Core - Repo restructure and the `CLAUDE.md` split
+
+**Not started.** Agreed: one repo, shared core. About a third of the root `CLAUDE.md` is AppKit-specific and
+would be worse than noise in a GTK session.
+
+### 14 - Core - README
+
+**Done 2026-09-16.** It opened *A native macOS menu bar application* and described one platform from there down.
+It now says macOS is the app you can use today and that a Linux build exists and works, with what it does not
+have yet named rather than implied: no Settings window, no Report tab, no Google sign-in.
+
+**The Architecture section gained the thing it had never mentioned**: the three targets, and that each platform
+capability is a port whose adapter its own `main.swift` injects. Three module lines were reframed around that
+-- the status item is four core modules with a renderer per platform, the radio is reasoning in the core behind
+a transport port with two adapters, and the Settings window is marked macOS only.
+
+**It did not wait for item 13**, which was the plan when this item was written. The restructure is about
+splitting `CLAUDE.md` and moving files; describing two platforms needed neither, and the README was wrong about
+the project in its first line.
+
+### 15 - Linux - Google sign-in on Linux
+
+**Not started.** The listener is portable and tested on both halves (item 9), and `GoogleSignIn.run(open:)` is
+the arm, taking the browser as a parameter rather than reaching for `NSWorkspace`. **Nothing in
+`Sources/FacetLinux` names Google at all**: there is no `CalendarSync`, no `GoogleTokenStore`, and no slot filled
+for opening a URL. The Linux equivalent of the browser is `xdg-open` through `Process`.
+
+**It is a small item that depends on a large one.** On the Mac, signing in is a Settings-window control, so a
+Linux sign-in wants either the Settings window from item 11 or a deliberate decision to put it somewhere else.
+The flow has never been exercised end to end on this platform with a real Google account.
+
+
+### 16 - macOS + Linux - Split `GoogleLoopbackListener`
+
+**The one item with real work on both machines, and what empties the platform-blind allowlist.** The file is
+365 lines holding two whole implementations behind one `#if canImport(Network)`: roughly 140 lines of
+`Network.framework` and 200 of Berkeley sockets. Both work and both are covered by the same five tests
+(item 9). **It is a port wearing an `#if`**, and it is the last entry on
+`PlatformBlindCoreTests.adaptersStillInTheCore`.
+
+- **The core** states the listener as a protocol: assign a port, wait for the code, answer the browser, cancel.
+- **`Sources/FacetMac`** takes the `Network` half unchanged.
+- **`Sources/FacetLinux`** takes the socket half unchanged.
+- **Both composition roots** hand one over. `GoogleOAuthClient` constructs the concrete type today, which is
+  the core choosing an adapter and the thing the rule forbids.
+
+**Nothing is rewritten**, which is what makes it tractable: the two halves are already separated by the
+conditional and already tested independently. **The Mac half is required for item 15**, because a Linux
+sign-in cannot reach a listener the core still picks for itself.
+
+### 17 - macOS - `renameDevice` onto `DeviceSettingWrite`
+
+**The last unticked row of `architecture-ports-plan.md` item 6.** Seven of the eight Device tab settings writes
+now go through `DeviceSettingWrite`, which is `CLAUDE.md`'s settings rule written once: the cube first, the
+table only once the cube has taken it, the row put back on a refusal, and the three notices a result deserves.
+
+**`renameDevice` / `sendRename` is the odd one and does not fit `send` as it stands**, because its read-back is
+functional rather than a command: `0x15` has no answer of its own, and the confirmation is the GAP name
+arriving a second or two into the next connection.
+
+It is Mac work, and it matters to the port only when a Linux Settings window wants a rename control. **It is
+also entangled with an open question**: whether a `0x15` rename moves BlueZ's `Name` the way it moves
+CoreBluetooth's has never been measured.
+
+### 18 - macOS - Confirm the read-back window on CoreBluetooth
+
+**Linux found a fault in shared code and can only fix half of it.** `CubeCommandChannel.isAwaitingResult`
+reported the *intention* to read rather than the read, so a value arriving between writing the question and
+issuing the read was taken as the answer. On BlueZ that window is hit constantly, because a `read` produces the
+reply *and* a duplicate `PropertiesChanged` a few milliseconds later.
+
+**Fixed in `FacetCore`** with a second flag set where the read actually goes out. **Whether CoreBluetooth ever
+delivers into the same window is unanswered**, and only the Mac can answer it. If it does, two faults have been
+on the Mac unnoticed: every login losing the cube's `0x10` state, and a quit reporting a refused auto-pause
+write the cube had in fact taken.
+
+**Half of it needs no cube.** [handover-mac.md](handover-mac.md) item 25 asks for a run of `51-device-connect`,
+`55-device-settings` and `57-cube-pause`, but also for a look at whether any `0x10` on the Mac ever answered
+without a `commandResult: read requested` before it -- and that is answerable from a trace already held.
+**Under item 12's priority, do the trace half and leave the run.**
+
+### 19 - macOS - The history timer never restarts when a cube arrives late
+
+**Confirmed in the source on 2026-09-16**, and it is a Mac bug the Linux side does not have.
+
+`HistoryTimer.start()` stands itself down when `hasSomethingToFollow()` is false, which at launch means no open
+segment and `connection.connected` not set -- every launch whose cube is out of range at the time. The only
+route back is `resumeIfStopped()`, and on the Mac the **only** caller is `settingsWindow.onTimingChanged`. None
+of the eight paths that fires is a cube connecting: `radio.onLoginEnded` in `SettingsWindowController` shows the
+pane, writes the pairing rows through `CubeReports` and stops there.
+
+**So a Mac launch that finds its cube a minute later has a periodic history fetch that stays dead for the rest
+of the session.** Not fatal, which is why it would never be noticed: `onCubeReady` fetches once when the link
+comes up and `onFace` fetches on every turn. But `fetch_history_interval_seconds` is a safety net and it would
+not be there.
+
+**On Linux it is wired and visibly works**: `onLoginEnded` calls `historyTimer.resumeIfStopped()` after the
+pairing rows, and the trace goes *History timer not started, nothing is being timed* at launch and *History
+timer started, asking every 10s* the moment the cube is paired. **The fix is the same one line**, and it is the
+Mac's to make because nothing here can exercise `SettingsWindowController`.
+
+### 20 - macOS - Remove the twelve compiler artefacts at the repository root
+
+`AlertPresenter-2.d`, `.dia`, `.swiftdeps` and `.swiftmodule`, and the same four each for
+`CoreBluetoothGatt-2` and `RunLoopScheduler-2`. **Tracked, not ignored**, and they arrived in `db58b96` ("All
+nineteen alerts onto the port"): about 250 KB of intermediate output from a macOS build that wrote into the
+working directory.
+
+`git rm` on the twelve and a line in `.gitignore` is the whole of it, **unless the build that produced them is
+still writing there**, in which case that is the thing to fix. It is the Mac's because they came off a Mac
+build and only that machine can tell.
+
+### 21 - macOS - Reconcile the `CLAUDE.md` scripted-suite wording
+
+**Done 2026-09-16.** `CLAUDE.md`'s section said the suite was set aside and not to be asked for at all, which
+is a freeze; the owner's instruction of the same day is a priority, leaving a door that wording closes. Run 183
+on 2026-09-13 had already happened despite it.
+
+The section is now *The scripted suite is low priority until the Linux port is finished* and says
+so, gains the half the older wording did not have -- **do not edit the suite either** -- and names item 24 as
+the fault that waits for a run. `architecture-review-2026-09.md` and `architecture-ports-plan.md` pointed at
+the old title and now point at this one.
+
+**[handover-mac.md](handover-mac.md) item 29 is what asked for this**, and it is answered rather than deleted:
+deleting an item is its own commit under that file's protocol, and it is the Mac's to make.
+
+### 22 - Linux - `SecretToolStore`'s doc comment describes an arrangement that is gone
+
+`Sources/FacetLinux/SecretToolStore.swift:8` says `DevicePINStore` and `GoogleTokenStore` "keep their Darwin
+bodies and branch to this at compile time". **Neither carries a `#if` any more.** The store moved out of the
+core on 2026-09-10, `SecretStore` lost the `SecretStores.platform` that chose between the two, and both
+composition roots hand an adapter over instead -- which is the arrangement `PlatformBlindCoreTests` exists to
+enforce.
+
+**The comment is fixed as of 2026-09-16.** It now says the store is handed over by `main.swift` and that
+nothing above it knows which it got, and keeps what the old text was for as a record of what changed.
+
+**One thing in that file is deliberately left**, and it is the Linux box's: `SecretToolStore` still opens with
+`#if !canImport(Security)`, which is dead weight now that the file lives in a target only Linux builds. Its
+macOS counterpart `KeychainSecretStore` dropped exactly that guard when it moved, and says why -- *which square
+gets built is the manifest's business*. Removing it is a code change the Mac cannot compile, and editing this
+side's files blind is what handover items 23 and 24 cost in the other direction.
+
+### 23 - Core - The CI workflow's test counts are stale
+
+`.github/workflows/tests.yml` says **"exactly 7 of the tests are Linux-only"** and **"1,064 tests -- 590 under
+XCTest and 474 under swift-testing"**. Measured 2026-09-16: **77** are Linux-only, across six files guarded by
+`canImport(CDBus)` or `canImport(CGtk)`, and the Linux run is **1,417**.
+
+**The reasoning in those comments is still right and only the numbers have moved**, which is the argument for
+correcting rather than deleting them: the job exists because running one test against two Foundations asks two
+different questions, and that is more true at 1,340 shared tests than it was at 1,042.
+
+**Done 2026-09-16**, comments only -- verified by diffing and finding no changed line that was not a comment.
+The corrected block says the counts were re-measured and what they were before, so the next reader can see the
+argument got stronger rather than wonder which figure to trust.
+
+### 24 - macOS - `lib.sh`'s `quit_app` bypasses `platform_quit_app`
+
+**Mac work that blocks item 12 outright.** `Tests/Scripted/platform.sh` exists so a check says *quit the app*
+and one file decides what that means. `run.sh` calls `platform_quit_app`; **every check script calls `lib.sh`'s
+`quit_app`**, which clicks the status item and presses `quit-app` itself, both macOS-only:
+
+    click_left || red "  could not click the status item to quit; falling back to a kill below"
+    sleep 0.5
+    python3 scripts/ax-press.py quit-app >/dev/null 2>&1
+
+**The one the checks use is the older copy**, and that second line is the swallowed failure `CLAUDE.md` names
+twice: a press that never happened does nothing and says nothing, and the wait after it then times out and
+blames whatever it was waiting on. `platform_quit_app` already fixed exactly that on the macOS side.
+
+**The change is two lines**: `quit_app` keeps `close_settings` and keeps the wait-then-kill, and the pair in the
+middle becomes `platform_quit_app`. On macOS that is the same two calls in the same order with the reporting the
+port already has.
+
+**Why it is the Mac's**: `lib.sh` is 1,537 lines driving a real window, only a full run can exercise it, and
+editing this layer blind is what handover 23 and 24 cost in the other direction. **`platform_quit_app`'s Linux
+half is written and works** -- it quit a running app through its own tray menu on 2026-09-13 -- so this is the
+single thing between the Linux box and running `01-launch.sh`, which is otherwise completely portable.
+
+**Deferred with item 12** rather than fixed now, under the 2026-09-16 priority.
+
+---
+
+## Open questions
 
 | Question | How to answer it |
 |---|---|
-| ~~**Does the core build on Swift 6.0?**~~ **Withdrawn: the premise was wrong.** It was asked because this file believed the Mac built with 6.0, read off `swift-tools-version: 6.0`. That line is the manifest and language level, not the compiler. The Mac builds with **6.3.3**, Linux used **6.2**, and no machine has 6.0 or wants it. `docs/installation.md` states 6.0 as a **minimum**, which both satisfy | Retired 2026-09-07, Mac. Nothing needs a 6.0 toolchain; if the stated minimum is ever worth proving, that is a release question about `installation.md`, not a port question |
-| **Do the other 61 test files pass?** They were excluded for referencing types outside the closed set, not for failing | Widen the closed set as `FacetCore` takes shape |
-| **Does Darwin hand back a `TZ` that corelibs refuses?** `TimeZone.current.identifier` echoes a legacy IANA name verbatim on both platforms (`TZ=Cuba` answers `Cuba`), which is why `timezone` is seeded and read through `timezone_lookup`. But `TZ=AEST` is **refused** on Linux and falls back to the system zone, while an `AEST` row reached the Mac's `test.sqlite` somehow. A behavioural difference in a Foundation call the app depends on | Question 4 in [systems-info.md](systems-info.md), where the answer lands |
-| ~~**How many `tearDown` methods hit the `deinit` isolation trap?**~~ **27 of 30.** Measured on the Mac 2026-09-07 by brace-matching each `tearDown` body: 27 wrap their work in `MainActor.assumeIsolated` and would trap in a `deinit`; 3 do not. It never needed Linux to answer, being a property of the test sources | Answered 2026-09-07, Mac |
-| **Is `contentsOfDirectory(at:)` on a symlink a known corelibs bug or intended?** Worth reporting upstream if the former. **Narrowed 2026-09-07, Linux**: it is specific to a symlinked *directory*. A symlinked **file** inside a real directory is listed by both `at:` and `atPath:` and read straight through by `String(contentsOf:)` -- measured on `database/500_timezone.sql`, 13 of 13 `.sql` files found either way. So a report has a smaller and sharper case than the original finding suggested | Check the swift-corelibs-foundation tracker |
-| ~~**Does SwiftPM follow the symlinked resources directory on macOS?**~~ **Yes**, before and after the split: 13 `.sql` files in the built bundle, flattened to its root | Answered 2026-09-06, Mac |
-| ~~Does `Thread.isMainThread` matter?~~ **No.** It reads `false` inside a `@MainActor` test on Linux -- isolation holds, the OS thread simply is not thread 1 -- and nothing in `Sources/` calls it | Answered 2026-09-06 |
-| ~~**What do the 41 platform files actually need?**~~ **35 of them, and now assessed by the compiler.** `FacetMac` is what did not move: the panes and views, `BluetoothRadio`, `DeviceLogin`, `BLETrace`, `TimeFlipUUIDs`, `MenuBarController`, `MainMenu`, `ActivityIcon`, `GoogleOAuthClient`, `QuitSequence`, `StatusItemTitle`, `ColourDrawing` and `main.swift`. **That answer is what the ports remodel then went to work on**, and the question it asks is the wrong one: a file needing AppKit is not the same as a file being about AppKit. `GoogleOAuthClient` needed one line of it, `QuitSequence` six, `StatusItemTitle` a table of five colours. All three are core now, with `QuitDelegate` and `StatusColourDrawing` left behind as the AppKit that was really there | Answered 2026-09-06, Mac; the question replaced 2026-09-10 |
-| ~~**How many members does stage 3 actually have to widen?**~~ **437 members, over 152 types, 589 `package` declarations in total.** The loop was run and the section above carries the working; the type count of 94 this row quoted was low by more than half, because what the compiler asks for is the types `FacetMac` names *plus* everything that comes with them | Answered 2026-09-07, Mac |
-| ~~**Does the scripted suite still pass after the split?**~~ **Yes, in full**, reported by the owner from a shakedown run on the Mac. Not a stamped run and not evidence for CI, which still wants one -- but it answers the question this row was asking, which was whether moving `Sources/` wholesale had broken the app on hardware. It had not | Answered 2026-09-07, Mac |
+| **Can the scripted suite run headless?** `xvfb` is not installed and this box has no passwordless `sudo`. It decides whether CI could ever run the Linux half of `Tests/Scripted/`, which it can never do for the Mac | Install `xvfb`, run one check under it. **The highest-value question here**, and cheap, but it waits with item 12 rather than being a reason to reopen the suite |
+| **Does a `0x15` rename move BlueZ's `Name` the way it moves CoreBluetooth's?** `BlueZRadio.scannedDevices` maps that one property to **both** `peripheralName` and `advertisedName`, so `DeviceScanRules.isEligible` and `DevicePairingRules.adoption` see one name where the Mac sees two that a rename moves at different times (finding 1). Nothing has ever measured it | Rename from the Mac with the cube in range of both, and read the scan from Linux. `BlueZCubeGatt` reports a device `PropertiesChanged` as `nameArrived`, so a rename made while Linux holds the link has somewhere to show up. **Cannot be answered from the Linux box alone**: renaming is a Device tab control and this platform has no window |
 | **Does the rename apply immediately or is it deferred?** Open since August; finding 1 wants a second BLE central with no cached record, and this box is one | Rename from the Mac, read the GAP name from Linux |
-| **Does a `0x15` rename move BlueZ's `Name` the way it moves CoreBluetooth's?** `BlueZRadio.scannedDevices` maps that one property to **both** `peripheralName` and `advertisedName`, so `DeviceScanRules.isEligible` and `DevicePairingRules.adoption` see one name where the Mac sees two that a rename moves at different times (finding 1). Nothing has ever measured it. **Carried here from `docs/handover-linux.md` item 19 on 2026-09-13**, that item being finished otherwise: it cannot be answered from this box alone, because renaming is a Device tab control and this platform has no window | Rename from the Mac with the cube in range of both, and read the scan from Linux. `BlueZCubeGatt` reports a device `PropertiesChanged` as `nameArrived`, so a rename made while Linux holds the link has somewhere to show up |
 | **Does the `T.Flip` manufacturer data survive a rename?** If it does, a renamed cube has two stable markers | Rename, then re-read `ManufacturerData` |
-| **Is the static random address stable across a power cycle or factory reset?** The BLE spec permits it to change | Pull the batteries, re-scan, compare |
-| **Does the Google OAuth loopback flow work on Linux?** The listener is replaceable, but the flow is untested end to end | After item 7, with a real Google account |
-| **What is the state of Swift GTK3 bindings?** MATE 1.26 is GTK3, and the binding work known to exist targets GTK4 | Survey before committing to a single-process design |
-| **Does `swift build` work with real `libsqlite3-dev`?** The spike used a hand-written 25-symbol header | Install the package and drop the shim |
+| **Does CoreBluetooth ever deliver into the read-back window?** The duplicate-read fault above was BlueZ's trigger, and the window is in shared code. If it does, the same two faults are on the Mac and nobody has noticed | [handover-mac.md](handover-mac.md) item 25: a run of `51-device-connect`, `55-device-settings` and `57-cube-pause`, and a look at whether any `0x10` on the Mac ever answered without a `commandResult: read requested` before it. That last part is answerable from a trace already held, with no cube |
+| **Does Darwin hand back a `TZ` that corelibs refuses?** `TimeZone.current.identifier` echoes a legacy IANA name verbatim on both platforms (`TZ=Cuba` answers `Cuba`), which is why `timezone` is seeded and read through `timezone_lookup`. But `TZ=AEST` is **refused** on Linux and falls back to the system zone, while an `AEST` row reached the Mac's `test.sqlite` somehow | Question 4 in [systems-info.md](systems-info.md), where the answer lands |
+| **Is `contentsOfDirectory(at:)` on a symlink a corelibs bug or intended?** Narrowed 2026-09-07 to a symlinked *directory* only, so a report has a sharp case | Check the swift-corelibs-foundation tracker |
 
-## Decided: CI tests both platforms, and everything on each
+**Retired, and worth saying why rather than deleting.** *Does the core build on Swift 6.0?* was asked because
+this file believed the Mac built with 6.0, read off `swift-tools-version: 6.0`. That line is the manifest and
+language level, not the compiler. The Mac builds with 6.3.3, Linux uses 6.2, and no machine has 6.0 or wants
+one. `installation.md` states 6.0 as a **minimum**, which both satisfy.
+
+---
+
+## CI runs the suite on both platforms
 
 **Decided 2026-09-09. Every test runs in CI, on every platform that can run it.** Not the Mac's suite with
-Linux checked by hand, and not a Linux job that runs only the Linux-specific parts -- the whole suite, twice,
-each platform running as much of it as it can.
+Linux checked by hand, and not a Linux job that runs only the Linux-specific parts.
 
 **Why both, when most of the tests are the same tests.** Because the overlap is the product rather than the
-waste. There is no `#if os(Linux)` anywhere in `Sources/` and exactly **7** of the tests are Linux-only, so a
-plan of "test everything on the Mac, test the Linux-only parts on Linux" would cover 7 tests and leave 1,042
-running against one Foundation only. Those 1,042 are where both platform divergences found so far actually
-lived: a `Timer` on `RunLoop.main` that never fires because a `@MainActor` swift-testing test is not on the
-main thread here, and `FileManager.contentsOfDirectory(at:)` returning an empty array for a symlinked
-directory where Darwin follows it -- which `DatabaseBootstrap` reported as a database created successfully.
-Both are shared code passing on one platform and failing on the other. Running one test against two
-Foundations asks two different questions, so coverage is a property of test x platform rather than of the
-test list.
+waste. There is no `#if os(Linux)` anywhere in `Sources/` and only 77 of the tests are Linux-only, so a plan of
+"test everything on the Mac, test the Linux-only parts on Linux" would leave 1,340 shared tests running against
+one Foundation only. Those are where both platform divergences found so far actually lived: a `Timer` on
+`RunLoop.main` that never fires because a `@MainActor` swift-testing test is not on the main thread here, and
+`FileManager.contentsOfDirectory(at:)` returning an empty array for a symlinked directory. Both are shared code
+passing on one platform and failing on the other. **Running one test against two Foundations asks two different
+questions**, so coverage is a property of test x platform rather than of the test list.
 
-### Where it stands, and what each number is waiting on
+### The numbers
 
 | | Tests | |
 |---|---|---|
-| Every test in the repository | **1,758** | 1,751 the Mac can run, plus the 7 Linux-only |
-| macOS CI runs | **1,751** | everything that platform can run |
-| Linux CI runs | **1,064** | the 1,059 the Mac also runs, plus 5 of the 7 Linux-only |
-| Linux-only, skipped in CI | **2** | the two needing a real BlueZ adapter, below |
-| Mac-only, not yet on Linux | **692** | the 38 files `Package.swift` excludes |
+| Every test in the repository | **1,962** | 1,885 the Mac can run, plus the 77 Linux-only |
+| macOS runs | **1,885** | measured 2026-09-16: 1,225 XCTest, 660 swift-testing, 0 failures |
+| Linux runs | **1,417** | 680 XCTest, 737 swift-testing. **Derived by counting, not run today**; the Linux box's own last report was 737, which is that swift-testing figure exactly |
+| Linux CI runs | **1,415** | the two adapter-bound bus tests are skipped by name |
+| Mac-only, not yet on Linux | **545** | the 32 files `Package.swift` excludes, every test in them XCTest |
 
-**The 692 close as the port lands**, and they are already itemised rather than estimated: 38 files need
-AppKit, CoreBluetooth or a `FacetMac` type and come back with items 9, 10 and 11, and 2 need the main
-thread's run loop, which is a decision rather than work -- whether `WriteDebounce` and `LowBatteryWatch`
-should take their `RunLoop` as a parameter. Nothing else is excluded, and the manifest says which of the two
-reasons each is.
+**The 545 close as item 11 lands**, and they are itemised rather than estimated: every one of the 32 files needs
+AppKit, CoreBluetooth or a `FacetMac` type. **`EveryLinuxExclusionEarnsItsPlaceTests` is what keeps that
+honest** -- a file whose subject has moved into the core stops needing the platform, and the entry would
+otherwise stay behind because nothing asks it to leave. A file sitting there needlessly is a suite that silently
+does not run on Linux, which is the one failure this whole exercise is about.
 
-**Only 2 of the 7 are really hardware-bound, and that is measured rather than reasoned.** The job skipped
-the suite whole to begin with. It was settled on 2026-09-09 **without a container**, which is the part worth
-keeping: `SystemBus.init` calls `dbus_bus_get(DBUS_BUS_SYSTEM)`, libdbus reads `DBUS_SYSTEM_BUS_ADDRESS`, so
-a private `dbus-daemon` on any machine reproduces a runner's bus -- one with no BlueZ on it -- and the suite
-can simply be pointed at it.
+**Only 2 of the 7 bus tests are really hardware-bound, and that is measured rather than reasoned.** The job
+skipped the suite whole to begin with. `SystemBus.init` calls `dbus_bus_get(DBUS_BUS_SYSTEM)`, libdbus reads
+`DBUS_SYSTEM_BUS_ADDRESS`, so **a private `dbus-daemon` on any machine reproduces a runner's bus** -- one with
+no BlueZ on it -- and the suite can simply be pointed at it. Five pass there; two look for a real
+`org.bluez.Adapter1` and belong with `Tests/Scripted/`, their absence being a fact about the machine rather than
+about the code.
 
-| Test | Needs | On a bus with no BlueZ |
-|---|---|---|
-| `theSystemBusCanBeReached` | a system bus | **passes** |
-| `aCallAnswersAnArrayOfStrings` | a system bus | **passes** |
-| `aStringArgumentIsSentAndABooleanComesBack` | a system bus | **passes** |
-| `arefusalCarriesTheErrorName` | a system bus | **passes** |
-| `aByteArrayArgumentIsAcceptedByTheWire` | calls `org.bluez`, asserts a **refusal** | **passes**, and see below |
-| `theNestedObjectTreeIsWalkedToItsLeaves` | a real BlueZ **adapter** | fails, `Issue.record` at `:96` |
-| `aSignalArrivesAndItsValuesAreTyped` | a real BlueZ **adapter** | fails, `Issue.record` at `:166` |
-
-So five run in CI and two cannot run on any runner, belonging with `Tests/Scripted/`: their absence is a fact
-about the machine rather than about the code.
-
-**`aByteArrayArgumentIsAcceptedByTheWire` passes for a different reason in CI than on a developer's box**,
-which was the thing worth settling before counting it. It asserts only that the call is refused, and both
-conditions refuse:
+**`aByteArrayArgumentIsAcceptedByTheWire` passes for a different reason in CI than on a developer's box.** It
+asserts only that the call is refused, and both conditions refuse:
 
     no BlueZ      org.freedesktop.DBus.Error.ServiceUnknown   -- the bus, because nothing owns the name
     BlueZ present org.freedesktop.DBus.Error.UnknownObject    -- BlueZ, about the object path
 
-In CI it therefore proves libdbus marshalled the byte array and put it on the wire, which is its stated
-claim, but it stops at the bus and proves nothing about what BlueZ accepts. Counting it is defensible on that
-reading. Asserting *which* error would make it honest on both machines and is the obvious improvement, but it
-changes what the test claims, so it is noted here rather than done.
+In CI it therefore proves libdbus marshalled the byte array and put it on the wire, which is its stated claim,
+but it stops at the bus and proves nothing about what BlueZ accepts. Asserting *which* error would make it
+honest on both machines and is the obvious improvement, but it changes what the test claims, so it is noted
+rather than done.
 
-### Found: the container runs as root, and one test is right to fail there
+### The container runs as root, and one test is right to fail there
 
-**Measured 2026-09-09, the first time the job was run in its own image** rather than by running its commands
-on this box. `podman` and `swift:6.2-noble`, the workflow's four steps extracted from the parsed YAML and
-executed as the shell will get them. It went red, and on nothing to do with D-Bus:
+**Measured 2026-09-09**, running the job's steps in `swift:6.2-noble` under `podman` rather than on the box. It
+went red on nothing to do with D-Bus:
 
     DevicePINSourceTests.testAFileThatWillNotGiveUpItsCopyIsNotReportedAsSettled
       settleAtLaunch() -> .clearedARedundantCopy, expected .nothingToSettle
-      file.pin()       -> nil, expected 654321
 
-**Because root ignores mode bits.** That test sets the config file to `0o400` so the write is refused, and
-asserts the app does not then claim to have settled. A container job runs as root unless told otherwise, so
-the write succeeded, the copy was cleared, and the test failed against an app doing exactly the right thing.
-Proven in the image directly rather than inferred:
+**Because root ignores mode bits.** That test sets a config file to `0o400` so the write is refused, and asserts
+the app does not then claim to have settled. A container job runs as root unless told otherwise, so the write
+succeeded and the test failed against an app doing exactly the right thing.
 
-    as root  a 0400 file is written without complaint
-    as ci    permission denied
+**This is the second time that same test has been broken by a platform declining to enforce a permission**, the
+first being `.immutable`. The shape is worth keeping even though the cause differs: **a test whose premise is a
+refusal fails against correct behaviour wherever the refusal does not happen**, and it looks like an app bug
+both times.
 
-**This is the second time that same test has been broken by a platform declining to enforce a permission**,
-and its own comment records the first: it used to use `.immutable`, a BSD file flag corelibs does not
-implement, so on Linux the file stayed writable and the test failed the same way. The shape is worth keeping
-even though the cause differs -- a test whose premise is a refusal fails against correct behaviour wherever
-the refusal does not happen, and it looks like an app bug both times.
+So the job makes an unprivileged `ci` user, hands it the workspace, and runs both `swift build` and `swift test`
+through `su ci`; only `apt-get` stays root. The bus daemon is started by `ci` too, so the socket belongs to
+whoever connects to it.
 
-So the job makes an unprivileged `ci` user, hands it the workspace with `chown -R`, and runs **both**
-`swift build` and `swift test` through `su ci`; only `apt-get` stays root. The bus daemon is started by `ci`
-too, so the socket belongs to whoever connects to it. With that, 1,047 pass in the image with 0 failures.
+**Two smaller things the run settled.** The `swift:6.2-noble` tag is **6.2.4**, confirmed from the image rather
+than from a tag list, against 6.2.0 on the Linux box -- same language version, different compiler, and the first
+thing to check if CI ever fails where a hand-run passes. And swift-testing finished about ninefold faster in the
+container than on that box, with no cause established; it is not BlueZ, since a private bus there was equally
+slow. Recorded as an observation rather than a finding.
 
-**Two smaller things the run settled.** The `swift:6.2-noble` tag really is **6.2.4**, confirmed from the
-image rather than from Docker Hub's tag list, against 6.2.0 on this box -- and both compile and pass the same
-1,047. And swift-testing's 457 finish in **6.0s in the container against ~56s here**, which is a ninefold
-difference with no cause established; it is not BlueZ, since a private bus on this box was equally slow.
-Recorded as an observation rather than a finding.
+**CI had never run this branch before 2026-09-09**, which is why a bug this old surfaced then: the workflow
+fires on `pull_request` or a push to `main`, and this branch had had neither in 96 commits. The bug was
+`DeviceEventRecorderTests` comparing a stored zone against `TimeZone.current.identifier`, where a runner on
+`GMT` stores the canonical `Etc/GMT`; it had only ever passed because both development machines sit in
+`Australia/Brisbane`. **Worth remembering as a property of the arrangement rather than of that bug: a long-lived
+branch with no pull request is a branch CI has never seen.**
 
-**What running it locally still does not cover:** GitHub's own runner. The image, the packages, the compiler
-and all four steps are exercised, but `actions/checkout`, the network and the runner's own filesystem are
-not, and cannot be until a pull request exists.
+### What is still red, and why
 
-### What is left to do for this plan
+**`All tests pass` is red, and honestly so.** All four test jobs pass. The scripted-suite gate does not:
+`Tests/Scripted/last-run-mac.md` records run 183 at `637628b` -- 793 of 793, clean tree, 2026-09-13 -- and seven
+watched files have changed since, six of them on the Linux side.
 
-1. ~~**Start a system bus in the Linux job** and narrow the skip to the adapter-bound tests.~~ **Done
-   2026-09-09.** The job writes a `dbus-daemon` config, starts a private bus, exports
-   `DBUS_SYSTEM_BUS_ADDRESS` through `GITHUB_ENV` and skips exactly two tests by name. Verified by running
-   both steps as YAML hands them to the shell: **1,047 tests, 0 failures**, 590 under XCTest and 457 under
-   swift-testing, against a bus with no BlueZ. That is 5 more than the 1,042 the plan started with rather
-   than the 4 it predicted, `aByteArrayArgumentIsAcceptedByTheWire` turning out to pass -- for the reason
-   set out above, which is not the reason it passes on this box.
-2. ~~**Take the run-loop decision**, worth 17 tests.~~ **Done 2026-09-09, and the answer was neither of the
-   two on offer.** Not injecting a `RunLoop` -- a production change made for a test's benefit, where
-   `RunLoop.current` would only ever work by coincidence -- but extracting a `fire()` in `WriteDebounce` and
-   `LowBatteryWatch`, so their tests drive the timeout body instead of needing a run loop that behaves.
-   `HistoryTimer` had answered it that way already. The 17 run here now.
-3. **Let items 9, 10 and 11 return the other 38 files** as sign-in, the radio and the UI arrive on this
-   platform. Each one should take files off `platformBoundTests` in the same change, rather than leaving the
-   list to be audited later.
-4. ~~**Keep the two compilers comparable, or know that they are not.**~~ **Known, 2026-09-09.** The image
-   carries 6.2.4 and this box 6.2.0, confirmed by asking the image; both build and pass the same 1,047, so
-   the difference is recorded rather than a problem. It stays the first thing to check if CI ever fails where
-   a hand-run here passes.
-5. ~~**Run it on a real runner.**~~ **Done 2026-09-09**, as draft pull request 94, opened purely as a smoke
-   test. Both Linux jobs pass on `ubuntu-latest`. The run also found a real bug on its first outing, which is
-   what it was for: `DeviceEventRecorderTests` compared a stored zone against `TimeZone.current.identifier`,
-   and a runner on `GMT` stores the canonical `Etc/GMT`, so it had only ever passed because both this box and
-   the Mac sit in `Australia/Brisbane`. Fixed by comparing through `timezone_lookup`; `TZ=GMT swift test`
-   reproduces the old failure and the whole suite passes under it now.
+**Do not make it green** by narrowing the pathspec, editing a stamp, setting `LINUX_IS_ADVISORY` or taking the
+check out of the workflow. `CLAUDE.md` is explicit: a red check that is honest is worth more than a green one
+that is arranged. One full run clears whatever has accumulated, so nothing is lost by the wait.
 
-   **CI had never run this branch before**, which is why a bug this old surfaced now: the workflow fires on
-   `pull_request` or a push to `main`, and this branch had had neither in 96 commits. Worth remembering as a
-   property of the arrangement rather than of that bug -- a long-lived branch with no pull request is a branch
-   CI has never seen.
+**Red is the expected state and is not a job.** The owner set the scripted suite to low priority on
+2026-09-16: it is neither edited nor run until confirming a feature genuinely needs it. So this gate stays red
+for as long as the port is the work, and saying so is the whole of what is owed. **The four `Test (...)` jobs
+are the signal that means anything right now.**
 
-6. **Clear the scripted stamp**, which is the only thing still red. Both macOS jobs pass build and test and
-   fail on `check_interactive_checklists.sh`, because `Package.swift` has changed since run 173. That is
-   `handover-mac.md` item 12 and it needs a cube.
+**The wording it superseded is corrected** (item 21, done 2026-09-16). `CLAUDE.md` had said the suite was set
+aside and not to be asked for at all, which is absolute where this is a priority, and run 183 happened on
+2026-09-13 despite it. The practical difference is narrow but real: a run is available when a feature genuinely
+cannot be confirmed any other way, which is the case [handover-mac.md](handover-mac.md) item 25 is making.
 
-**A note on how this was worded before, because the wording was the fault.** `systems-info.md` recorded
-*nothing in CI compiles the project on Linux today* as a fact, dated and accurate, sitting in a table of
-facts. It was true and it was the wrong shape: a gap stated in the indicative reads as a condition to work
-around, where the same thing put as a question -- should CI run the Linux tests as well? -- gets answered in
-an afternoon. It had been true for a month. Where this file records something the port cannot do yet, it
-should say what would close it and whose call that is, which is what the four items above are for.
+**A note on how a gap like this gets worded, because the wording was once the fault.** `systems-info.md`
+recorded *nothing in CI compiles the project on Linux today* as a fact, dated and accurate, sitting in a table
+of facts. It was true and it was the wrong shape: a gap stated in the indicative reads as a condition to work
+around, where the same thing put as a question -- should CI run the Linux tests as well? -- gets answered in an
+afternoon. It had been true for a month. **Where this file records something the port cannot do yet, it should
+say what would close it and whose call that is.**
+
+---
 
 ## Decided: one process, Swift calling GTK3 through a modulemap
 
-**Settled 2026-09-09 by the owner, and the first two slices are built.** The candidates were one process in
-Swift + GTK3, or two processes with a Python/GTK3 tray over SQLite as the IPC; this file recommended the
-second on the grounds that Swift GTK *bindings* target GTK4 while MATE is GTK3.
+**Settled 2026-09-09 by the owner, and built since.** The candidates were one process in Swift + GTK3, or two
+processes with a Python/GTK3 tray over SQLite as the IPC; this file recommended the second on the grounds that
+Swift GTK *bindings* target GTK4 while MATE is GTK3.
 
-**What retired that risk is that no binding is involved.** `Sources/CGtk` is a `systemLibrary` target over
-the system's own GTK3 and `libayatana-appindicator3`, which is the pattern this package already uses twice
--- for `SQLite3` and for `CDBus` -- so there is nothing to keep in step with anybody's release schedule.
-The awkwardness C imposes is real but small and already answered: GTK's casts and `g_signal_connect` are
-macros, which Swift's importer leaves behind, so three `static inline` helpers in `shim.h` do them in C
-where the macro works and the type check survives.
+**What retired that risk is that no binding is involved.** `Sources/CGtk` is a `systemLibrary` target over the
+system's own GTK3 and `libayatana-appindicator3`, which is the pattern this package already uses twice -- for
+`SQLite3` and for `CDBus` -- so there is nothing to keep in step with anybody's release schedule. **One
+`pkgConfig`, not two**: `ayatana-appindicator3-0.1` declares GTK as a dependency, so asking pkg-config for it
+yields GTK's four include directories as well, two of them arch-dependent.
+
+The awkwardness C imposes is real but small and answered in `shim.h`: **GTK's casts and `g_signal_connect` are
+macros**, which Swift's importer leaves behind, so `static inline` helpers do them in C where the macro works
+and the type check survives. That is the same coin as `CDBus`'s variadic problem, and both are best answered in
+one small file rather than at every call site.
 
 **What the two-process design would have cost, now that it is not being paid**: a second language, a second
-process for `Tests/Scripted/` to launch and quit, `InstanceLock` becoming per-process rather than per-app,
-and care over WAL mode with a busy timeout. `platform.sh` assumes one `BINARY`, and it is right to.
+process for `Tests/Scripted/` to launch and quit, `InstanceLock` becoming per-process rather than per-app, and
+care over WAL mode with a busy timeout. `platform.sh` assumes one `BINARY`, and it is right to.
 
-It needed `libgtk-3-dev` and `libayatana-appindicator3-dev`, which `Package.swift` names in the target's
+**GTK3 is not thread-safe, and `MenuBar` is `@MainActor` because of that rather than because of the compiler**:
+every call has to come from the thread that called `gtk_init`, and `gtk_main` runs its loop on that same thread.
+The isolation is what was already true, written down where the compiler can hold us to it.
+
+It needs `libgtk-3-dev` and `libayatana-appindicator3-dev`, which `Package.swift` names in the target's
 `providers` so the next machine is told rather than left to work it out.
 
 ---
 
-## Reproducing the spike
-
-Nothing below is committed; it all ran in a scratch directory.
+## Reproducing
 
 ```sh
 export PATH="$HOME/.local/swift/swift-6.2-RELEASE-ubuntu24.04/usr/bin:$PATH"
 
-# The radio, against a real cube. Quit Facet on the Mac first -- one connection at a time.
+swift build                  # the core, FacetLinux, and the three system-library targets
+swift test                   # 1,417 tests here, 1,885 on the Mac
+
+.build/debug/FacetLinux      # the app: tray item, cube, database
+
+# The cube with no app in the way. Quit Facet on both machines first -- one connection at a time.
 python3 scripts/linux-ble-probe.py
+
+# The tray, without a mouse
+python3 scripts/tray-menu.py                  # every line, with whether it is sensitive
+python3 scripts/tray-menu.py --press "Quit"   # choose one, by label
 ```
 
-The compile and test spike was assembled by computing the closed set of source files, copying them to a
-scratch package with a `CSQLite` system-library target, applying the three Foundation fixes, and adding
-the test files that reference only closed-set types. It is not checked in, being a measurement rather
-than an artefact. The findings above are what it produced.
+**The original compile-and-test spike is not committed**, being a measurement rather than an artefact. It was
+assembled by computing the closed set of source files, copying them to a scratch package with a hand-written
+sqlite modulemap, applying the three Foundation fixes, and adding the test files that referenced only
+closed-set types. Everything it established is above, and everything it built has since been replaced by the
+real targets.

@@ -5,9 +5,15 @@ import Foundation
 /// The login keyring, reached through `secret-tool`. **The Linux stand-in for the Keychain**, and the one
 /// place the two stores that need it go through.
 ///
-/// `DevicePINStore` and `GoogleTokenStore` keep their Darwin bodies and branch to this at compile time,
-/// which is the shape `docs/linux-port.md` item 7 settled on: both are enum namespaces of static
-/// functions, so a platform branch inside them costs no call site anything and no runtime seam is needed.
+/// **Handed over by `main.swift`, and nothing above it knows which store it got.** `DevicePINStore` and
+/// `GoogleTokenStore` take a `SecretStore` and name neither adapter; the macOS root passes
+/// `KeychainSecretStore` at the same point. That is `CLAUDE.md` under *The core is platform-blind*: the core
+/// states what it needs as a protocol and something outside hands over the thing that does it.
+///
+/// **This comment used to describe the arrangement that rule exists to forbid** -- both stores keeping Darwin
+/// bodies and branching here at compile time, which is what `docs/linux-port.md` item 7 originally settled on.
+/// The stores lost their conditionals when this moved out of `FacetCore` on 2026-09-10, along with the
+/// `SecretStores.platform` that had chosen between the two.
 ///
 /// **Why a subprocess and not the library.** libsecret's simple API -- `secret_password_store_sync` and
 /// friends -- is **variadic C**, which Swift cannot call at all (measured against

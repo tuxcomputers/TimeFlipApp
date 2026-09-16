@@ -704,11 +704,11 @@ drives it still here.
 
 ### The scripted suite is set aside until the Linux port is finished
 
-**Superseded, and widened, on 2026-09-09.** This section first said the re-stamp waited on the end of this
-review. The owner has since set the suite aside for the whole of the Linux port and will say when it comes
-back, so the trigger is not a milestone in this document at all. **The rule lives in `CLAUDE.md`**, under
-*The scripted suite is set aside until the Linux port is finished*, and that is the authority; what is below
-is only why it costs nothing.
+**Superseded twice, most recently on 2026-09-16.** This section first said the re-stamp waited on the end of
+this review; the owner then set the suite aside for the whole of the Linux port, and has since narrowed that to
+a priority: low, not edited and not run until confirming a feature genuinely requires it. Either way the
+trigger is not a milestone in this document. **The rule lives in `CLAUDE.md`**, under
+*The scripted suite is low priority until the Linux port is finished*, and that is the authority; what is below is only why it costs nothing.
 
 **`All tests pass` stays red until then, and that is the intended state rather than an outstanding job.**
 Candidate 7 changed `Package.swift`, which `scripts/check_interactive_checklists.sh` watches whole, so the

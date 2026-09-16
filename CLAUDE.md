@@ -437,11 +437,17 @@ written from, and `Tests/Scripted/last-run-mac.md` is the committed stamp of the
 **Never launch `Tests/Scripted/run.sh` yourself.** It drives the real mouse and keyboard on the
 owner's screen and needs a person to turn the cube. Ask, and watch the logs.
 
-### The scripted suite is set aside until the Linux port is finished (2026-09-09)
+### The scripted suite is low priority until the Linux port is finished (2026-09-16)
 
-**Do not ask for a scripted run, and do not treat the stale stamp as an outstanding job.** The owner has set
-the suite aside for the duration of the Linux port and **will say when it comes back**. Until then it is not
-a thing to chase, mention as a blocker, or plan around.
+**Do not edit it and do not ask for a run until confirming a feature works genuinely requires one.** Set by
+the owner on 2026-09-16: *the scripted tests are to be given a lower priority, they don't need to be edited or
+run until it is absolutely necessary to confirm the feature works as expected.* It is not a thing to chase,
+mention as a blocker, or plan around.
+
+**This replaces the 2026-09-09 wording, which said the suite was set aside entirely and not to be asked for at
+all.** The difference is narrow and real: this is a priority rather than a freeze, so a run is available when a
+feature genuinely cannot be confirmed any other way. Run 183 on 2026-09-13 is an instance of that, and is why
+the older wording and `Tests/Scripted/last-run-mac.md` had come to disagree.
 
 What follows from that, and each of these has already come up once:
 
@@ -454,12 +460,17 @@ What follows from that, and each of these has already come up once:
   green one that is arranged. Leaving it red is the whole of the instruction.
 - **`swift test` is unaffected and still the thing to run.** Hermetic, both platforms, every change. Nothing
   here relaxes that.
-- **Say plainly what has and has not been confirmed on hardware.** The suite being set aside does not make a
+- **Do not edit the suite either**, which the 2026-09-09 wording did not say. Not `lib.sh`, `run.sh`,
+  `platform.sh` or a check script, and not as tidy-up alongside unrelated work. A check that cannot be run
+  cannot be validated, and editing that layer blind is what handover items 23 and 24 cost in the other
+  direction. A known fault in there waits for the run that would exercise it: `lib.sh`'s `quit_app` bypasses
+  `platform_quit_app` and is item 24 of `docs/linux-port.md`.
+- **Say plainly what has and has not been confirmed on hardware.** The suite being low priority does not make a
   device-dependent change verified. It makes it *unverified and deliberately so*, which is a different
   sentence and the one to write.
 
-**When it comes back**, one run clears whatever has accumulated: the stamp names a commit and a run at the end
-covers every watched change since, so nothing is lost by the wait. That is why setting it aside is cheap
+**When a run does happen**, one clears whatever has accumulated: the stamp names a commit and a run at the end
+covers every watched change since, so nothing is lost by the wait. That is why deprioritising it is cheap
 rather than a debt.
 
 The previous suite -- the Bench and Interactive checklists, the setup, and the Python harness that
