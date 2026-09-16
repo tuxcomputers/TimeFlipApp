@@ -180,6 +180,27 @@ export PATH="$HOME/.local/swift/swift-6.2-RELEASE-ubuntu24.04/usr/bin:$PATH"
 
 Full per-machine facts are in [systems-info.md](systems-info.md), which is where they belong.
 
+### There is one cube, and it is currently on a PIN only Linux can read
+
+**This gates every device run on the Mac, so it is here rather than only in the handover.** Pairing from Linux
+on 2026-09-13 rotated the cube off the vendor default, which is `DevicePINRules.rotates(from:)` working exactly
+as designed, and **the new PIN is in the Linux box's login keyring where the Mac cannot reach it**. The cube was
+on `000000` before that, confirmed with `scripts/linux-ble-probe.py`, which writes nothing.
+
+**Taking the batteries out and putting them back returns it to `000000`** (measured 2026-08-11, in
+[timeflip2-firmware-observations.md](timeflip2-firmware-observations.md)), and the Mac's reconnect candidates
+already append the vendor default, so a pairing from that side simply works again afterwards. **Until somebody
+does that, a Mac scripted run cannot log in**, which is worth knowing before planning one for item 18.
+
+**What else the Linux pairing left on the cube**, said out loud rather than assumed: the face colours are this
+box's twelve, LED brightness 50%, blink period 15s, and **auto-pause is zero where it was five minutes**. Only
+two of those twelve faces carry a category on the Linux side (`Break` on 8, `Meeting` on 2), so a Mac pairing
+re-sends its own. Nothing else was changed on purpose.
+
+**One cube between two machines is a constraint the port has, not an incidental.** Only one host may hold the
+link at a time, so a run on either machine means quitting Facet on the other first, and whichever paired last
+owns the PIN.
+
 ---
 
 ## Found: the radio works
@@ -893,7 +914,9 @@ and **there is no port to fill for it** -- `architecture-ports-plan.md` item 6 h
 honest statement about the rest is that it is view construction and tab wiring, which is what an adapter is
 *for*. So a Linux Settings window is built rather than slotted into, and **the decisions it makes that are
 worth sharing should come out into the core as they are found**, which is the standing instruction in
-[handover-linux.md](handover-linux.md) item 22.
+[handover-linux.md](handover-linux.md) item 22 -- the one item on that side's list, and a warning rather than
+a task. Two more decisions came out of the window after it was written (`ManualClock` and `CubeReports`), and
+both are why the file keeps shrinking.
 
 Next in size order: the Settings window and its five tabs, then Report.
 
@@ -1017,9 +1040,16 @@ write the cube had in fact taken.
 without a `commandResult: read requested` before it -- and that is answerable from a trace already held.
 **Under item 12's priority, do the trace half and leave the run.**
 
+**The run half is blocked anyway until the cube's batteries are pulled**, the cube being on a PIN only the
+Linux keyring holds -- see [there is one cube](#there-is-one-cube-and-it-is-currently-on-a-pin-only-linux-can-read)
+above. That is [handover-mac.md](handover-mac.md) item 26, and it is a thing to do before planning a run rather
+than a reason not to.
+
 ### 19 - macOS - The history timer never restarts when a cube arrives late
 
-**Confirmed in the source on 2026-09-16**, and it is a Mac bug the Linux side does not have.
+**Raised by the Linux box as [handover-mac.md](handover-mac.md) item 28 and confirmed in the source on
+2026-09-16**, and it is a Mac bug the Linux side does not have. That item ends *I have not touched `FacetMac`.
+If I have read it wrong, say so here and I will take the item back* -- it read it right.
 
 `HistoryTimer.start()` stands itself down when `hasSomethingToFollow()` is false, which at launch means no open
 segment and `connection.connected` not set -- every launch whose cube is out of range at the time. The only
@@ -1039,10 +1069,10 @@ Mac's to make because nothing here can exercise `SettingsWindowController`.
 
 ### 20 - macOS - Remove the twelve compiler artefacts at the repository root
 
-`AlertPresenter-2.d`, `.dia`, `.swiftdeps` and `.swiftmodule`, and the same four each for
-`CoreBluetoothGatt-2` and `RunLoopScheduler-2`. **Tracked, not ignored**, and they arrived in `db58b96` ("All
-nineteen alerts onto the port"): about 250 KB of intermediate output from a macOS build that wrote into the
-working directory.
+**[handover-mac.md](handover-mac.md) item 27.** `AlertPresenter-2.d`, `.dia`, `.swiftdeps` and
+`.swiftmodule`, and the same four each for `CoreBluetoothGatt-2` and `RunLoopScheduler-2`. **Tracked, not
+ignored**, and they arrived in `db58b96` ("All nineteen alerts onto the port"): about 250 KB of intermediate
+output from a macOS build that wrote into the working directory. Still present, confirmed 2026-09-16.
 
 `git rm` on the twelve and a line in `.gitignore` is the whole of it, **unless the build that produced them is
 still writing there**, in which case that is the thing to fix. It is the Mac's because they came off a Mac
@@ -1095,7 +1125,8 @@ argument got stronger rather than wonder which figure to trust.
 
 ### 24 - macOS - `lib.sh`'s `quit_app` bypasses `platform_quit_app`
 
-**Mac work that blocks item 12 outright.** `Tests/Scripted/platform.sh` exists so a check says *quit the app*
+**[handover-mac.md](handover-mac.md) item 30, and Mac work that blocks item 12 outright.**
+`Tests/Scripted/platform.sh` exists so a check says *quit the app*
 and one file decides what that means. `run.sh` calls `platform_quit_app`; **every check script calls `lib.sh`'s
 `quit_app`**, which clicks the status item and presses `quit-app` itself, both macOS-only:
 
