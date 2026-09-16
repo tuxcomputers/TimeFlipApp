@@ -388,6 +388,13 @@ something it needs.
       `gtk_message_dialog_format_secondary_text` both take a printf format, which Swift cannot call -- the same wall
       `CDBus` met with `dbus_message_append_args`. `"%s"` is passed in C and the string travels as an argument, which
       is also the only safe way: a heading containing a `%` would otherwise be read as a conversion.
+**The claim above was tested by a second window, and it held** (2026-09-16). `Sources/FacetLinux` grew all five
+Settings tabs, and what they needed from this arm was nothing: the dialogue port was already there, and five more
+decisions came out of `SettingsWindowController` into the core as they were found -- `CategoryEdits`, `FaceEdits`,
+`ReportReadout`, `AppSettingWrite` and `DeviceSettingRows`. None of them is a port. They are decisions that were
+in the wrong file, which is what item 22 of `docs/handover-linux.md` predicted a second window would surface, and
+the reason the Mac's file keeps shrinking.
+
 ### The panes
 
 - [x] **The settings-write sequence, which was the biggest cluster in the window.** Eight rows on the Device
@@ -404,7 +411,7 @@ something it needs.
       tests failed. Those rows are read back with SQL `LIKE` patterns by `Tests/Scripted`, which is set
       aside and so cannot complain, and `label: verb value` is now a documented part of the interface.
 
-- [ ] ~~`applyDoubleTapEnabled`.~~ **Struck: it does not fold** (owner agreed, 2026-09-10). It writes
+- [x] ~~`applyDoubleTapEnabled`.~~ **Struck: it does not fold** (owner agreed, 2026-09-10). It writes
       `Double tap: turning it off, sending <the four>` where `send` fixes the verb at `sending`, and the
       verb is carrying information rather than decorating: `59-double-tap` check 13 asserts *zero* rows
       matching `Double tap: sending%`, which works only because the register path and the box path open
@@ -418,8 +425,10 @@ something it needs.
       to keep sitting; and the two failure paths, which named the setting two different ways, now name it
       once. The third was free, nothing reading the no-radio row.
 - [ ] `renameDevice` / `sendRename` is the eighth, and the odd one: its read-back is functional rather than
-      a command, so it does not fit `send` as it stands.
-- [ ] ~~The rest of the window is view construction and tab wiring.~~ **Struck: it is not work.** That is
+      a command, so it does not fit `send` as it stands. **Wanted now rather than eventually**: the Linux Device
+      tab is built and has no rename control, because the decision is in `SettingsWindowController` and that box
+      cannot compile it (`docs/linux-port.md` item 17, `docs/handover-mac.md`).
+- [x] ~~The rest of the window is view construction and tab wiring.~~ **Struck: it is not work.** That is
       what an adapter is *for*, so the sentence was saying the code is already where it belongs while
       wearing an unticked box. Moving any of it would be making the number smaller rather than making
       the model truer.
