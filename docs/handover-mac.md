@@ -63,26 +63,6 @@ exchange the write *is* the question -- and gained one for the window. 737 tests
 at whether any `0x10` on the Mac ever answered without a `commandResult: read requested` before it.
 That last one is answerable from a trace you already have, without a cube.
 
-## 28. Does a pairing on the Mac ever restart the history timer? I think it cannot
-
-`historyTimer.start()` at launch does nothing when nothing is being timed and no cube is connected,
-which is every launch whose cube is out of range at the time. `resumeIfStopped()` is reached only
-from `settingsWindow.onTimingChanged`, and reading the eight places that fires -- a rename, a limit
-raised, a retire, the Timing column, a face given a category, the manual toggle -- none of them is a
-cube connecting. `CubeReports.changed` on your side is `devicePane?.show(deviceSettings())` and
-nothing more.
-
-So a Mac launch that finds its cube a minute later looks to me like one whose periodic history fetch
-stays dead for the rest of the session. Not fatal, because `onCubeReady` fetches once when the link
-comes up and `onFace` fetches on every turn -- which is why it would never be noticed -- but
-`fetch_history_interval_seconds` is a safety net and it would not be there.
-
-**On this side it is wired and it visibly works**: `onLoginEnded` calls `historyTimer.resumeIfStopped()`
-after the pairing rows, and the trace goes *History timer not started, nothing is being timed* at
-launch and *History timer started, asking every 10s* the moment the cube is paired.
-
-I have not touched `FacetMac`. If I have read it wrong, say so here and I will take the item back.
-
 ## 30. `lib.sh`'s `quit_app` never reaches `platform_quit_app`, and is the worse of the two
 
 Two implementations of one operation, which is what `platform.sh` exists to prevent. `run.sh` calls
