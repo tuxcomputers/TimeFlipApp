@@ -20,16 +20,15 @@ import Foundation
 /// has to be a widget filling the title row rather than a string GTK sizes to its text. `facet_expander_set_label_widget`
 /// is that, and it is why there is a shim for a two-line call.
 ///
+/// **Nothing here restores a default fold**, which the Mac's `PanelSection` has to: its panes are made once and
+/// reused, so a section left open stays open into the next Settings window. This window is built on each open and
+/// destroyed on each close, so a fresh section starts at its default because it is fresh.
+///
 /// **What it does not have is the Mac's `Metrics`.** That exists there because the App tab used to inset its rows
 /// differently; every tab takes the same inset now, so there is one set of numbers and they are read from
 /// `SettingsMetrics`.
 @MainActor
 final class PanelSection {
-    /// What the section was built folded or open as. **Not a value that needs restoring here**: the window is built
-    /// on each open and destroyed on each close, so a fresh section starts at its default without anybody putting it
-    /// back -- which is what `restoreDefaultSectionStates` is for on the Mac, where the panes outlive the window.
-    private let defaultExpanded: Bool
-
     /// The expander, which is the panel as well: the style class is on it, so folding takes the tint with it.
     let widget: UnsafeMutablePointer<GtkWidget>
 
@@ -60,7 +59,6 @@ final class PanelSection {
         isExpanded: Bool,
         content: UnsafeMutablePointer<GtkWidget>
     ) {
-        defaultExpanded = isExpanded
         widget = gtk_expander_new(nil)!
         // **The name a check addresses it by**, which on this platform is the widget name rather than an
         // `AXIdentifier`: `Tests/Methods.md` Method 15 reads `name` off an AT-SPI node and GTK answers it with this.

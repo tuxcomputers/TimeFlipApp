@@ -34,7 +34,9 @@ final class RetiredCategoryTable {
     /// table will take.
     var onRename: ((CategoryRecord, String) -> Void)?
 
-    private(set) var nameCells: [EditableNameCell] = []
+    /// Held for the reason the Active list's are: a cell nobody keeps takes its handlers with it while its entry
+    /// is still on screen. See `CategoryTable.nameCells`.
+    private var nameCells: [EditableNameCell] = []
 
     init() {
         widget = SettingsWidgets.column()

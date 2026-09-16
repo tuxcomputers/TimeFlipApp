@@ -52,8 +52,13 @@ final class CategoryTable {
     var onPickIcon: ((CategoryRecord, UnsafeMutablePointer<GtkWidget>) -> Void)?
     var onPickColour: ((CategoryRecord, UnsafeMutablePointer<GtkWidget>) -> Void)?
 
-    /// The name cells on show, so the window can ask whether anything is being typed into.
-    private(set) var nameCells: [EditableNameCell] = []
+    /// The name cells on show, held because nothing else holds them.
+    ///
+    /// **A lifetime, not a list to read.** An `EditableNameCell` owns the `GtkSignals` carrying its handlers, and
+    /// GTK retains the widgets rather than the Swift object around them -- so a cell nobody keeps is deallocated
+    /// with its handlers while its entry is still on screen, which is a press reaching a pointer to nothing.
+    /// Cleared as the rows are destroyed, and never before.
+    private var nameCells: [EditableNameCell] = []
 
     init() {
         widget = SettingsWidgets.column()
