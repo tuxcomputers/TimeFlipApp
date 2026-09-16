@@ -48,6 +48,10 @@ final class SettingsWindow {
         var isReachingForCube: () -> Bool
         var pair: () -> Void
         var forget: () -> Void
+        /// Wipes the cube, and answers what became of it. **The outcome comes back rather than being acted on**,
+        /// because what to say about it is `FactoryResetOutcome.message(for:)` and what to do about it is the
+        /// window's: only a confirmed wipe gives the cube up.
+        var reset: (@escaping @MainActor (FactoryResetOutcome) -> Void) -> Void
     }
     private let categoryEdits: CategoryEdits
     private let faceEdits: FaceEdits
@@ -79,6 +83,36 @@ final class SettingsWindow {
     /// counting. **Held so it can be stopped**, which is the whole of what it is for: a wake a second repainting a
     /// pane nobody is looking at is the kind of thing nothing ever notices.
     private var tick: ScheduledWake?
+
+    /// Asks before wiping a cube, and acts on the answer.
+    ///
+    /// **The question is `CubeResetQuestion`'s and the wording of every ending is
+    /// `FactoryResetOutcome.message(for:)`'s**, both in the core, so the two platforms make the same promise about
+    /// the most destructive control the app has. What is here is the order: ask, send, and give the cube up only
+    /// for a wipe that was proven.
+    private func confirmReset() {
+        dialogues.ask(CubeResetQuestion.dialogue, offering: CubeResetQuestion.answers) { [weak self] answer in
+            guard let self else { return }
+            guard answer == true else {
+                debugLog?.record(.pair, "Button clicked: Cancel, the cube was not reset")
+                return
+            }
+            let name = settings.string("device_name", field: "name") ?? "the cube"
+            deviceReadings.reset { [weak self] outcome in
+                guard let self else { return }
+                debugLog?.record(.pair, "The reset ended: \(outcome)")
+                // **Only a confirmed wipe gives the cube up**, which is `FactoryResetOutcome`'s whole point: sent
+                // and erased are different claims, and throwing away a cube's name on the strength of a command
+                // that may never have landed is the mistake that distinction exists to stop.
+                if outcome == .confirmed {
+                    DevicePairingRecorder(settings: settings, debugLog: debugLog).recordFactoryReset()
+                    onTimingChanged?()
+                }
+                deviceChanged()
+                dialogues.tell(Dialogue(title: "Reset", message: outcome.message(for: name)))
+            }
+        }
+    }
 
     /// The cube connected, dropped, or said what it is. **Not a setting the window holds**, which is the licence's
     /// own boundary: what the app changes behind the window goes on being read on its own terms.
@@ -211,6 +245,7 @@ final class SettingsWindow {
                 self?.deviceChanged()
                 self?.onTimingChanged?()
             },
+            reset: { [weak self] in self?.confirmReset() },
             debugLog: debugLog
         )
 

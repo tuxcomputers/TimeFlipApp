@@ -83,11 +83,10 @@ order; [what each machine owes](#what-each-machine-owes) is the same list split 
       **Done, and proven on the cube 2026-09-13.**
 - [x] **[11](#11---linux---the-ui-filling-the-gtk-slots)** - Linux - The UI: filling the GTK slots. **The menu
       bar, the dialogues and all five Settings tabs, built and confirmed on screen 2026-09-16**, four of them
-      against a real cube. Three controls are deliberately absent and each says which item has to land first:
-      Google sign-in ([16](#16---macos--linux---split-googleloopbacklistener) then
-      [15](#15---linux---google-sign-in-on-linux)), the cube rename
-      ([17](#17---macos---renamedevice-onto-devicesettingwrite)), and a factory reset, which this radio has no path
-      for.
+      against a real cube, **the factory reset among them**. Two controls are deliberately absent and each says
+      which item has to land first: Google sign-in ([16](#16---macos--linux---split-googleloopbacklistener) then
+      [15](#15---linux---google-sign-in-on-linux)) and the cube rename
+      ([17](#17---macos---renamedevice-onto-devicesettingwrite)).
 - [ ] **[12](#12---linux---the-scripted-suite-on-linux)** - Linux - The scripted suite on Linux.
       **Deliberately low priority (owner, 2026-09-16)**: neither the suite nor its Linux half is edited or run
       until confirming a feature genuinely needs it.
@@ -920,10 +919,19 @@ it, each because something else has to happen first rather than because it was s
 |---|---|---|
 | The App tab's **Google section** | The sign-in needs a listener the core still picks for itself, which is item [16](#16---macos--linux---split-googleloopbacklistener) and then [15](#15---linux---google-sign-in-on-linux) | The Mac's half first |
 | The Device tab's **rename control** | Its decision is inside `SettingsWindowController`, which this box cannot compile. Item [17](#17---macos---renamedevice-onto-devicesettingwrite) says plainly it is wanted the moment a Linux window wants the control. **This is that moment** | The Mac |
-| The Device tab's **factory reset** and the **double-tap registers** | `BlueZCubeRadio` has no reset path, so there is nothing to offer; the registers have a second gate of their own and their one folding decision is struck in `architecture-ports-plan.md` | Here, later |
+| The Device tab's **double-tap registers** | They have a second gate of their own and their one folding decision is struck in `architecture-ports-plan.md` | Here, later |
 
-**A dead control is never drawn for any of them**, which is the same judgement `StatusItemMenu` already makes: there
-is no section rather than one that cannot do anything.
+**A dead control is never drawn for either of them**, which is the same judgement `StatusItemMenu` already makes:
+there is no section rather than one that cannot do anything.
+
+**The factory reset was on that list for an hour and is not any more** (2026-09-16). It was left out because
+`BlueZCubeRadio` had no path for one -- which was true, and the radio said so in its own doc comment, written when
+this platform had no window to ask from. It has one now. What the reset took was transport and nothing else:
+`DeviceLogin.factoryReset` sends `0xFF` and `CubeResetProof` decides what counts as proof, both already core
+because neither is a question about CoreBluetooth or BlueZ. **Confirmed on the cube the same day**, and the trace
+is the whole sequence: the command out, the link dropped because the cube rebooted, two attempts on the vendor PIN,
+and `the cube let the app in on the vendor PIN, so the wipe took`. The tab then redrew itself to *Not paired* and
+the Settings section went dead, which is the table being read back rather than the window assuming.
 
 **What came out into the core, and every piece of it has tests it never had before**: `CategoryEdits` (30),
 `FaceEdits` (14), `ReportReadout` (6), `AppSettingWrite` (6), `DeviceSettingRows` (7). All five were decisions

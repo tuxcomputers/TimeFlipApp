@@ -18,13 +18,16 @@ import Foundation
 /// it is a section about a cube, so it answers the question about a cube the same way in every row of it. A row
 /// staying live because of how it happens to be stored would ask somebody to work out which kind each row is.
 ///
-/// **Three things the Mac has that are not here yet**, each named rather than quietly missing:
+/// **Two things the Mac has that are not here yet**, each named rather than quietly missing:
 /// - **Renaming the cube.** Its decision is still inside `SettingsWindowController`, which this box cannot compile;
 ///   item 17 of `docs/linux-port.md` is the Mac folding it onto `DeviceSettingWrite`, and the item says plainly that
 ///   it is wanted the moment a Linux Settings window wants a rename control. This is that moment.
-/// - **A factory reset.** `BlueZCubeRadio` has no path for one, so there is nothing to offer.
 /// - **The four double-tap registers.** They have a second gate of their own on the Mac and the one folding decision
 ///   about them is struck in `docs/architecture-ports-plan.md`; they wait for a device run rather than a window.
+///
+/// **The factory reset was the third until 2026-09-16**, when the radio grew one: `BlueZCubeRadio.factoryReset`
+/// drives `CubeResetProof` and `DeviceLogin.factoryReset`, both core. Confirmed on the cube the same day -- the
+/// command went out, the cube rebooted, and it came back on the vendor PIN, which is the only proof there is.
 @MainActor
 final class DevicePane {
     let widget: UnsafeMutablePointer<GtkWidget>
@@ -53,6 +56,7 @@ final class DevicePane {
     private let isReachingForCube: () -> Bool
     private let pair: () -> Void
     private let forget: () -> Void
+    private let reset: () -> Void
 
     /// The three boxes whose *contents* are thrown away on every redraw, and nothing else.
     ///
@@ -90,6 +94,7 @@ final class DevicePane {
         isReachingForCube: @escaping () -> Bool,
         pair: @escaping () -> Void,
         forget: @escaping () -> Void,
+        reset: @escaping () -> Void,
         debugLog: DebugLog?
     ) {
         self.settings = settings
@@ -98,6 +103,7 @@ final class DevicePane {
         self.isReachingForCube = isReachingForCube
         self.pair = pair
         self.forget = forget
+        self.reset = reset
         self.debugLog = debugLog
 
         widget = SettingsWidgets.column(spacing: Int(SettingsMetrics.sectionSpacing))
@@ -259,6 +265,25 @@ final class DevicePane {
                 self?.forget()
             }
             facet_box_pack_start(controls, button, 0, 0, 0)
+
+            // **Only while the cube is actually connected**, which is `DevicePairingRules.allowsReset` and is
+            // stricter than forgetting: forgetting is a change to this app's own record and can be made about a
+            // cube nobody can hear, where a wipe is a command that has to reach one.
+            let wipe = gtk_button_new_with_label("Reset device")!
+            SettingsWidgets.identify(wipe, "device-reset")
+            gtk_widget_set_sensitive(
+                wipe,
+                DevicePairingRules.allowsReset(
+                    isCubePaired: values.isCubePaired,
+                    isCubeConnected: values.isCubeConnected,
+                    isReachingForCube: isReachingForCube()
+                ) ? 1 : 0
+            )
+            signals.connect(wipe, "clicked") { [weak self] in
+                self?.debugLog?.record(.pair, "Button clicked: Reset device")
+                self?.reset()
+            }
+            facet_box_pack_start(controls, wipe, 0, 0, 0)
         }
     }
 

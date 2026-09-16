@@ -247,3 +247,16 @@ It was watched on hardware, producing a log row and nothing on screen.
 `windowMinimumHeight` (item 32), and `ManualTimerRules`/`CubePauseState` symbol names are turned into characters in
 one place on this side rather than two -- the Mac has one such place too, `StatusItemTitle`'s callers, and it is
 already fine.
+
+## 36. The cube is back on the vendor PIN, so you can pair with it again
+
+**Reset from the Linux box on 2026-09-16**, through the Device tab's new *Reset device* control, and confirmed:
+the command went out, the cube rebooted, and it came back on the vendor default, which is the only proof `0xFF`
+can ever give.
+
+**Why you want to know.** Pairing from here earlier in the day rotated its PIN to a random six digits held in this
+machine's keyring, which would have left the Mac unable to log in. The reset undid that -- the cube now holds the
+factory password and `DeviceLoginRules.candidates` puts it first, so a pairing from the Mac should simply work.
+
+**What went with it** is what a wipe takes: the face colours, the task settings and the name. The name is not lost
+to the app, `DevicePairingRecorder.recordFactoryReset` moving it into `previous_name` rather than discarding it.

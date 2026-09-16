@@ -23,9 +23,10 @@ import Foundation
 /// reads the tree instead. `CLAUDE.md` asks a repeating read to say so, and this is it: what is on the timer is the
 /// bus, and every answer still comes from BlueZ at the moment it is asked for.
 ///
-/// **What is missing, said plainly rather than left to be discovered.** There is no factory reset here, because
-/// nothing on this platform can ask for one yet -- the reset is a Device tab control and this platform has no
-/// window. `isFactoryResetRunning` therefore answers `false` and means it.
+/// **The factory reset is here as of 2026-09-16**, which is the day this platform grew the Device tab that asks
+/// for one. It used to say there was none, and meant it: the reset is a window control and there was no window.
+/// What it takes is transport and nothing else -- `DeviceLogin.factoryReset` sends the command and `CubeResetProof`
+/// decides what counts as proof, both in the core, because neither is a question about CoreBluetooth or BlueZ.
 @MainActor
 final class BlueZCubeRadio: CubeRadio {
     // MARK: - what it says happened
@@ -91,7 +92,7 @@ final class BlueZCubeRadio: CubeRadio {
     /// does not have; there is no path here that starts one, so there is none to be waiting on. `DeviceReconnector`
     /// reads this to decide whether to stand down, and standing down for something that cannot be happening would
     /// be a loop that never runs.
-    var isFactoryResetRunning: Bool { false }
+    var isFactoryResetRunning: Bool { resetProof?.isRunning ?? false }
 
     /// What this scan has seen. **Not a fact being remembered**: it is the last answer BlueZ gave, kept only so a
     /// change can be published, and `forgetWhatWasFound` empties it.
@@ -151,6 +152,13 @@ final class BlueZCubeRadio: CubeRadio {
     private var linkPoll: ScheduledWake?
 
     private var login: DeviceLogin?
+
+    /// The reset in flight, and which cube it is about.
+    ///
+    /// **The handle is kept here because only this side needs it**: the proof decides the sequence and nothing
+    /// about how to reach a device, so resolving one stays on the adapter. Cleared by the proof finishing.
+    private var resetProof: CubeResetProof?
+    private var resetTarget: DeviceHandle?
 
     init(link: BlueZLink, scheduler: Scheduler, debugLog: DebugLog?) {
         self.link = link
@@ -412,6 +420,14 @@ final class BlueZCubeRadio: CubeRadio {
     }
 
     private func loginEnded(_ id: DeviceHandle, _ outcome: DeviceLoginOutcome) {
+        // **A reset confirmation is not a login anybody asked for**, so it reports through its own channel and none
+        // of the connect callbacks fire. A cube that did not answer this time is not a failure either: it may still
+        // be rebooting, and the proof is what decides when to give up.
+        if let resetProof, resetProof.isRunning, resetTarget == id {
+            attempt = nil
+            resetProof.loginEnded(outcome)
+            return
+        }
         guard outcome != .loggedIn else {
             connectedDevice = id
             attempt = nil
@@ -516,6 +532,13 @@ final class BlueZCubeRadio: CubeRadio {
         batteryPercent = nil
         cubeStatus = nil
         debugLog?.record(.status, "The link went: \(reason)")
+        // **The cube rebooting is what a reset looks like from here**, so this drop is the sequence proceeding
+        // rather than a device going away. Reported as neither, and answered by reaching for it again.
+        if let resetProof, resetProof.isRunning, resetTarget == id {
+            debugLog?.record(.pair, "The cube dropped the link, which is it rebooting after the reset")
+            resetProof.linkDropped()
+            return
+        }
         onLinkEnded?(id)
         guard !isDisconnectingDeliberately else { return }
         onConnectionDropped?(id)
@@ -525,6 +548,47 @@ final class BlueZCubeRadio: CubeRadio {
     ///
     /// **The one deliberate way a link ends on this platform.** The Mac has three -- the Settings window closing,
     /// another device being chosen on the Device tab, and the quit -- and none of the first two exists here.
+    /// Wipes the cube back to the factory, and proves it.
+    ///
+    /// **The command cannot be confirmed the way every other one is**, which is why this is a sequence rather than
+    /// a write: `0xFF` reboots the cube without writing a fresh command result, so the acknowledgement says only
+    /// that the bytes arrived (`DeviceLoginRules.factoryReset`). The proof is functional -- the cube coming back on
+    /// the **vendor** PIN -- and `CubeResetProof` is what waits for it.
+    ///
+    /// **Only the vendor default is presented on the way back**, which is the core's rule and this obeys by handing
+    /// an `Attempt` no candidates: `Attempt.pin` answers the default for an empty list. Offering the stored PIN as
+    /// well would let a cube that ignored the command log in and be counted as proof.
+    func factoryReset(_ reported: @escaping (FactoryResetOutcome) -> Void) {
+        guard let id = connectedDevice, let login else {
+            debugLog?.record(.pair, "Asked to reset with no cube connected")
+            reported(.notSent)
+            return
+        }
+        resetTarget = id
+        let proof = CubeResetProof(
+            scheduler: scheduler,
+            sendReset: { [weak login] answered in
+                guard let login else { return answered(false) }
+                login.factoryReset(answered)
+            },
+            letGo: { [weak self] reason in self?.disconnect(because: reason) },
+            tryVendorPIN: { [weak self] in
+                guard let self, let id = resetTarget else { return }
+                attempt = Attempt(id: id, candidates: [], rotatingTo: nil)
+                connectToTheAttempt()
+            },
+            debugLog: debugLog
+        )
+        resetProof = proof
+        proof.begin { [weak self] outcome in
+            guard let self else { return }
+            // The connect machinery this side owns, torn down whichever way the proof went.
+            attempt = nil
+            resetTarget = nil
+            reported(outcome)
+        }
+    }
+
     func disconnect(because reason: String) {
         guard let id = connectedDevice else { return }
         try? link.disconnect(id)

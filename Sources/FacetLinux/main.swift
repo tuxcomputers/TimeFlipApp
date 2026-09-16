@@ -477,6 +477,13 @@ let settingsWindow = SettingsWindow(
             // before the menu bar, the menu bar's dropdown being what opens the window, so naming it in this closure
             // is a cycle the compiler refuses. The window calls `onTimingChanged` after this, which is the same
             // funnel and is assigned once the bar exists.
+        },
+        // **The wipe, and its outcome handed straight back.** What the three endings mean and what to say about
+        // each is the core's (`FactoryResetOutcome`); what is here is that there is no cube to send it to when
+        // there is no radio at all.
+        reset: { reported in
+            guard let radio else { return reported(.notSent) }
+            radio.factoryReset(reported)
         }
     ),
     categoryEdits: categoryEdits,
