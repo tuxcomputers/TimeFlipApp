@@ -141,6 +141,13 @@ static inline GList *facet_container_children(GtkWidget *container) {
     return gtk_container_get_children(GTK_CONTAINER(container));
 }
 
+/* A widget drawn on top of another, which is how a category's icon sits on its colour: the swatch is a
+   drawing area and the icon is an image, and neither has to know about the other. `gtk_overlay_add_overlay`
+   takes the container rather than the overlay, so it is a cast like the rest. */
+static inline void facet_overlay_add(GtkWidget *overlay, GtkWidget *child) {
+    gtk_overlay_add_overlay(GTK_OVERLAY(overlay), child);
+}
+
 static inline void facet_container_remove(GtkWidget *container, GtkWidget *child) {
     gtk_container_remove(GTK_CONTAINER(container), child);
 }
@@ -263,6 +270,16 @@ static inline void facet_label_set_markup(GtkWidget *label, const char *markup) 
 /* A name too long for its column ends in an ellipsis rather than widening the row: the window is one width,
    so something has to give, and a truncated name in a column that stays put reads better than a table that
    shifts from row to row. */
+/* A name too long for one line wraps, and is truncated only past `lines`. The Mac's `nameMaximumLines`,
+   and its reasoning: the second line is used when it is needed rather than reserved, so nothing below the
+   name moves for a one-word category. */
+static inline void facet_label_wrap_lines(GtkWidget *label, int lines) {
+    gtk_label_set_line_wrap(GTK_LABEL(label), TRUE);
+    gtk_label_set_lines(GTK_LABEL(label), lines);
+    gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+    gtk_label_set_justify(GTK_LABEL(label), GTK_JUSTIFY_CENTER);
+}
+
 static inline void facet_label_ellipsize_end(GtkWidget *label) {
     gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
 }

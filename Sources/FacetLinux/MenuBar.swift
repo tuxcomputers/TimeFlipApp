@@ -230,12 +230,13 @@ final class MenuBar {
     ///
     /// **Rendering, and every decision in it was made elsewhere.** The words, whether there is a figure at all,
     /// whether the seconds are in it and whether the line says `Connecting…` are `StatusItemTitle`'s; what is
-    /// decided here is that a Mac's SF Symbol is a character on this platform, and that a category's icon is not
-    /// drawn at all, an `AppIndicator` label being text.
+    /// decided here is that a category's icon is not drawn at all, an `AppIndicator` label being text. Which
+    /// character stands in for a Mac's SF Symbol is `SymbolGlyph`'s, the Faces tab drawing the same three.
     static func line(_ title: StatusItemTitle) -> String {
         [
-            title.lockGlyphName.map { _ in "\u{1F512}" },   // a padlock, drawn in red on a Mac and plain here
-            glyph(for: title.glyphName),
+            // A padlock, drawn in red on a Mac and plain here.
+            SymbolGlyph.character(for: title.lockGlyphName),
+            SymbolGlyph.character(for: title.glyphName),
             title.text,
             title.duration,
         ]
@@ -243,18 +244,6 @@ final class MenuBar {
         .joined(separator: " ")
     }
 
-    /// The SF Symbol names `ManualTimerRules.symbolName` answers, as characters a panel font has.
-    ///
-    /// **Anything unrecognised draws nothing rather than its own name**, which is the same judgement the trace
-    /// makes the other way: a log row falls back to a bare UUID because a reader can look one up, and a menu bar
-    /// cannot show `play.fill` to somebody without it reading as a fault.
-    private static func glyph(for symbolName: String?) -> String? {
-        switch symbolName {
-        case "play.fill": return "\u{25B6}"
-        case "pause.fill": return "\u{23F8}"
-        default: return nil
-        }
-    }
 
     /// Hands the menu to the indicator and does not return: `gtk_main` is the run loop from here.
     func run() -> Never {

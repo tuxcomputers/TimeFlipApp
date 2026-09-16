@@ -33,7 +33,16 @@ final class SettingsWindow {
     private let icons: IconStore
     private let colours: ColourStore
     private let entries: TimeEntryStore
-    private let edits: CategoryEdits
+    private let settings: SettingStore
+    private let timing: TimingReadout
+    private let categoryEdits: CategoryEdits
+    private let faceEdits: FaceEdits
+    private let isLimitReached: () -> Bool
+
+    /// The clock the Faces tab's figure moves on. **Injected, which is what makes it the same one every other tick
+    /// in the app uses** -- the menu bar's repaint, the history timer, the reconnect loop. The Mac reaches for
+    /// `Timer.scheduledTimer` here and is the reason `RunLoop` is on `PlatformBlindCoreTests.bannedSpellings`.
+    private let scheduler: Scheduler
     private let debugLog: DebugLog?
 
     /// What is on screen, or `nil` while the window is shut. **The window and its panes together**, because they
@@ -46,12 +55,15 @@ final class SettingsWindow {
         /// The tabs in the order the notebook holds them, so a page number can be named.
         let tabs: [SettingsTab]
         let categories: CategoriesPane
+        let faces: FacesPane
     }
 
-    private var signals = GtkSignals()
+    /// The once-a-second repaint of the Faces tab's figure, running only while that tab is showing and something is
+    /// counting. **Held so it can be stopped**, which is the whole of what it is for: a wake a second repainting a
+    /// pane nobody is looking at is the kind of thing nothing ever notices.
+    private var tick: ScheduledWake?
 
-    /// Whether the window is up, which is what the menu bar's Settings line would ask if it ever needed to.
-    var isOpen: Bool { shown != nil }
+    private var signals = GtkSignals()
 
     init(
         categories: CategoryStore,
@@ -59,7 +71,12 @@ final class SettingsWindow {
         icons: IconStore,
         colours: ColourStore,
         entries: TimeEntryStore,
-        edits: CategoryEdits,
+        settings: SettingStore,
+        timing: TimingReadout,
+        categoryEdits: CategoryEdits,
+        faceEdits: FaceEdits,
+        isLimitReached: @escaping () -> Bool,
+        scheduler: Scheduler,
         debugLog: DebugLog?
     ) {
         self.categories = categories
@@ -67,7 +84,12 @@ final class SettingsWindow {
         self.icons = icons
         self.colours = colours
         self.entries = entries
-        self.edits = edits
+        self.settings = settings
+        self.timing = timing
+        self.categoryEdits = categoryEdits
+        self.faceEdits = faceEdits
+        self.isLimitReached = isLimitReached
+        self.scheduler = scheduler
         self.debugLog = debugLog
     }
 
@@ -118,13 +140,21 @@ final class SettingsWindow {
             icons: icons,
             colours: colours,
             entries: entries,
-            edits: edits,
+            edits: categoryEdits,
             debugLog: debugLog
+        )
+        let facesPane = FacesPane(
+            categories: categories,
+            timing: timing,
+            settings: settings,
+            edits: faceEdits,
+            categoryEdits: categoryEdits,
+            isLimitReached: isLimitReached
         )
 
         var tabs: [SettingsTab] = []
         for tab in SettingsTab.allCases {
-            guard let pane = pane(for: tab, categories: categoriesPane) else { continue }
+            guard let pane = pane(for: tab, categories: categoriesPane, faces: facesPane) else { continue }
             let label = SettingsWidgets.plainLabel(tab.title)
             SettingsWidgets.identify(label, "settings-tab-\(tab.rawValue)")
             facet_notebook_append_page(notebook, pane, label)
@@ -138,15 +168,19 @@ final class SettingsWindow {
         facet_box_pack_start(content, closeRow(window), 0, 1, 0)
         facet_container_add(window, content)
 
-        shown = Shown(window: window, notebook: notebook, tabs: tabs, categories: categoriesPane)
+        shown = Shown(
+            window: window,
+            notebook: notebook,
+            tabs: tabs,
+            categories: categoriesPane,
+            faces: facesPane
+        )
 
-        // **The lists are read now, with the window built and before it is on screen**, so it never appears empty
-        // and fills in.
-        categoriesPane.reload()
-        // **And read again whenever an edit changes what they hold.** Set on the open and given up on the close:
+        // **Read whenever an edit changes what a list holds.** Set on the open and given up on the close:
         // there is nothing to redraw while the window is shut, and the menu bar's own tick is what keeps the tray
         // current either way.
-        edits.changed = { [weak self] in self?.reloadShownPane() }
+        categoryEdits.changed = { [weak self] in self?.reloadShownPane() }
+        faceEdits.changed = { [weak self] in self?.reloadShownPane() }
 
         facet_on_switch_page(notebook, { _, _, page, data in
             guard let data else { return }
@@ -169,6 +203,11 @@ final class SettingsWindow {
         signals.connect(window, "destroy") { [weak self] in self?.forget() }
 
         gtk_widget_show_all(window)
+        // **The tables are read after the widgets are shown, and that is measured rather than tidy** (2026-09-16):
+        // `gtk_notebook_get_current_page` answers **-1** until its pages have been shown, so a read before this line
+        // found no tab to read and both lists came up empty. Nothing is on screen yet either way -- GTK maps the
+        // window when the main loop next turns -- so this is still before anybody could see an empty pane.
+        reloadShownPane()
         // Logged here rather than left to the page handler, which does not fire for the page a notebook is already
         // on -- and that is every ordinary open. The row is the only evidence of which tab an open landed on, so it
         // says so itself rather than depending on a change happening.
@@ -179,12 +218,18 @@ final class SettingsWindow {
     ///
     /// **A switch rather than a table, so the compiler names the tabs still missing**: adding a case to
     /// `SettingsTab` fails to compile here until somebody has decided what this platform does about it.
-    private func pane(for tab: SettingsTab, categories: CategoriesPane) -> UnsafeMutablePointer<GtkWidget>? {
+    private func pane(
+        for tab: SettingsTab,
+        categories: CategoriesPane,
+        faces: FacesPane
+    ) -> UnsafeMutablePointer<GtkWidget>? {
         switch tab {
+        case .faces:
+            return faces.widget
         case .categories:
             return categories.widget
-        case .faces, .report, .app, .device:
-            // Item 11 of `docs/linux-port.md`, in size order: the Faces tab, then Report, then App and Device.
+        case .report, .app, .device:
+            // Item 11 of `docs/linux-port.md`, in size order: Report, then App and Device.
             return nil
         }
     }
@@ -219,10 +264,50 @@ final class SettingsWindow {
         let page = Int(facet_notebook_get_current_page(shown.notebook))
         guard shown.tabs.indices.contains(page) else { return }
         switch shown.tabs[page] {
+        case .faces:
+            shown.faces.reload()
         case .categories:
             shown.categories.reload()
-        case .faces, .report, .app, .device:
+        case .report, .app, .device:
             break
+        }
+        // **The figure is decided from the reading, not from the gesture that caused it.** A cube turned, a
+        // double-tap, a limit spent and a pause from the tray all arrive as a redraw and any of them can be the
+        // moment the number starts or stops moving -- so this is the one place the tick is decided.
+        keepTicking()
+    }
+
+    /// Starts or stops the once-a-second repaint from one answer, so no caller has to remember both halves.
+    ///
+    /// **Only while the Faces tab is the one on show.** The figure is worked out when it is drawn rather than
+    /// counted up in here, so a tab nobody is looking at misses nothing by not ticking -- and the Mac stops its own
+    /// for the window being off screen, which is the same judgement about the same wake.
+    private func keepTicking() {
+        let shouldTick = shown.map { $0.tabs.indices.contains(Int(facet_notebook_get_current_page($0.notebook)))
+            && $0.tabs[Int(facet_notebook_get_current_page($0.notebook))] == .faces } == true
+            && timing.read().isCounting
+        guard shouldTick else {
+            tick?.cancel()
+            tick = nil
+            return
+        }
+        guard tick == nil else { return }
+        // **A second, because it is a clock**, which is the same exception the menu bar's repaint writes down: there
+        // is no event to hang a running total on, the seconds simply pass. The read itself still goes to the
+        // database every time; what the wake decides is only how often to ask. `mayGroup` is deliberately not given
+        // -- a figure showing seconds that settles alongside some other wake visibly skips one.
+        tick = scheduler.wake(in: 1, repeating: true) { [weak self] in
+            guard let self, let shown else { return }
+            let reading = timing.read()
+            // Stopped behind our back -- a cube double-tapped, a limit reached, a pause from the tray -- and a clock
+            // that kept repainting a frozen figure would be the sort of thing nobody notices. So the tick asks
+            // rather than trusting it was stopped.
+            guard reading.isCounting else {
+                tick?.cancel()
+                tick = nil
+                return
+            }
+            shown.faces.draw(reading)
         }
     }
 
@@ -239,8 +324,13 @@ final class SettingsWindow {
     private func forget() {
         shown = nil
         signals.removeAll()
+        // Nothing to repaint once the window has gone, and a wake that outlived it would be a second a wake for a
+        // pane that no longer exists.
+        tick?.cancel()
+        tick = nil
         // Given up with the window, so an edit made from somewhere else while Settings is shut does not reach a
         // pane that no longer exists.
-        edits.changed = nil
+        categoryEdits.changed = nil
+        faceEdits.changed = nil
     }
 }

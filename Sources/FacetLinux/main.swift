@@ -415,6 +415,21 @@ let statusReadout = StatusItemReadout(
     debugLog: debugLog
 )
 
+// **What the Faces tab does when one of its controls is used**, and core for the same reason `CategoryEdits` is:
+// clicking a category means three different things depending on what the app is doing, and which of them it is is
+// decided once. `togglePause` is in here as well, which is why the dropdown's Pause item reaches it below -- the Mac
+// has the tray and the tab going through one method for exactly that reason, and the previous app had them as two
+// implementations that came to disagree.
+let faceEdits = FaceEdits(
+    faces: faces,
+    timing: timingReadout,
+    events: deviceEvents,
+    isManualMode: isManualMode,
+    isLimitReached: { dailyLimit.isLimitReached },
+    debugLog: debugLog
+)
+faceEdits.faceColours = faceColours
+
 // **The Settings window, built here and put on screen by nothing until somebody asks for it.** A window nobody
 // opens should not exist, which is the Mac's reasoning too -- and on this platform it goes further: the window is
 // built on each open and destroyed on each close, so the next open reads the tables again because there is nothing
@@ -425,7 +440,12 @@ let settingsWindow = SettingsWindow(
     icons: icons,
     colours: colours,
     entries: entries,
-    edits: categoryEdits,
+    settings: settings,
+    timing: timingReadout,
+    categoryEdits: categoryEdits,
+    faceEdits: faceEdits,
+    isLimitReached: { dailyLimit.isLimitReached },
+    scheduler: scheduler,
     debugLog: debugLog
 )
 
@@ -449,21 +469,10 @@ let statusMenu = StatusItemMenu(
     // It is reachable here without a Faces tab: `DailyLimitWatch` closes a manual segment when a category spends
     // its limit, and a launch can inherit one from the other machine. Adopting the shared module also brings the
     // refusal with it -- a resume against a spent limit is refused rather than merely greyed.
-    togglePause: {
-        guard ManualClock.toggle(
-            timing: timingReadout,
-            events: deviceEvents,
-            isLimitReached: dailyLimit.isLimitReached,
-            debugLog: debugLog
-        ) != nil else { return }
-        // **The same funnel `settingsWindow.onTimingChanged` is on the Mac.** Both of these stand themselves down
-        // while nothing is being timed, and this is the one path on this platform that starts the app's own clock:
-        // without the first, a resumed segment would never be grown and the figure would sit still.
-        historyTimer.resumeIfStopped()
-        dailyLimit.resumeIfStopped()
-        // The bar is not redrawn from here, `menuBar` not existing yet at this point in the composition. Its own
-        // tick repaints within the second, and the menu has closed on the press either way.
-    },
+    // **The same method the Faces tab's control reaches**, so the two cannot come to disagree about what pausing
+    // means -- which is the arrangement the Mac has and the previous app did not. What follows a toggle is
+    // `faceEdits.timingChanged` below, set once for both ways in.
+    togglePause: { faceEdits.togglePause() },
     toggleCubePause: {
         cubeLock.togglePause { _ in
             historyIngestor.refresh(because: "the cube was paused from the menu bar")
@@ -564,12 +573,16 @@ reconnector?.onGaveUpOnCube = { menuBar.redraw() }
 // Mac makes from `settingsWindow.onTimingChanged`, and for the same reasons: a renamed category is on the status
 // item, a raised limit is one `DailyLimitWatch` had already stood itself down over, and a category retired off a
 // face changes a table with the cube sitting still, so no history event follows and nothing else would notice.
-categoryEdits.timingChanged = {
+// `@MainActor @Sendable` spelled out, which is what the two properties are declared as: a closure inferred from a
+// bare literal is neither, and assigning it to both would be two conversions the compiler is right to refuse.
+let timingChanged: @MainActor @Sendable () -> Void = {
     menuBar.redraw()
     historyTimer.resumeIfStopped()
     dailyLimit.resumeIfStopped()
     forcedPause.check()
 }
+categoryEdits.timingChanged = timingChanged
+faceEdits.timingChanged = timingChanged
 
 // Recorded time changed, so everything drawn from it is stale.
 historyIngestor.onChanged = {

@@ -52,6 +52,50 @@ enum ActivityIcon {
         return image
     }
 
+    /// The cube seen from above, lit in a face's colour, with that face's category drawn on its centre.
+    ///
+    /// **Recoloured rather than tinted**, which is `ActivityIcon.colouredImage`'s decision on the Mac and its
+    /// reasoning: a template keeps only the alpha and floods the whole shape with one colour, which would swallow
+    /// the outline and the ring along with it. The artwork is authored with two placeholder colours -- deliberately
+    /// colours nobody would choose, so a substitution that stops matching shows up on screen as magenta rather than
+    /// passing for a real answer -- and only those two are replaced. The outline stays black and the ring stays red,
+    /// because that is how they were drawn.
+    ///
+    /// - Parameter fill: the body of the cube, which is the face's category colour.
+    /// - Parameter ink: the artwork's inner lines, for artwork that authors them separately. `nil` leaves them as
+    ///   drawn.
+    static func colouredImage(
+        named name: String,
+        size: Int,
+        fill: GdkRGBA,
+        ink: GdkRGBA? = nil
+    ) -> UnsafeMutablePointer<GtkWidget>? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let url = resolveURL(for: trimmed),
+              let svg = try? String(contentsOf: url, encoding: .utf8)
+        else {
+            return nil
+        }
+        var recoloured = svg.replacingOccurrences(of: Placeholder.fill, with: "fill=\"\(hex(fill))\"")
+        if let ink {
+            recoloured = recoloured.replacingOccurrences(of: Placeholder.ink, with: "stroke=\"\(hex(ink))\"")
+        }
+        guard let pixbuf = render(recoloured, size: size) else { return nil }
+        let image = gtk_image_new_from_pixbuf(pixbuf)
+        g_object_unref(UnsafeMutableRawPointer(pixbuf))
+        return image
+    }
+
+    /// What the recolourable artwork in `Resources/Icons` is authored with. Neither is a colour a designer would
+    /// reach for, which is the point: they are meant to be replaced, and to be unmistakable when they are not.
+    /// **The same two strings the Mac substitutes**, and `ActivityIconTests` over there is what keeps the artwork
+    /// carrying them -- a drawing tool is free to rewrite an attribute into a `style` on any save.
+    enum Placeholder {
+        static let fill = "fill=\"#ff8b97a5\""
+        static let ink = "stroke=\"#ff00ff\""
+    }
+
     /// Renders SVG text at a size, through gdk-pixbuf's librsvg loader.
     ///
     /// **From a stream rather than a file**, because the text has been recoloured and there is no file holding it.
