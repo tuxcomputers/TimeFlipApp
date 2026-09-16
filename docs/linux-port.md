@@ -165,9 +165,17 @@ code moves, because the findings are facts about machines rather than about the 
 
 ## The machines it was measured on
 
-**The Mac**: macOS 26.6.2 (Darwin 25.6.0) on arm64, **Swift 6.3.3**. `Package.swift` declares
+**The Mac**: macOS 26.6.2 (Darwin 25.6.0) on arm64, **Swift 6.4** (was 6.3.3 until 2026-09-16, when an Xcode
+update landed mid-session and took the licence agreement with it -- `swift --version` itself refuses until
+`sudo xcodebuild -license` is run, and so does the Xcode-bundled `git`; the Command Line Tools git at
+`/Library/Developer/CommandLineTools/usr/bin/git` is not gated by it). `Package.swift` declares
 `swift-tools-version: 6.0`, which is the *language and manifest* level rather than the compiler, so nothing
 here says the package builds under a 6.0 toolchain and no machine has one.
+
+**6.4 builds and tests the package clean**, measured 2026-09-16 from a deleted `.build`, and emits **two new
+warnings** the older compiler did not: `ImplicitStrongCapture` in `GoogleLoopbackListener`, where a
+`[weak self]` on a stored handler sits inside a closure that already captured `self` strongly. They are the only
+two in the package, and they are in the file item 16 splits.
 
 **The Linux box**: a `MacBookPro14,2` running Linux Mint 22.3 "Zena" (Ubuntu 24.04 noble base), MATE 1.26.1 on
 **X11**, kernel 7.0.0-31-generic, Intel i7-7567U, `x86_64`. Adapter `hci0` at 88:E9:FE:5F:1B:52. Cube
