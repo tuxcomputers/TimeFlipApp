@@ -63,24 +63,6 @@ exchange the write *is* the question -- and gained one for the window. 737 tests
 at whether any `0x10` on the Mac ever answered without a `commandResult: read requested` before it.
 That last one is answerable from a trace you already have, without a cube.
 
-## 26. The cube is on a PIN this box set, so the Mac cannot log into it until you clear it
-
-Pairing from Linux rotated it off the vendor default, which is `DevicePINRules.rotates(from:)`
-working as designed, and the new PIN is in this machine's login keyring where the Mac cannot reach
-it. The cube was on `000000` when I started -- confirmed with `scripts/linux-ble-probe.py`, which
-writes nothing -- so whatever left it there, it is not there now.
-
-**Taking the batteries out and putting them back returns it to `000000`** (measured 2026-08-11,
-finding in `docs/timeflip2-firmware-observations.md`), and the Mac's reconnect candidates already
-append the vendor default, so a pairing from that side will simply work again afterwards.
-
-**Nothing else of the cube's was changed on purpose**, but say so out loud rather than assuming: the
-face colours were re-sent from this box's twelve faces, LED brightness is 50%, blink period 15s, and
-auto-pause is now zero where it was five minutes. Only two of those twelve faces carry a category
-here (`Break` on 8, `Meeting` on 2), so a Mac pairing will re-send its own.
-
-**This item is here to be read, not done.** Delete it once you have the cube back.
-
 ## 27. Twelve compiler artefacts are committed at the repository root
 
 `AlertPresenter-2.d`, `.dia`, `.swiftdeps` and `.swiftmodule`, and the same four each for

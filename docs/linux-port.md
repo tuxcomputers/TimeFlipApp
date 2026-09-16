@@ -180,26 +180,28 @@ export PATH="$HOME/.local/swift/swift-6.2-RELEASE-ubuntu24.04/usr/bin:$PATH"
 
 Full per-machine facts are in [systems-info.md](systems-info.md), which is where they belong.
 
-### There is one cube, and it is currently on a PIN only Linux can read
+### There is one cube, and whichever machine paired last owns its PIN
 
-**This gates every device run on the Mac, so it is here rather than only in the handover.** Pairing from Linux
-on 2026-09-13 rotated the cube off the vendor default, which is `DevicePINRules.rotates(from:)` working exactly
-as designed, and **the new PIN is in the Linux box's login keyring where the Mac cannot reach it**. The cube was
-on `000000` before that, confirmed with `scripts/linux-ble-probe.py`, which writes nothing.
+**It is on the Mac as of 2026-09-16**, and moving it between machines is not something to plan around.
 
-**Taking the batteries out and putting them back returns it to `000000`** (measured 2026-08-11, in
-[timeflip2-firmware-observations.md](timeflip2-firmware-observations.md)), and the Mac's reconnect candidates
-already append the vendor default, so a pairing from that side simply works again afterwards. **Until somebody
-does that, a Mac scripted run cannot log in**, which is worth knowing before planning one for item 18.
+**A pairing rotates the PIN off the vendor default and keeps it in that machine's keyring**, which is
+`DevicePINRules.rotates(from:)` working as designed. So the other machine cannot log in afterwards. **The fix
+is to pull the batteries and put them back**, which returns the cube to `000000` (measured 2026-08-11, in
+[timeflip2-firmware-observations.md](timeflip2-firmware-observations.md)); both machines' reconnect candidates
+append the vendor default, so the next pairing simply works.
 
-**What else the Linux pairing left on the cube**, said out loud rather than assumed: the face colours are this
-box's twelve, LED brightness 50%, blink period 15s, and **auto-pause is zero where it was five minutes**. Only
-two of those twelve faces carry a category on the Linux side (`Break` on 8, `Meeting` on 2), so a Mac pairing
-re-sends its own. Nothing else was changed on purpose.
+**That is a minute of work, so it is not a blocker and should not be written up as one.** If a machine cannot
+reach the cube, pull the batteries and pair again. Nothing in the port waits on it and no run needs to be
+planned around it.
 
-**One cube between two machines is a constraint the port has, not an incidental.** Only one host may hold the
-link at a time, so a run on either machine means quitting Facet on the other first, and whichever paired last
-owns the PIN.
+**What a pairing does leave behind is worth knowing**, because it is not only the PIN: the face colours are
+whichever machine's twelve, along with its LED brightness, blink period and auto-pause delay. The Linux pairing
+of 2026-09-13 left brightness at 50%, blink at 15s and **auto-pause at zero where the Mac had five minutes**,
+and carried only two categorised faces (`Break` on 8, `Meeting` on 2). A pairing from the other side re-sends
+its own, so this corrects itself rather than needing tidying up.
+
+**Only one host may hold the link at a time**, which is the constraint that does matter: a device run on either
+machine means quitting Facet on the other first.
 
 ---
 
@@ -1040,10 +1042,9 @@ write the cube had in fact taken.
 without a `commandResult: read requested` before it -- and that is answerable from a trace already held.
 **Under item 12's priority, do the trace half and leave the run.**
 
-**The run half is blocked anyway until the cube's batteries are pulled**, the cube being on a PIN only the
-Linux keyring holds -- see [there is one cube](#there-is-one-cube-and-it-is-currently-on-a-pin-only-linux-can-read)
-above. That is [handover-mac.md](handover-mac.md) item 26, and it is a thing to do before planning a run rather
-than a reason not to.
+**Whichever machine has the cube is not a consideration here.** It is on the Mac as of 2026-09-16, and if it
+ever is not, pulling the batteries takes a minute -- see [there is one
+cube](#there-is-one-cube-and-whichever-machine-paired-last-owns-its-pin) above.
 
 ### 19 - macOS - The history timer never restarts when a cube arrives late
 
