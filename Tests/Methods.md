@@ -510,6 +510,63 @@ blocks on the first client that does not answer, for the full 25-second reply ti
 like the app having hung, and it cost a wrong diagnosis before the cause was found. The daemon always
 answers.
 
+<a id="method-20"></a>
+## Method 20: Drive a GTK window on Linux, and screenshot it
+
+**Measured 2026-09-16 against the real Settings window**, and it is the Linux answer to Methods 1, 2, 10 and
+15 at once. No mouse, no coordinates, and it works while the window is behind something else.
+
+```python
+import pyatspi
+app = next(a for a in pyatspi.Registry.getDesktop(0) if a and a.name == "FacetLinux")
+# a locator is one walk of the tree comparing `name`
+node.queryAction().doAction(0)                      # press a button, tick a check box, fold a section
+node.queryEditableText().setTextContents("Reading") # type into a field
+node.queryValue().currentValue = 45                 # set a spin button, which writes as it settles
+node.queryText().getText(0, -1)                     # read a label for an assertion
+node.getState().contains(pyatspi.STATE_CHECKED)     # read a box
+```
+
+**`name` is the identifier and `description` is the value**, which is this app's own split and is forced
+rather than chosen: a `GtkButton` reports its label as its accessible *name*, and every control here puts its
+identifier there, so a name cell answered `push button 'category-name-1' ''` with no text and no child label
+until `SettingsWidgets.identify(_:_:saying:)` started setting the description too. On the Mac the two are
+separate attributes and cost nothing.
+
+**Both names have to be set, and `gtk_widget_set_name` is not the one that matters.** That sets the widget's
+name, which styles it and reaches nothing outside the process; AT-SPI answers ATK's name, which is
+`atk_object_set_name`. A control with only the first is invisible to every check while looking named in the
+source.
+
+**Return has to be a real key**, because committing an edit is what raises a confirmation and
+`setTextContents` fires no key. XTEST delivers to whatever holds the X focus, so focus the window first or
+the key lands in the terminal the check is being run from:
+
+```python
+GdkX11.X11Window.foreign_new_for_display(display, window_id).focus(0)
+pyatspi.Registry.generateKeyboardEvent(0xff0d, None, pyatspi.KEY_SYM)   # Return
+```
+
+**A modal dialogue is still drivable.** `GtkDialoguePresenter` runs `gtk_dialog_run`, which spins a nested
+main loop, and the alert and its buttons appear in the same tree: find the button by its title -- which is
+`Dialogue.choices`, so the core's own wording -- and `doAction(0)` it.
+
+**Screenshot by window id**, which is the same lesson as Method 15 on the Mac: it ignores z-order and raises
+nothing.
+
+```python
+win = GdkX11.X11Window.foreign_new_for_display(Gdk.Display.get_default(), 0x6000007)
+Gdk.pixbuf_get_from_window(win, 0, 0, win.get_width(), win.get_height()).savev(path, "png", [], [])
+```
+
+**There is no Xvfb and no ImageMagick on the Linux box** (measured the same day), so none of this can be run
+headless yet and every window check costs the owner's screen. That is the open question item 12 of
+`docs/linux-port.md` says is worth the most, and it costs one `apt install`.
+
+**Open the image afterwards and look at it.** Three faults in the first Settings window were invisible to the
+tree and obvious in the picture: a tab reading `...`, every icon drawn as the no-icon glyph, and every name
+25px right of the caption above it.
+
 ## An ad-hoc build silently switches Google sync off
 
 A build made without the signing identity is a *different application* to the Keychain, so the refresh token

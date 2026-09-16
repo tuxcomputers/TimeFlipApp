@@ -62,4 +62,24 @@ package enum SettingsMetrics {
     /// How far a fold's contents are indented past the heading that opens them, so a nested list reads as belonging
     /// to the row above it.
     static let nestedIndent: CGFloat = 16
+
+    /// **The one width the Settings window ever has.**
+    ///
+    /// `CLAUDE.md` states it as a rule -- *A tab's content spans the width of the window*, and there is one width so
+    /// there is one answer -- and this is where the number lives. It is also the width every pane is hosted at by
+    /// `SettingsMetricsTests`, which is what makes that suite's measurements the same measurements the window makes.
+    ///
+    /// **The Mac still has its own copy**, in `SettingsWindowController.Layout`, and reading it from here is one of
+    /// the things `docs/handover-mac.md` asks for: two numbers for one width is the hazard the rule exists to stop,
+    /// and it cannot be closed from the Linux box, which cannot compile that target.
+    package static let windowWidth: CGFloat = 640
+
+    /// What the window opens at, and the least it can be shrunk to. **The height is free**, which is the half of the
+    /// resizing that was kept: a tab grows downward as it gains sections, and there is no fault in a window that is
+    /// taller than its content.
+    ///
+    /// Provisional and deliberately generous rather than fitted, which is the Mac's note on the same numbers: the
+    /// window is sized for the content it is about to hold, so they do not have to be re-tuned as each pane arrives.
+    package static let windowDefaultHeight: CGFloat = 680
+    package static let windowMinimumHeight: CGFloat = 400
 }

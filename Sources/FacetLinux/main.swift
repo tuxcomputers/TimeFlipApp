@@ -5,9 +5,10 @@ import Foundation
 // same order as the macOS `main.swift` and for the same reasons: prove this is the only instance, bring
 // the database up, then start the trace. Every step is ahead of the one that would be wrong to do twice.
 //
-// **What is missing here is missing on purpose, not forgotten.** There is a menu bar item, a radio and no
-// Settings window: the rest of the UI is the remainder of item 11 of `docs/linux-port.md`, and the decisions it
-// would need are still to come out into the core (`docs/handover-linux.md` item 22).
+// **What is missing here is missing on purpose, not forgotten.** There is a menu bar item, a radio, and a Settings
+// window with one tab in it -- Categories, as of 2026-09-16. The other four tabs are the remainder of item 11 of
+// `docs/linux-port.md`, and the decisions each of them needs come out into the core as they are built
+// (`docs/handover-linux.md` item 22); `CategoryEdits` is the first that has.
 //
 // **The boot is not Linux-specific and the bar is.** Everything down to the debug log is `FacetCore` and
 // a near-transcription of the macOS `main.swift`, which is AppKit-free for its first hundred lines -- the two
@@ -60,6 +61,11 @@ let categories = CategoryStore(connection: database)
 let faces = FaceStore(connection: database)
 let timezones = TimezoneStore(connection: database)
 let entries = TimeEntryStore(connection: database)
+// **The two reference tables the Categories tab picks from.** `CLAUDE.md` allows these to be read once and held --
+// seeded by the DDL, never written by the app, fixed for the life of a launch -- and neither is: a store is a reader
+// that goes to the table per ask, and the only thing that asks is a picker somebody opened.
+let icons = IconStore(connection: database)
+let colours = ColourStore(connection: database)
 
 // **This is where the platform gets chosen, and the only place it is.** The core states what it needs as a
 // protocol and cannot find out which adapter it got: `CLAUDE.md`, *The core is platform-blind*. The macOS root
@@ -298,6 +304,18 @@ reconnector?.onQuitRequested = endTheApp
 
 // The cube's own record of what it has been doing, on its way into `device_event`, and the timer whose tick asks
 // for it. **Built before the timer**, because the timer's tick is what asks it.
+// **What the Categories tab does when one of its controls is used**, which is core and is the same module the Mac's
+// own Categories tab is being asked to adopt (`docs/handover-mac.md`). The window below draws rows and reports
+// gestures; every decision behind one -- the write, the read-back, the ordering against the cube, the dialogue --
+// is in here and is covered by `CategoryEditsTests` with no window at all.
+let categoryEdits = CategoryEdits(
+    categories: categories,
+    faces: faces,
+    dialogues: dialogues,
+    debugLog: debugLog
+)
+categoryEdits.faceColours = faceColours
+
 let historyIngestor = HistoryIngestor(
     events: deviceEvents,
     readLastEvent: { answered in
@@ -397,15 +415,30 @@ let statusReadout = StatusItemReadout(
     debugLog: debugLog
 )
 
-// The shared half of the dropdown: Pause, Lock and Quit, decided in the core.
+// **The Settings window, built here and put on screen by nothing until somebody asks for it.** A window nobody
+// opens should not exist, which is the Mac's reasoning too -- and on this platform it goes further: the window is
+// built on each open and destroyed on each close, so the next open reads the tables again because there is nothing
+// left to read from.
+let settingsWindow = SettingsWindow(
+    categories: categories,
+    faces: faces,
+    icons: icons,
+    colours: colours,
+    entries: entries,
+    edits: categoryEdits,
+    debugLog: debugLog
+)
+
+// The shared half of the dropdown: Settings, Pause, Lock and Quit, decided in the core.
 //
-// **No Settings line, because there is no Settings window** -- `openSettings` is `nil` and `StatusItemMenu` leaves
-// the line out rather than drawing one that opens nothing.
+// **There is a Settings line as of 2026-09-16**, the window having one tab in it. Until then `openSettings` was
+// `nil` and `StatusItemMenu` left the line out rather than drawing one that opens nothing, which is the same
+// judgement the window itself now makes about the four tabs it has not built.
 let statusMenu = StatusItemMenu(
     timing: { timingReadout.read() },
     cube: cubeReading,
     isLimitReached: { dailyLimit.isLimitReached },
-    openSettings: nil,
+    openSettings: { settingsWindow.show() },
     // **The app's own clock, which is `ManualClock` and is the same on both platforms** (2026-09-13). This used
     // to close the open segment and stop there, on the reasoning that a platform with no Faces tab has no way to
     // pick a category and so nothing to resume. That was wrong about its own menu: closing a segment leaves
@@ -526,6 +559,17 @@ let menuBar = MenuBar(
 // the words come from `isManualMode`, and answering the offer with Time by Hand is the one moment that moves with
 // no session running and no cube to report anything.
 reconnector?.onGaveUpOnCube = { menuBar.redraw() }
+
+// **Everything drawn from the app's own clock, after an edit that could have changed it.** The same four calls the
+// Mac makes from `settingsWindow.onTimingChanged`, and for the same reasons: a renamed category is on the status
+// item, a raised limit is one `DailyLimitWatch` had already stood itself down over, and a category retired off a
+// face changes a table with the cube sitting still, so no history event follows and nothing else would notice.
+categoryEdits.timingChanged = {
+    menuBar.redraw()
+    historyTimer.resumeIfStopped()
+    dailyLimit.resumeIfStopped()
+    forcedPause.check()
+}
 
 // Recorded time changed, so everything drawn from it is stale.
 historyIngestor.onChanged = {

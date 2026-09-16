@@ -189,7 +189,7 @@ final class MenuBar {
                     // the main thread, because that is where this type may be used at all. Hopping instead
                     // would mean a menu item that acts one turn of the loop later, which for Quit is the
                     // difference between quitting and appearing not to.
-                    facet_on_activate(widget, { _, data in
+                    facet_on(widget, "activate", { _, data in
                         guard let data else { return }
                         MainActor.assumeIsolated {
                             Unmanaged<Action>.fromOpaque(data).takeUnretainedValue().run()

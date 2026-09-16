@@ -511,6 +511,9 @@ remembering.
 | `make` | GNU Make 4.3 | `/usr/bin/make` |
 | `wmctrl` | present | -- |
 | `xdotool` | **not installed** | -- |
+| `xwd` | present | `/usr/bin/xwd`. The only stock screen-grabber here, and it writes `.xwd` with nothing on the box to convert it -- so a screenshot is taken through `gi` instead (`Tests/Methods.md` Method 20) |
+| ImageMagick | **only `imagemagick-6-common`** | The infrastructure package alone: there is no `convert` and no `import` binary (measured 2026-09-16) |
+| `Xvfb` / `xvfb-run` | **not installed** | **Measured 2026-09-16**, and it is the thing standing between a window check and running without the owner's screen -- item 12 of `docs/linux-port.md` calls that the open question worth the most. One `apt install xvfb` |
 | `flatpak` | present | -- |
 | `snap` | **not installed** | -- |
 | pyobjc | **absent and staying absent** | `import objc` fails; the seven `scripts/ax-*.py` and `status-item-click.py` are Mac-only |

@@ -82,8 +82,9 @@ order; [what each machine owes](#what-each-machine-owes) is the same list split 
 - [x] **[10](#10---linux---the-bluez-adapter)** - Linux - The BlueZ adapter, the Linux slot in the radio square.
       **Done, and proven on the cube 2026-09-13.**
 - [ ] **[11](#11---linux---the-ui-filling-the-gtk-slots)** - Linux - The UI: filling the GTK slots. The menu bar
-      and the dialogues are done and work on a real cube; **the Settings window and the Report tab are not
-      started**, and there is no port to fill for either. **The largest item left.**
+      and the dialogues work on a real cube, and **the Settings window and its Categories tab were built and
+      confirmed on screen 2026-09-16**; the Faces, Report, App and Device tabs are not started, and there is no
+      port to fill for any of them. **Still the largest item left.**
 - [ ] **[12](#12---linux---the-scripted-suite-on-linux)** - Linux - The scripted suite on Linux.
       **Deliberately low priority (owner, 2026-09-16)**: neither the suite nor its Linux half is edited or run
       until confirming a feature genuinely needs it.
@@ -132,9 +133,10 @@ order; [what each machine owes](#what-each-machine-owes) is the same list split 
 | Does the logic behave? | **Yes.** `swift test` is green on both platforms and has been since 2026-09-09 | 2026-09-16, Mac |
 | How much of the suite runs here? | **1,417 of 1,962 tests**, derived by counting rather than run today -- 680 under XCTest and 737 under swift-testing. The Linux box's own last report was 737, which is that swift-testing figure exactly | derived 2026-09-16; last Linux run 2026-09-13 |
 | What is still excluded? | **32 files, 545 tests, every one of them XCTest**, all needing AppKit, CoreBluetooth or a `FacetMac` type. `EveryLinuxExclusionEarnsItsPlaceTests` fails if one stops needing them | 2026-09-16, Mac |
-| Is there a UI? | **A tray item, and it works.** GTK3 and `AyatanaAppIndicator3` through a modulemap, one process, one language. **No Settings window and no Report** | 2026-09-13 |
+| Is there a UI? | **A tray item and a Settings window, and both work.** GTK3 and `AyatanaAppIndicator3` through a modulemap, one process, one language. The window carries **the Categories tab**; Faces, Report, App and Device are not built | 2026-09-16 |
 | Is the device half composed? | **Yes, and every part of it answered on a real cube**: scan, reach, login, PIN rotation, history, face turns, the quit sequence | 2026-09-13 |
 | Does CI check any of this? | **Yes.** Two Linux jobs mirroring the macOS pair, `swift:6.2-noble` on `ubuntu-latest`, a private `dbus-daemon` for the bus tests, 2 skipped for want of a BlueZ adapter | 2026-09-09 |
+| Can a scripted check drive a Linux window? | **Yes, and it was, to confirm the Categories tab**: AT-SPI presses, types, sets and reads back, and screenshots go by window id. `Tests/Methods.md` Method 20. **There is no Xvfb on the box**, so it costs the owner's screen | 2026-09-16 |
 | Can a scripted check drive the Linux app? | **The mechanism is proven and no check has run, and that is a priority rather than a blocker.** `scripts/tray-menu.py` drives the tray over D-Bus and `platform.sh` has no unfilled Linux branch left. The suite is low priority by the owner's instruction, 2026-09-16 | 2026-09-13 |
 | What does a second platform cost the core? | **Nothing, measured.** Not one `FacetCore` module needed a line changed. There is no `#if os(Linux)` anywhere in `Sources/` | 2026-09-11, re-checked 2026-09-16 |
 
@@ -708,7 +710,7 @@ Numbers are addresses and are never reused, so the order below is historical rat
 
 | # | What | Size |
 |---|---|---|
-| [11](#11---linux---the-ui-filling-the-gtk-slots) | The Settings window and the Report tab | **The largest item left in the port** |
+| [11](#11---linux---the-ui-filling-the-gtk-slots) | The Settings window: Faces, Report, App and Device | **Still the largest item left**, with the window and the Categories tab done 2026-09-16 |
 | [15](#15---linux---google-sign-in-on-linux) | Google sign-in | Small, but wants 11 or a decision about where to put it |
 | [12](#12---linux---the-scripted-suite-on-linux) | The scripted suite | Low priority by instruction; blocked by 24 anyway |
 | [16](#16---macos--linux---split-googleloopbacklistener) | The socket half of the listener split | ~200 lines, moved rather than written |
@@ -894,12 +896,60 @@ one file and the values were strings; here the values are the point.
 
 ### 11 - Linux - The UI: filling the GTK slots
 
-**The menu bar and the dialogues are done. The Settings window and the Report tab are not started.**
+**The menu bar, the dialogues and the Settings window's first tab are done. Four tabs are not started.**
 
 What exists in `Sources/FacetLinux`: the boot, the composition root, `MenuBar` (289 lines of GTK that decides
-nothing), `GtkDialoguePresenter`, and `GLibScheduler`. The tray item draws the shared readout; its dropdown
-carries the cube's state, today's totals per category, Pause, Lock and Quit; and pairing, pausing, unlocking and
-quitting a real cube were all done through it on 2026-09-13.
+nothing), `GtkDialoguePresenter`, `GLibScheduler`, and -- as of 2026-09-16 -- `SettingsWindow` with the
+**Categories tab** in it. The tray item draws the shared readout; its dropdown carries the cube's state, today's
+totals per category, **Settings**, Pause, Lock and Quit; and pairing, pausing, unlocking and quitting a real cube
+were all done through it on 2026-09-13.
+
+#### The Settings window, and the Categories tab (2026-09-16)
+
+**Confirmed on screen and driven over AT-SPI**, against a throwaway `XDG_DATA_HOME` so the cube and the real
+database were not involved: create a category, pick an icon, pick a colour, re-pick the same colour to clear it,
+set a daily limit, retire one (which cleared the face holding it), bring it back, and rename one through its
+confirmation dialogue. Every one of those was checked twice over -- the control answered, and the row in
+`category` says what it should. `Tests/Methods.md` Method 20 is how it was driven.
+
+**The window is built on each open and destroyed on each close**, which is the one real difference from the Mac
+and is `CLAUDE.md`'s first rule made structural rather than remembered. There the window and its five panes are
+made once and reused, so the controller has to put every fold back to its default on each open and re-read every
+setting into the panes; here there is nothing left to read from, so the next open reads the tables. **Measured
+rather than argued**: with the window shut, `UPDATE category SET category_name = 'Renamed elsewhere'` behind its
+back, and the next open through the tray showed the new name.
+
+**What is in the core, and what is in GTK.** Every sequence a control sets off is `FacetCore.CategoryEdits` --
+the icon, the colour, the name, the daily limit, retiring, reinstating, creating -- written once, covered by 30
+hermetic tests, and the same module the Mac is asked to adopt in [handover-mac.md](handover-mac.md) item 31. What
+is in `Sources/FacetLinux` is the drawing: `SettingsWindow`, `CategoriesPane`, `CategoryTable`,
+`RetiredCategoryTable`, `CategoryCreateControl`, `EditableNameCell`, `IconGrid`, `ColourList`, `ColourSwatch`,
+`PanelSection`, `SettingsWidgets`, `GtkSignals` and `ActivityIcon`. **That split is the whole point**: the tab
+that will be drawn on a third platform is view construction, and nothing it has to decide is left to be decided
+again.
+
+**`PanelSection` is a `GtkExpander`, which answers two of `CLAUDE.md`'s requirements for free.** The heading sits
+on the panel and the panel closes around it, because the style class is on the expander and its allocation shrinks
+to the title row; and a hidden child takes no room in a GTK box, so there is nothing here answering to the Mac's
+two swapped constraint sets. **The whole heading line is the target** on one condition -- the label has to be a
+widget filling the title row, `facet_expander_set_label_widget`, or GTK sizes it to its text and the space after
+the words is not the control.
+
+**Three faults the accessibility tree could not see, and the screenshot could**, which is why Method 20 ends by
+saying to look at the picture: the one tab read `...`, because the label was ellipsised and a notebook sizes a tab
+to its label; every icon drew the no-icon glyph, because `.process` on a resource directory **flattens it** and
+`Icons/Activities` exists nowhere in the bundle; and every category name sat 25px right of the *Name* caption,
+because a `GtkButton` insets what it holds.
+
+**The artwork is the Mac's own files**, reached through `Sources/FacetLinux/Resources/Icons`, a symlink to
+`Sources/FacetMac/Resources/Icons`. A symlinked *directory* is followed when SwiftPM builds a resource bundle,
+which is what the DDL already relies on. It is lopsided rather than wrong, and moving it belongs with item 13 --
+[handover-mac.md](handover-mac.md) item 33 says so.
+
+**Next in size order: the Faces tab, then Report, then App and Device.** `SettingsWindow.pane(for:)` is a switch
+over `SettingsTab`, so each of those is a named `nil` rather than a gap, and the notebook carries only the tabs
+that exist -- a tab holding an empty pane is the control that looks live and does nothing that `StatusItemMenu`
+already refuses to draw.
 
 **`GtkDialoguePresenter` is 72 lines**, a `GtkMessageDialog` modal on a nested main loop the way `NSAlert.runModal`
 is, with no parent window -- this platform's ordinary case and the Mac's nineteenth. **`wayOut` is simply honoured
@@ -911,7 +961,7 @@ here** where AppKit has to be worked around: GTK does not relocate a button by i
 in C and the string travels as an argument, which is also the only safe way: a heading containing a `%` would
 otherwise be read as a conversion.
 
-**What is left is genuinely a build rather than a slot.** `SettingsWindowController` is 3,206 lines of AppKit
+**What is left is still a build rather than a slot.** `SettingsWindowController` is 3,206 lines of AppKit
 and **there is no port to fill for it** -- `architecture-ports-plan.md` item 6 has one row outstanding and the
 honest statement about the rest is that it is view construction and tab wiring, which is what an adapter is
 *for*. So a Linux Settings window is built rather than slotted into, and **the decisions it makes that are
@@ -920,7 +970,6 @@ worth sharing should come out into the core as they are found**, which is the st
 a task. Two more decisions came out of the window after it was written (`ManualClock` and `CubeReports`), and
 both are why the file keeps shrinking.
 
-Next in size order: the Settings window and its five tabs, then Report.
 
 ### 12 - Linux - The scripted suite on Linux
 

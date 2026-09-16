@@ -122,3 +122,69 @@ us in the other direction.
 app through its own tray menu on 2026-09-13 -- but no check can use it while `quit_app` bypasses the
 port. It is the one thing standing between this box and running `01-launch.sh`, which is otherwise
 completely portable already.
+
+## 31. `CategoryEdits` is in the core now, and `SettingsWindowController` still has its own copy
+
+**Written here on 2026-09-16, as the Linux Settings window's first tab.** Every sequence the Categories
+tab carries out when one of its controls is used -- the icon, the colour, the name, the daily limit,
+retiring, reinstating and creating -- is now `FacetCore.CategoryEdits`, and `Tests/FacetTests/CategoryEditsTests.swift`
+covers it with 30 tests and no window at all.
+
+**The code came from `SettingsWindowController`, comment for comment.** Lines 1947-2270 and 3013-3180 of
+that file are what it is: `setIcon`, `setColour`, `rename`, `renamedName`, `act(on:renaming:to:in:)`,
+`setDailyLimit`, `retire`, `reinstate`, `showNameTaken`, `saveNewCategory`, `askAboutRetiredNamesakes`,
+`act(on:about:named:in:startsTiming:)`, `start(_:ifAskedTo:)` and `showAlreadyActive`. Every `debug_log`
+wording is byte for byte what it was, which is deliberate: `Tests/Scripted` reads those rows with SQL
+`LIKE` patterns.
+
+**So there are two copies of one decision until you adopt it**, which is the hazard `CLAUDE.md` opens
+with, and I could not close it from here: this box cannot compile `FacetMac`, so editing 3,206 lines of
+AppKit from it would be exactly the blind edit handover 23 and 24 cost us in the other direction.
+
+**What adopting it looks like**, and it should be small:
+
+    let categoryEdits = CategoryEdits(categories: categories, faces: faces,
+                                      dialogues: dialogues, debugLog: debugLog)
+    categoryEdits.faceColours = faceColours
+    categoryEdits.changed = { [weak self] in self?.reloadSelectedPane() }
+    categoryEdits.timingChanged = { [weak self] in self?.onTimingChanged?() }
+    categoryEdits.startTiming = { [weak self] record in self?.startTiming(record) }
+
+then delete the fourteen methods above and point the pane's callbacks at it. Two differences to know
+about before you start:
+
+- **`create` takes no control.** Every branch of `saveNewCategory` collapsed the control that raised it,
+  the `.ignore` branch included, so it is the caller's business: the control folds itself up and then
+  reports the name. `CategoryCreateControl` needs no change for that -- the collapse moves to the
+  `onSave` handler in `wire(_:startsTiming:)`.
+- **The stores are not optional in it.** `SettingsWindowController` holds `categories` and `faces` as
+  optionals and guards on each method; `CategoryEdits` is constructed with both, which is why it has no
+  `guard let` in it. Where you build it is where the optionals get unwrapped, once.
+
+**Two further things I would rather you decided than me**, both about what else in there is shared:
+`facesHolding` is asked per row by both platforms' tables, and `CategoryEditRules.editRefusalHelp` is
+already core; and the icon and colour pickers are the same two rules with two toolkits over them. Neither
+is a duplicate today -- they are view construction -- so I have left them alone.
+
+## 32. The Settings window's width is in `SettingsMetrics` now
+
+`SettingsMetrics.windowWidth` is 640, with `windowDefaultHeight` 680 and `windowMinimumHeight` 400 beside
+it, which is where the Linux window reads them from. `SettingsWindowController.Layout` still declares its
+own three, so there are two copies of a number `CLAUDE.md` states as a rule -- *the window is one width,
+640* -- and one of them is private to a file this box cannot build.
+
+**Three lines to delete and three references to repoint.** The docs on the core ones carry your own
+reasoning across, including that the numbers are provisional and generous rather than fitted.
+
+## 33. The icon artwork is reached through a symlink, and it should probably move
+
+`Sources/FacetLinux/Resources/Icons` is a symlink to `Sources/FacetMac/Resources/Icons`, so both
+platforms draw the same 42 SVGs. It works -- a symlinked *directory* is followed when SwiftPM builds a
+resource bundle, which is what `Sources/FacetCore/Resources/Database` already relies on -- and it leaves
+the AppKit target owning a file the GTK one needs.
+
+**The tidy version is what `database/` did**: the real directory moves somewhere neither platform owns
+and both targets symlink it. I have not done that because it changes `FacetMac`'s resource declaration
+and `ActivityIcon.resolveURL`'s four lookups, and I cannot compile either. It belongs with item 13 of
+[linux-port.md](linux-port.md), the repository restructure, and it is not urgent: nothing about the
+current arrangement is wrong, only lopsided.
