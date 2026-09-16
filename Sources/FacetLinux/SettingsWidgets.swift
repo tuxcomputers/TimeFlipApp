@@ -51,6 +51,15 @@ enum SettingsWidgets {
             min-width: 0;
             border: none;
         }
+        .facet-day-picked {
+            background-color: @theme_selected_bg_color;
+            color: @theme_selected_fg_color;
+            border-radius: 5px;
+        }
+        .facet-day-in-range {
+            background-color: alpha(@theme_selected_bg_color, 0.25);
+            border-radius: 0;
+        }
         .\(captionClass) {
             font-size: smaller;
             color: alpha(@theme_fg_color, 0.65);

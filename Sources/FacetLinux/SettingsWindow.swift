@@ -35,6 +35,20 @@ final class SettingsWindow {
     private let entries: TimeEntryStore
     private let settings: SettingStore
     private let timing: TimingReadout
+    private let report: ReportReadout
+    private let dialogues: DialoguePresenter
+    private let deviceRows: DeviceSettingRows
+    private let deviceReadings: DeviceReadings
+
+    /// What the Device tab needs from the radio, which the core has no protocol for and this window has no business
+    /// reaching itself. **Closures rather than a radio**, so a window built for a layout check has no device in it
+    /// at all -- the same shape `TimingReadout` uses for the same question.
+    struct DeviceReadings {
+        var battery: () -> Int?
+        var isReachingForCube: () -> Bool
+        var pair: () -> Void
+        var forget: () -> Void
+    }
     private let categoryEdits: CategoryEdits
     private let faceEdits: FaceEdits
     private let isLimitReached: () -> Bool
@@ -56,12 +70,29 @@ final class SettingsWindow {
         let tabs: [SettingsTab]
         let categories: CategoriesPane
         let faces: FacesPane
+        let report: ReportPane
+        let app: AppSettingsPane
+        let device: DevicePane
     }
 
     /// The once-a-second repaint of the Faces tab's figure, running only while that tab is showing and something is
     /// counting. **Held so it can be stopped**, which is the whole of what it is for: a wake a second repainting a
     /// pane nobody is looking at is the kind of thing nothing ever notices.
     private var tick: ScheduledWake?
+
+    /// The cube connected, dropped, or said what it is. **Not a setting the window holds**, which is the licence's
+    /// own boundary: what the app changes behind the window goes on being read on its own terms.
+    func deviceChanged() {
+        shown?.device.reload()
+    }
+
+    /// Everything drawn from the app's own clock, after a setting that one of them is drawn from changed.
+    ///
+    /// **Assigned rather than taken at init**, which is the Mac's arrangement (`settingsWindow.onTimingChanged`) and
+    /// is forced by the order a composition root can build things in: the menu bar this wakes is built *after* the
+    /// window, because its dropdown opens the window. A closure passed in here would be reaching a value that does
+    /// not exist yet.
+    var onTimingChanged: (@MainActor () -> Void)?
 
     private var signals = GtkSignals()
 
@@ -73,6 +104,10 @@ final class SettingsWindow {
         entries: TimeEntryStore,
         settings: SettingStore,
         timing: TimingReadout,
+        report: ReportReadout,
+        dialogues: DialoguePresenter,
+        deviceRows: DeviceSettingRows,
+        deviceReadings: DeviceReadings,
         categoryEdits: CategoryEdits,
         faceEdits: FaceEdits,
         isLimitReached: @escaping () -> Bool,
@@ -86,6 +121,10 @@ final class SettingsWindow {
         self.entries = entries
         self.settings = settings
         self.timing = timing
+        self.report = report
+        self.dialogues = dialogues
+        self.deviceRows = deviceRows
+        self.deviceReadings = deviceReadings
         self.categoryEdits = categoryEdits
         self.faceEdits = faceEdits
         self.isLimitReached = isLimitReached
@@ -152,9 +191,39 @@ final class SettingsWindow {
             isLimitReached: isLimitReached
         )
 
+        let reportPane = ReportPane(readout: report, debugLog: debugLog)
+        let appPane = AppSettingsPane(
+            settings: settings,
+            dialogues: dialogues,
+            debugLog: debugLog,
+            timingChanged: { [weak self] in self?.onTimingChanged?() }
+        )
+        let devicePane = DevicePane(
+            settings: settings,
+            rows: deviceRows,
+            battery: deviceReadings.battery,
+            isReachingForCube: deviceReadings.isReachingForCube,
+            pair: deviceReadings.pair,
+            forget: { [weak self] in
+                self?.deviceReadings.forget()
+                // Redrawn from the table afterwards, and the bar told: forgetting a cube changes what this tab is
+                // allowed to offer *and* what the status item says the app is doing.
+                self?.deviceChanged()
+                self?.onTimingChanged?()
+            },
+            debugLog: debugLog
+        )
+
         var tabs: [SettingsTab] = []
         for tab in SettingsTab.allCases {
-            guard let pane = pane(for: tab, categories: categoriesPane, faces: facesPane) else { continue }
+            guard let pane = pane(
+                for: tab,
+                categories: categoriesPane,
+                faces: facesPane,
+                report: reportPane,
+                app: appPane,
+                device: devicePane
+            ) else { continue }
             let label = SettingsWidgets.plainLabel(tab.title)
             SettingsWidgets.identify(label, "settings-tab-\(tab.rawValue)")
             facet_notebook_append_page(notebook, pane, label)
@@ -173,7 +242,10 @@ final class SettingsWindow {
             notebook: notebook,
             tabs: tabs,
             categories: categoriesPane,
-            faces: facesPane
+            faces: facesPane,
+            report: reportPane,
+            app: appPane,
+            device: devicePane
         )
 
         // **Read whenever an edit changes what a list holds.** Set on the open and given up on the close:
@@ -203,15 +275,50 @@ final class SettingsWindow {
         signals.connect(window, "destroy") { [weak self] in self?.forget() }
 
         gtk_widget_show_all(window)
+        reportPanesThatDoNotFit(tabs: tabs, panes: [
+            .faces: facesPane.widget,
+            .categories: categoriesPane.widget,
+            .report: reportPane.widget,
+            .app: appPane.widget,
+            .device: devicePane.widget,
+        ])
         // **The tables are read after the widgets are shown, and that is measured rather than tidy** (2026-09-16):
         // `gtk_notebook_get_current_page` answers **-1** until its pages have been shown, so a read before this line
         // found no tab to read and both lists came up empty. Nothing is on screen yet either way -- GTK maps the
         // window when the main loop next turns -- so this is still before anybody could see an empty pane.
+        //
+        // **The App tab is read here rather than when it is switched to**, which is the rule's first condition: an
+        // open window reads every tab's settings in one go, and what it holds from that moment is the answer.
+        appPane.reload()
+        devicePane.reload()
         reloadShownPane()
         // Logged here rather than left to the page handler, which does not fire for the page a notebook is already
         // on -- and that is every ordinary open. The row is the only evidence of which tab an open landed on, so it
         // says so itself rather than depending on a change happening.
         debugLog?.record(.tab, "Settings opened on \(tabs.first?.title ?? "nothing")")
+    }
+
+    /// Says which pane is wider than the window is allowed to be, if any is.
+    ///
+    /// **The window is one width and a pane cannot be made narrower than its contents**, so a pane that demands more
+    /// simply widens the window -- and `CLAUDE.md`'s *A tab's content spans the width of the window* is then quietly
+    /// false, with nothing on screen to say which tab did it. Measured 2026-09-16: the window came up 730 wide and
+    /// the only way to tell which of five panes had done it was to take them out one at a time.
+    ///
+    /// A row rather than a refusal: the window is still usable, and the fix is a measurement somebody has to make.
+    private func reportPanesThatDoNotFit(tabs: [SettingsTab], panes: [SettingsTab: UnsafeMutablePointer<GtkWidget>]) {
+        for tab in tabs {
+            guard let pane = panes[tab] else { continue }
+            var minimum: Int32 = 0
+            var natural: Int32 = 0
+            gtk_widget_get_preferred_width(pane, &minimum, &natural)
+            guard CGFloat(minimum) > SettingsMetrics.windowWidth else { continue }
+            debugLog?.record(
+                .tab,
+                "The \(tab.title) tab needs \(minimum)pt and the window is \(Int(SettingsMetrics.windowWidth))pt, "
+                    + "so the window is wider than it should be"
+            )
+        }
     }
 
     /// The pane for a tab, or `nil` for one this platform has not built.
@@ -221,16 +328,22 @@ final class SettingsWindow {
     private func pane(
         for tab: SettingsTab,
         categories: CategoriesPane,
-        faces: FacesPane
+        faces: FacesPane,
+        report: ReportPane,
+        app: AppSettingsPane,
+        device: DevicePane
     ) -> UnsafeMutablePointer<GtkWidget>? {
         switch tab {
         case .faces:
             return faces.widget
         case .categories:
             return categories.widget
-        case .report, .app, .device:
-            // Item 11 of `docs/linux-port.md`, in size order: Report, then App and Device.
-            return nil
+        case .report:
+            return report.widget
+        case .app:
+            return app.widget
+        case .device:
+            return device.widget
         }
     }
 
@@ -260,21 +373,48 @@ final class SettingsWindow {
     /// **The pane on show and not all of them**, which is what the Mac's `reloadSelectedPane` does too: a tab nobody
     /// is looking at is read when it is switched to, and reading all of them would be work in service of nothing.
     private func reloadShownPane() {
-        guard let shown else { return }
+        guard let shown, let tab = shownTab() else { return }
+        reload(tab, in: shown)
+    }
+
+    /// The tab on show.
+    ///
+    /// **Asked of the notebook, which is right everywhere except during a switch**: `switch-page` is emitted
+    /// *before* the page changes, so a handler asking here would be told the tab being left. Measured 2026-09-16 --
+    /// switching to Report re-read Faces and the totals never arrived. That is why `pageChanged` passes the tab it
+    /// was handed instead of calling this.
+    private func shownTab() -> SettingsTab? {
+        guard let shown else { return nil }
         let page = Int(facet_notebook_get_current_page(shown.notebook))
-        guard shown.tabs.indices.contains(page) else { return }
-        switch shown.tabs[page] {
+        return shown.tabs.indices.contains(page) ? shown.tabs[page] : nil
+    }
+
+    private func reload(_ tab: SettingsTab, in shown: Shown) {
+        switch tab {
         case .faces:
             shown.faces.reload()
         case .categories:
             shown.categories.reload()
-        case .report, .app, .device:
+        case .report:
+            // **Re-read on every switch to it, and after an edit.** A total is only true as of the moment it was
+            // summed, and pausing the clock from the tray is exactly the sort of thing that changes one while this
+            // tab is the one on show.
+            shown.report.reload()
+        case .app, .device:
+            // **Read once per open rather than per switch**, which is the one place this window holds what it shows:
+            // `CLAUDE.md` licenses an open Settings window to be the source of truth for the settings on it, under
+            // conditions the panes keep. Re-reading on every switch would take a value out from under somebody who
+            // had just typed it.
+            //
+            // **What the app itself changes behind the window is not covered by that**, which the rule is explicit
+            // about: a cube connecting or going changes what the Device tab is allowed to offer, and `deviceChanged`
+            // is what carries that.
             break
         }
         // **The figure is decided from the reading, not from the gesture that caused it.** A cube turned, a
         // double-tap, a limit spent and a pause from the tray all arrive as a redraw and any of them can be the
         // moment the number starts or stops moving -- so this is the one place the tick is decided.
-        keepTicking()
+        keepTicking(on: tab)
     }
 
     /// Starts or stops the once-a-second repaint from one answer, so no caller has to remember both halves.
@@ -282,10 +422,8 @@ final class SettingsWindow {
     /// **Only while the Faces tab is the one on show.** The figure is worked out when it is drawn rather than
     /// counted up in here, so a tab nobody is looking at misses nothing by not ticking -- and the Mac stops its own
     /// for the window being off screen, which is the same judgement about the same wake.
-    private func keepTicking() {
-        let shouldTick = shown.map { $0.tabs.indices.contains(Int(facet_notebook_get_current_page($0.notebook)))
-            && $0.tabs[Int(facet_notebook_get_current_page($0.notebook))] == .faces } == true
-            && timing.read().isCounting
+    private func keepTicking(on tab: SettingsTab) {
+        let shouldTick = tab == .faces && timing.read().isCounting
         guard shouldTick else {
             tick?.cancel()
             tick = nil
@@ -316,8 +454,10 @@ final class SettingsWindow {
     /// "Selected", not "clicked": this fires for a tab chosen in code as well as one clicked.
     private func pageChanged(to page: Int) {
         guard let shown, shown.tabs.indices.contains(page) else { return }
-        debugLog?.record(.tab, "Settings tab selected: \(shown.tabs[page].title)")
-        reloadShownPane()
+        let tab = shown.tabs[page]
+        debugLog?.record(.tab, "Settings tab selected: \(tab.title)")
+        // **The tab it was handed, not the one the notebook reports**: see `shownTab`.
+        reload(tab, in: shown)
     }
 
     /// The window has gone, however it went: the Close button, the window manager, or the app quitting.

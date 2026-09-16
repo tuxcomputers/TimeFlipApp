@@ -29,6 +29,9 @@ import Foundation
 /// `SettingsMetrics`.
 @MainActor
 final class PanelSection {
+    /// What the heading says, for a caller that logs a fold and would otherwise be holding the same string twice.
+    let title: String
+
     /// The expander, which is the panel as well: the style class is on it, so folding takes the tint with it.
     let widget: UnsafeMutablePointer<GtkWidget>
 
@@ -59,6 +62,7 @@ final class PanelSection {
         isExpanded: Bool,
         content: UnsafeMutablePointer<GtkWidget>
     ) {
+        self.title = title
         widget = gtk_expander_new(nil)!
         // **The name a check addresses it by**, which on this platform is the widget name rather than an
         // `AXIdentifier`: `Tests/Methods.md` Method 15 reads `name` off an AT-SPI node and GTK answers it with this.

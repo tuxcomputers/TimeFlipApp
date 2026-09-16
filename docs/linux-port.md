@@ -81,10 +81,13 @@ order; [what each machine owes](#what-each-machine-owes) is the same list split 
       **Done 2026-09-07**; both halves live in one core file, which item 16 is about splitting.
 - [x] **[10](#10---linux---the-bluez-adapter)** - Linux - The BlueZ adapter, the Linux slot in the radio square.
       **Done, and proven on the cube 2026-09-13.**
-- [ ] **[11](#11---linux---the-ui-filling-the-gtk-slots)** - Linux - The UI: filling the GTK slots. The menu bar
-      and the dialogues work on a real cube, and **the Settings window and its Categories tab were built and
-      confirmed on screen 2026-09-16**; the Faces, Report, App and Device tabs are not started, and there is no
-      port to fill for any of them. **Still the largest item left.**
+- [x] **[11](#11---linux---the-ui-filling-the-gtk-slots)** - Linux - The UI: filling the GTK slots. **The menu
+      bar, the dialogues and all five Settings tabs, built and confirmed on screen 2026-09-16**, four of them
+      against a real cube. Three controls are deliberately absent and each says which item has to land first:
+      Google sign-in ([16](#16---macos--linux---split-googleloopbacklistener) then
+      [15](#15---linux---google-sign-in-on-linux)), the cube rename
+      ([17](#17---macos---renamedevice-onto-devicesettingwrite)), and a factory reset, which this radio has no path
+      for.
 - [ ] **[12](#12---linux---the-scripted-suite-on-linux)** - Linux - The scripted suite on Linux.
       **Deliberately low priority (owner, 2026-09-16)**: neither the suite nor its Linux half is edited or run
       until confirming a feature genuinely needs it.
@@ -133,7 +136,7 @@ order; [what each machine owes](#what-each-machine-owes) is the same list split 
 | Does the logic behave? | **Yes.** `swift test` is green on both platforms and has been since 2026-09-09 | 2026-09-16, Mac |
 | How much of the suite runs here? | **1,417 of 1,962 tests**, derived by counting rather than run today -- 680 under XCTest and 737 under swift-testing. The Linux box's own last report was 737, which is that swift-testing figure exactly | derived 2026-09-16; last Linux run 2026-09-13 |
 | What is still excluded? | **32 files, 545 tests, every one of them XCTest**, all needing AppKit, CoreBluetooth or a `FacetMac` type. `EveryLinuxExclusionEarnsItsPlaceTests` fails if one stops needing them | 2026-09-16, Mac |
-| Is there a UI? | **A tray item and a Settings window, and both work.** GTK3 and `AyatanaAppIndicator3` through a modulemap, one process, one language. The window carries **the Categories tab**; Faces, Report, App and Device are not built | 2026-09-16 |
+| Is there a UI? | **A tray item and a Settings window, and both work.** GTK3 and `AyatanaAppIndicator3` through a modulemap, one process, one language. **All five tabs are built**; what is missing is Google sign-in, the cube rename and a factory reset, each waiting on a named item | 2026-09-16 |
 | Is the device half composed? | **Yes, and every part of it answered on a real cube**: scan, reach, login, PIN rotation, history, face turns, the quit sequence | 2026-09-13 |
 | Does CI check any of this? | **Yes.** Two Linux jobs mirroring the macOS pair, `swift:6.2-noble` on `ubuntu-latest`, a private `dbus-daemon` for the bus tests, 2 skipped for want of a BlueZ adapter | 2026-09-09 |
 | Can a scripted check drive a Linux window? | **Yes, and it was, to confirm the Categories tab**: AT-SPI presses, types, sets and reads back, and screenshots go by window id. `Tests/Methods.md` Method 20. **There is no Xvfb on the box**, so it costs the owner's screen | 2026-09-16 |
@@ -710,7 +713,7 @@ Numbers are addresses and are never reused, so the order below is historical rat
 
 | # | What | Size |
 |---|---|---|
-| [11](#11---linux---the-ui-filling-the-gtk-slots) | The Settings window: Faces, Report, App and Device | **Still the largest item left**, with the window and the Categories tab done 2026-09-16 |
+| ~~[11](#11---linux---the-ui-filling-the-gtk-slots)~~ | ~~The Settings window~~ | **Done 2026-09-16**: all five tabs, four confirmed against a real cube |
 | [15](#15---linux---google-sign-in-on-linux) | Google sign-in | Small, but wants 11 or a decision about where to put it |
 | [12](#12---linux---the-scripted-suite-on-linux) | The scripted suite | Low priority by instruction; blocked by 24 anyway |
 | [16](#16---macos--linux---split-googleloopbacklistener) | The socket half of the listener split | ~200 lines, moved rather than written |
@@ -904,6 +907,35 @@ nothing), `GtkDialoguePresenter`, `GLibScheduler`, and -- as of 2026-09-16 -- `S
 totals per category, **Settings**, Pause, Lock and Quit; and pairing, pausing, unlocking and quitting a real cube
 were all done through it on 2026-09-13.
 
+#### All five tabs are built, and four of them were confirmed against a real cube (2026-09-16)
+
+**The window carries Faces, Categories, Report, App and Device.** Three things the Mac has are deliberately not in
+it, each because something else has to happen first rather than because it was skipped:
+
+| Not built | Why | Who |
+|---|---|---|
+| The App tab's **Google section** | The sign-in needs a listener the core still picks for itself, which is item [16](#16---macos--linux---split-googleloopbacklistener) and then [15](#15---linux---google-sign-in-on-linux) | The Mac's half first |
+| The Device tab's **rename control** | Its decision is inside `SettingsWindowController`, which this box cannot compile. Item [17](#17---macos---renamedevice-onto-devicesettingwrite) says plainly it is wanted the moment a Linux window wants the control. **This is that moment** | The Mac |
+| The Device tab's **factory reset** and the **double-tap registers** | `BlueZCubeRadio` has no reset path, so there is nothing to offer; the registers have a second gate of their own and their one folding decision is struck in `architecture-ports-plan.md` | Here, later |
+
+**A dead control is never drawn for any of them**, which is the same judgement `StatusItemMenu` already makes: there
+is no section rather than one that cannot do anything.
+
+**What came out into the core, and every piece of it has tests it never had before**: `CategoryEdits` (30),
+`FaceEdits` (14), `ReportReadout` (6), `AppSettingWrite` (6), `DeviceSettingRows` (7). All five were decisions
+inside `SettingsWindowController`, reachable only through AppKit, so none of them had ever been tested on either
+platform. [handover-mac.md](handover-mac.md) asks for each to be adopted.
+
+**Found on the cube, and it is a fault on both platforms** (2026-09-16): writing auto-pause from the Device tab
+sets the cube to the wrong value for three round trips before settling on the right one. The write confirms with a
+`0x10` read, that answer reaches `DeviceSettingsSync.cubeReported(status:)` like any other status, and at that
+moment the table still holds the old value -- because `DeviceSettingWrite` writes the table only *after* the cube
+confirms, which is the ordering the first design rule requires. So the sync sees a disagreement it caused, corrects
+the cube back, and the correction's own read-back starts the next round. It converges: cube 7m, table 7m, three
+corrections later. **Neither radio makes this Linux-specific** -- `received(status:)` publishes every `0x10` answer
+on both -- so the Mac has it too and no run has ever looked. Measured exchange in
+[handover-mac.md](handover-mac.md) item 34.
+
 #### The Settings window, and the Categories tab (2026-09-16)
 
 **Confirmed on screen and driven over AT-SPI**, against a throwaway `XDG_DATA_HOME` so the cube and the real
@@ -946,10 +978,32 @@ because a `GtkButton` insets what it holds.
 which is what the DDL already relies on. It is lopsided rather than wrong, and moving it belongs with item 13 --
 [handover-mac.md](handover-mac.md) item 33 says so.
 
-**Next in size order: the Faces tab, then Report, then App and Device.** `SettingsWindow.pane(for:)` is a switch
-over `SettingsTab`, so each of those is a named `nil` rather than a gap, and the notebook carries only the tabs
-that exist -- a tab holding an empty pane is the control that looks live and does nothing that `StatusItemMenu`
-already refuses to draw.
+**`SettingsWindow.pane(for:)` is a switch over `SettingsTab`**, so a tab this platform has not built is a named
+`nil` rather than a gap, and the notebook carries only the tabs that exist. Nothing is `nil` today.
+
+#### Six faults the tree could not show, and a screen or a cube did
+
+Each of these compiled, passed the hermetic suite, and was wrong. They are here because every one of them is a
+thing a GTK port meets once.
+
+1. **A notebook tab sized to an ellipsised label reads `...`** -- a label that has agreed to shorten itself has
+   nothing to hold the tab open.
+2. **`.process` on a resource directory flattens it**, so `Icons/Activities` exists nowhere in the bundle and every
+   icon drew the no-icon glyph. The flat lookup is the one that answers.
+3. **A `GtkButton` insets what it holds**, so every category name sat 25px right of its own caption. The
+   `facet-flat` class is padding zero, and the Report tab's day cells need it too -- with the theme's padding each
+   day demanded 46pt against the 39 the metrics worked out, and the window came up 730 wide instead of 640.
+4. **`gtk_notebook_get_current_page` answers -1 until the pages are shown**, so reading the tables before that
+   found no tab and every list came up empty.
+5. **`switch-page` is emitted before the page changes**, so a handler asking the notebook which tab is showing is
+   told the one being left. Switching to Report re-read Faces and the totals never arrived.
+6. **Destroying a `PanelSection`'s widget leaves the Swift object pointing at freed memory**, and packing it again
+   on the next draw is a use-after-free. The Device tab did exactly that, and **the app segfaulted the moment a
+   real cube reported what it was** -- because that is the first thing that redraws that tab while it is open.
+
+**The window says when a pane will not fit**, which is what found the third of those: a pane wider than
+`SettingsMetrics.windowWidth` writes a `debug_log` row naming the tab and both numbers. Without it the only way to
+tell which of five panes had widened the window was to take them out one at a time.
 
 **`GtkDialoguePresenter` is 72 lines**, a `GtkMessageDialog` modal on a nested main loop the way `NSAlert.runModal`
 is, with no parent window -- this platform's ordinary case and the Mac's nineteenth. **`wayOut` is simply honoured

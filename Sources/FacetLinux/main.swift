@@ -430,6 +430,17 @@ let faceEdits = FaceEdits(
 )
 faceEdits.faceColours = faceColours
 
+// **What a picked range came to**, which is three reads and none of them held: the day boundary the range is
+// measured against, the entries inside it, and whether the figures carry seconds. Core, so the Report tab on either
+// platform sums the same range the same way.
+let reportReadout = ReportReadout(entries: entries, settings: settings)
+
+// **The five rows of the Device tab's Settings section**, which is core: three of them reach the cube before the
+// table, and which command each carries and what order the two happen in are not a window's to decide.
+let deviceRows = DeviceSettingRows(settings: settings, dialogues: dialogues, debugLog: debugLog)
+deviceRows.send = radio.map { radio in { payload, reported in radio.send(payload, reported) } }
+deviceRows.lowBattery = lowBattery
+
 // **The Settings window, built here and put on screen by nothing until somebody asks for it.** A window nobody
 // opens should not exist, which is the Mac's reasoning too -- and on this platform it goes further: the window is
 // built on each open and destroyed on each close, so the next open reads the tables again because there is nothing
@@ -442,6 +453,32 @@ let settingsWindow = SettingsWindow(
     entries: entries,
     settings: settings,
     timing: timingReadout,
+    report: reportReadout,
+    dialogues: dialogues,
+    deviceRows: deviceRows,
+    // What the Device tab needs from the radio, handed over as four closures: the window knows nothing about BlueZ,
+    // and this is the only file that knows both halves.
+    deviceReadings: SettingsWindow.DeviceReadings(
+        battery: { radio?.batteryPercent },
+        isReachingForCube: { radio?.isReachingForCube ?? false },
+        pair: {
+            debugLog?.record(.pair, "Pairing was chosen from the Device tab")
+            radio?.pair(
+                presenting: DeviceLoginRules.candidates(
+                    stored: DevicePINSource(keychain: devicePINs, debugLog: debugLog).stored()
+                ),
+                rotatingTo: DevicePINRules.target()
+            )
+        },
+        forget: {
+            DevicePairingRecorder(settings: settings, debugLog: debugLog).recordForget()
+            radio?.forgetWhatWasFound()
+            // **The bar is not redrawn from here**, and not because it does not need to be: the window is built
+            // before the menu bar, the menu bar's dropdown being what opens the window, so naming it in this closure
+            // is a cycle the compiler refuses. The window calls `onTimingChanged` after this, which is the same
+            // funnel and is assigned once the bar exists.
+        }
+    ),
     categoryEdits: categoryEdits,
     faceEdits: faceEdits,
     isLimitReached: { dailyLimit.isLimitReached },
@@ -583,6 +620,10 @@ let timingChanged: @MainActor @Sendable () -> Void = {
 }
 categoryEdits.timingChanged = timingChanged
 faceEdits.timingChanged = timingChanged
+// The App tab's settings reach it too: `display_seconds` decides whether the bar's figure carries them, and that
+// repaint runs on a tick that only turns while something is being timed -- so a setting changed against a paused
+// session would be stored and not shown, which reads as a control that did nothing.
+settingsWindow.onTimingChanged = timingChanged
 
 // Recorded time changed, so everything drawn from it is stale.
 historyIngestor.onChanged = {
@@ -610,7 +651,13 @@ let reports = CubeReports(settings: settings, devicePINs: devicePINs, debugLog: 
 reports.reconnect = reconnector
 reports.lowBattery = lowBattery
 reports.dialogues = dialogues
-reports.changed = { menuBar.redraw() }
+reports.changed = {
+    menuBar.redraw()
+    // **And the Device tab, if it is open.** What the radio reports is exactly what that tab is a picture of -- the
+    // name, the connection, the charge, what the cube says it is -- and it is the app changing something behind the
+    // window, which `CLAUDE.md` is explicit is not covered by the licence to hold a setting.
+    settingsWindow.deviceChanged()
+}
 
 if let radio {
     radio.onPINChanged = { pin in reports.pinChanged(to: pin) }
@@ -656,7 +703,11 @@ if let radio {
 
     // **Nothing is written down**, which makes this the one radio callback that files nothing: the charge has no
     // row and is not going to get one.
-    radio.onBatteryLevel = { _, _ in reports.chargeArrived() }
+    radio.onBatteryLevel = { _, _ in
+        reports.chargeArrived()
+        // The charge is the one reading on that tab with no row behind it, so nothing else would carry it.
+        settingsWindow.deviceChanged()
+    }
 
     radio.onCubeStatus = { _, status in
         menuBar.redraw()

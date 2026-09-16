@@ -563,9 +563,17 @@ Gdk.pixbuf_get_from_window(win, 0, 0, win.get_width(), win.get_height()).savev(p
 headless yet and every window check costs the owner's screen. That is the open question item 12 of
 `docs/linux-port.md` says is worth the most, and it costs one `apt install`.
 
-**Open the image afterwards and look at it.** Three faults in the first Settings window were invisible to the
-tree and obvious in the picture: a tab reading `...`, every icon drawn as the no-icon glyph, and every name
-25px right of the caption above it.
+**Switch tabs through the notebook's Selection, not the tab's action.** A `page tab` has no action interface at
+all -- `queryAction()` raises `NotImplementedError` -- and the `page tab list` above it exposes `Selection`:
+
+```python
+notebook.querySelection().selectChild(index)
+```
+
+**Open the image afterwards and look at it.** Six faults in the Settings window were invisible to the tree and
+obvious on screen or on the cube: a tab reading `...`, every icon drawn as the no-icon glyph, every name 25px
+right of its caption, a window 90pt too wide, lists that came up empty, and a segfault the moment a real cube
+reported what it was.
 
 ## An ad-hoc build silently switches Google sync off
 
