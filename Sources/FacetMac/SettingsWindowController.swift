@@ -197,6 +197,28 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// cube has.
     weak var faceColours: FaceColourSync?
 
+    /// The Categories tab's edits, which are `FacetCore`'s and not this file's.
+    ///
+    /// **Adopted 2026-09-17**, `docs/handover-mac.md` item 31. Fourteen methods lived here and the same fourteen
+    /// live in `CategoryEdits`, written from this file comment for comment when the Linux Settings window needed
+    /// them: two copies of one decision, which is the hazard `CLAUDE.md` opens with. What is left here is the
+    /// pickers and the tables, which are view construction and this file's business.
+    ///
+    /// **`nil` where either store is**, which is every layout test. This file holds both as optionals and guarded
+    /// on each of the fourteen; `CategoryEdits` is built with both and so has no `guard let` in it, which is why
+    /// the unwrapping happens once, here.
+    ///
+    /// `faceColours` is set in `wire(_:)` rather than here, because this is built lazily and that is assigned from
+    /// outside after construction -- capturing it at first use would capture whatever it happened to be.
+    private lazy var categoryEdits: CategoryEdits? = {
+        guard let categories, let faces else { return nil }
+        let edits = CategoryEdits(categories: categories, faces: faces, dialogues: dialogues, debugLog: debugLog)
+        edits.changed = { [weak self] in self?.reloadSelectedPane() }
+        edits.timingChanged = { [weak self] in self?.onTimingChanged?() }
+        edits.startTiming = { [weak self] record in self?.startTiming(record) }
+        return edits
+    }()
+
     /// Whether this launch is timing from the app rather than following a cube, for the Device tab's Connection row.
     ///
     /// Whether this app is its own clock, asked rather than held.
@@ -1952,14 +1974,17 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     // MARK: - The Categories tab
 
     private func wire(_ pane: CategoriesPane) {
+        // Assigned here rather than at construction: `faceColours` is handed to this controller from outside and
+        // `categoryEdits` is lazy, so taking it at first use could take a `nil` that was filled in a moment later.
+        categoryEdits?.faceColours = faceColours
         pane.activeTable.facesHolding = { [weak self] category in
             self?.faces?.facesHolding(categoryID: category.id) ?? []
         }
         pane.activeTable.onSetDailyLimit = { [weak self] category, minutes in
-            self?.setDailyLimit(minutes, on: category)
+            self?.categoryEdits?.setDailyLimit(minutes, on: category)
         }
         pane.activeTable.onRetire = { [weak self] category in
-            self?.retire(category)
+            self?.categoryEdits?.retire(category)
         }
         pane.activeTable.onPickIcon = { [weak self] category, anchor in
             self?.pickIcon(for: category, from: anchor)
@@ -1968,7 +1993,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             self?.pickColour(for: category, from: anchor)
         }
         pane.activeTable.onRename = { [weak self] category, typed in
-            self?.rename(category, to: typed)
+            self?.categoryEdits?.rename(category, to: typed)
         }
         pane.activeTable.onRenameEditingChanged = { [weak self] isEditing in
             // The same loan the create control gets, for the same reason: a key equivalent is dispatched before the
@@ -1982,14 +2007,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
             self?.entries?.lastUsed(categoryID: category.id)
         }
         pane.retiredTable.onReinstate = { [weak self] category in
-            self?.reinstate(category)
+            self?.categoryEdits?.reinstate(category)
         }
         // **The same handler the Active list's rename reaches**, given the retired record. Everything that differs
         // between the two is a question about the record -- `CategoryRenameRules.decision` reads `isCategoryActive` to tell an
         // index violation from a name the table will take -- so a second handler here would be a second answer to a
         // question one already answers.
         pane.retiredTable.onRename = { [weak self] category, typed in
-            self?.rename(category, to: typed)
+            self?.categoryEdits?.rename(category, to: typed)
         }
         pane.retiredTable.onRenameEditingChanged = { [weak self] isEditing in
             self?.closeButton?.keyEquivalent = isEditing ? "" : "\u{1b}"
@@ -2019,25 +2044,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         popover.contentViewController?.view = grid
         grid.onPick = { [weak self, weak popover] iconID in
             popover?.close()
-            self?.setIcon(iconID, on: category)
+            self?.categoryEdits?.setIcon(iconID, on: category)
         }
         iconPicker = popover
         popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
     }
 
-    /// Stores a category's artwork, which includes clearing it: re-clicking the icon a category already has answers
-    /// `0`, and that is a write like any other (see `CategoryEditRules.iconSelection`).
-    private func setIcon(_ iconID: Int, on category: CategoryRecord) {
-        guard let categories else { return }
-        let stored = categories.setIcon(id: category.id, iconID: iconID)
-        debugLog?.record(
-            .click,
-            "Category \(category.name) icon -> icon_id \(iconID)\(stored ? "" : " REFUSED")"
-        )
-        // Read back, which is what redraws the row's icon: this changes what a row says about itself rather than a
-        // value the row is already showing, so there is nothing being typed into for a reload to interrupt.
-        reloadSelectedPane()
-    }
 
     /// Opens the palette under a category's swatch, on the same terms as the icon grid: a popover belonging to the row
     /// it was opened from, closing on the one choice it exists to take.
@@ -2050,220 +2062,19 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         popover.contentViewController?.view = list
         list.onPick = { [weak self, weak popover] colourID in
             popover?.close()
-            self?.setColour(colourID, on: category)
+            self?.categoryEdits?.setColour(colourID, on: category)
         }
         colourPicker = popover
         popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
     }
 
-    /// Stores a category's colour, which includes clearing it: re-clicking the colour a category already has answers
-    /// `0`, and that is a write like any other (see `CategoryEditRules.colourSelection`).
-    private func setColour(_ colourID: Int, on category: CategoryRecord) {
-        guard let categories else { return }
-        let stored = categories.setColour(id: category.id, colourID: colourID)
-        debugLog?.record(
-            .click,
-            "Category \(category.name) colour -> colour_id \(colourID)\(stored ? "" : " REFUSED")"
-        )
-        // **Every face wearing this category, and only those.** Recolouring is the one edit here that can change more
-        // than one face at once, and it can equally change none -- a category on no face is a swatch in a list and
-        // nothing on the cube. The faces are asked for rather than assumed, since which of them hold it is a question
-        // only the table can answer.
-        if stored, let faces {
-            let wearing = faces.facesHolding(categoryID: category.id).map(\.face)
-            faceColours?.send(faces: wearing, because: "\(category.name) was recoloured")
-        }
-        // Read back, which is what redraws the row's swatch: this changes what a row says about itself rather than a
-        // value the row is already showing, so there is nothing being typed into for a reload to interrupt.
-        reloadSelectedPane()
-    }
 
-    /// Acts on a name typed into a row, which always means asking first.
-    ///
-    /// **Every rename is confirmed**, even to a name nothing else holds, because of what a rename does to what is
-    /// already recorded: everything references a category by id, so a report covering last month will show the new
-    /// name too. That is not a loss and there is nothing to backfill, but it is not necessarily expected.
-    ///
-    /// The decision is `CategoryRenameRules`', taken against the whole `category` table rather than either list on
-    /// screen, since the name may be held by a row this tab is not showing.
-    private func rename(_ category: CategoryRecord, to typed: String) {
-        guard let categories else { return }
-        let decision = CategoryRenameRules.decision(
-            rawName: typed,
-            current: category,
-            matching: categories.matching(name:)
-        )
-        let choices = CategoryRenameRules.choices(for: decision)
-        guard let asking = CategoryRenameRules.dialogue(for: decision, currentName: category.name) else {
-            // `.ignore`: nothing typed, or the name already reads that way. The field has closed itself, and a
-            // dialogue saying nothing happened would be worse than nothing happening.
-            debugLog?.record(.field, "Category \(category.name) rename ignored, nothing changed")
-            return
-        }
-        // `nil` for the dead end, which raises the same dialogue with nothing but Cancel in it: an active category
-        // holds the name, so there is something to say and nothing to decide.
-        let name = renamedName(from: decision)
-        debugLog?.record(
-            .field,
-            "Category \(category.name) rename -> \(CategoryCreateRules.normalise(typed)), asking: \(asking.title)"
-        )
 
-        // The wording, the buttons and which of them Return may land on are all `CategoryRenameRules`', in one
-        // answer, so their order on screen and the meaning of the reply cannot drift apart. What this method
-        // does with them is nothing.
-        dialogues.ask(asking, offering: choices) { [weak self] choice in
-            guard let name else {
-                self?.debugLog?.record(.click, "Button clicked: Cancel, \(category.name) rename refused, name taken")
-                return
-            }
-            self?.act(on: choice, renaming: category, to: name, in: categories)
-        }
-    }
 
-    /// The name a decision would write, or `nil` for one that writes nothing. The refusal carries a name too -- the
-    /// one that is taken -- and it is not a name to write, which is why this asks the decision rather than the text.
-    private func renamedName(from decision: CategoryRenameRules.Decision) -> String? {
-        switch decision {
-        case .ignore, .refuse:
-            return nil
-        case let .confirm(name), let .confirmAgainstRetired(name, _), let .confirmAgainstActive(name, _):
-            return name
-        }
-    }
 
-    private func act(
-        on choice: CategoryRenameRules.Choice?,
-        renaming category: CategoryRecord,
-        to name: String,
-        in categories: CategoryStore
-    ) {
-        // `nil` is a response no button of ours produced -- a sheet dismissed by something else -- and it means the
-        // same as Cancel: a name was typed and nothing came of it.
-        guard choice?.isRename == true else {
-            debugLog?.record(.click, "Button clicked: Cancel, \(category.name) not renamed")
-            return
-        }
-        let stored = categories.setName(id: category.id, name: name)
-        debugLog?.record(
-            .click,
-            "Button clicked: \(choice?.buttonTitle ?? "") \(category.name) -> \(name)"
-                + "\(stored ? "" : " REFUSED by the index")"
-        )
-        // Read back either way. A rename re-sorts the list, and a refused one leaves a row showing a name the table
-        // never took.
-        reloadSelectedPane()
-        // What is being timed may be this category, and its name is on the status item.
-        onTimingChanged?()
-    }
 
-    /// Stores a category's daily limit.
-    ///
-    /// A refused write is the one case that reads the row back. The field is showing what was typed, and if the table
-    /// did not take it then the screen and the database now disagree -- which is the whole thing the first rule in
-    /// `CLAUDE.md` exists to prevent. Losing the field's focus is the smaller cost of the two.
-    private func setDailyLimit(_ minutes: Int, on category: CategoryRecord) {
-        guard let categories else { return }
-        let allowed = CategoryEditRules.dailyLimitMinutes(minutes)
-        let stored = categories.setDailyLimit(id: category.id, minutes: allowed)
-        debugLog?.record(
-            .field,
-            "Category \(category.name) daily limit -> \(allowed)min\(stored ? "" : " REFUSED")"
-        )
-        guard stored else {
-            reloadSelectedPane()
-            return
-        }
-        // **The limit just edited may be the limit the app is refusing against, and the refusal has no tick of its own
-        // to notice.** `DailyLimitWatch` stands itself down when the clock stops, which is exactly what a spent limit
-        // does to it, so raising the limit here is a change nothing was left watching for. The edit says so itself
-        // instead: the menu bar redraws and its red clears, the dropdown's Resume comes back, and the watch re-arms if
-        // there is anything to watch. This is the same funnel a rename uses two methods up, for the same reason.
-        onTimingChanged?()
-    }
 
-    /// Retires a category and takes it off the faces holding it.
-    ///
-    /// **Both, or neither.** A retired category left on a face would still be what that face is timing while being
-    /// absent from every list a category can be picked from, which is a state nothing else in the app is prepared to
-    /// explain. The archive did the same, and the faces are cleared after the retire rather than before so a refused
-    /// retire leaves the faces alone.
-    ///
-    /// Nothing here has to check for a locked face: `CategoryEditRules` decided that before the box was drawn, and a
-    /// locked face's box is disabled, so this is not reachable for one.
-    private func retire(_ category: CategoryRecord) {
-        guard let categories else { return }
-        guard categories.setActive(id: category.id, false) else {
-            debugLog?.record(.click, "Category \(category.name) retire REFUSED")
-            return
-        }
-        let cleared = (faces?.facesHolding(categoryID: category.id) ?? []).filter { faces?.clear(face: $0.face) == true }
-        debugLog?.record(
-            .click,
-            "Category \(category.name) retired, cleared from face(s) \(cleared.map(\.face))"
-        )
-        // **The cleared faces go dark**, which is the same instruction the window has just carried out on screen. A
-        // face holding nothing has no colour, and `FaceColourRules` sends that as black -- leaving the old colour lit
-        // would make a retired category go on showing on the cube, which is precisely what retiring it means it is
-        // not. Only the faces this actually cleared: a refused clear is a face still wearing the category.
-        faceColours?.send(faces: cleared.map(\.face), because: "\(category.name) was retired")
-        // The list is read again because retiring changes which rows belong in it, not merely what one of them says.
-        reloadSelectedPane()
-        // The Faces tab and the status item draw from the same tables, and a face this cleared may be the one being
-        // timed.
-        onTimingChanged?()
-    }
 
-    /// Brings a retired category back, or says why it cannot come back.
-    ///
-    /// **The name is checked before the write.** Only one active category may hold a name, and the unique index
-    /// would refuse this anyway -- but a refused write cannot say *which* category is in the way, and that is the
-    /// whole of what somebody needs to hear. `CategoryEditRules` answers it against the whole table rather than
-    /// against either list on screen, since the clash may be with a row this tab is not showing.
-    ///
-    /// The index still has the last word. If the check and the index ever disagree, the index is the one that is
-    /// right, so a refusal from the write is reported too rather than assumed impossible.
-    ///
-    /// Nothing is put on any face by this, which is why a locked face is no bar here as it is to retiring.
-    private func reinstate(_ category: CategoryRecord) {
-        guard let categories else { return }
-        switch CategoryEditRules.reinstateDecision(
-            for: category,
-            matching: categories.matching(name: category.name)
-        ) {
-        case let .refuse(namesake):
-            debugLog?.record(
-                .click,
-                "Category \(category.name) reinstate REFUSED: category_id \(namesake.id) is active under that name"
-            )
-            // Redrawn before the alert, so the box the click ticked goes back to unticked: it claimed something the
-            // table never agreed to.
-            reloadSelectedPane()
-            showNameTaken(category)
-
-        case .reinstate:
-            let stored = categories.setActive(id: category.id, true)
-            debugLog?.record(
-                .click,
-                "Category \(category.name) reinstated\(stored ? "" : " REFUSED by the index")"
-            )
-            // Read again either way: reinstating changes which list the row belongs in, and a refusal has to put the
-            // box back.
-            reloadSelectedPane()
-        }
-    }
-
-    /// The dead end for a name an active category already holds. Wording carried over from the previous app.
-    private func showNameTaken(_ category: CategoryRecord) {
-        dialogues.tell(Dialogue(
-            title: "That name is already in use",
-            message: """
-            An active category is already called "\(category.name)", so this one cannot be reinstated under that \
-            name.
-
-            Rename one of them first, then try again.
-            """
-        ))
-    }
 
     /// Draws the session: which category, whether it is running, and how much time that category has.
     ///
@@ -3019,8 +2830,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
 
     private func wire(_ control: CategoryCreateControl, startsTiming: Bool = false) {
         control.onSave = { [weak self, weak control] typed in
-            guard let control else { return }
-            self?.saveNewCategory(typed, from: control, startsTiming: startsTiming)
+            // **The collapse is the caller's, which is what adopting `CategoryEdits` moved.** Every branch of the
+            // old `saveNewCategory` folded the control that raised it, the ignored-name branch included, so it was
+            // never a decision the create sequence was making -- the control folds itself up and then reports the
+            // name. See `docs/handover-mac.md` item 31.
+            control?.collapse()
+            self?.categoryEdits?.create(typed, startsTiming: startsTiming)
         }
         control.onEditingChanged = { [weak self] isEditing in
             // Escape belongs to whichever of the two needs it more. While a name is being typed that is
@@ -3031,151 +2846,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         }
     }
 
-    /// Starts the clock on a category that has just been made, when the control that made it asks for that.
-    ///
-    /// **The record is read back rather than assembled from what was written**, which is the database rule applied to
-    /// the app's own insert: `startTiming` needs a `CategoryRecord`, and building one here out of the name just typed
-    /// would be the app's idea of the row rather than the row.
-    ///
-    /// A refused read leaves the category made and the clock alone. That is the honest outcome: the category exists,
-    /// which is most of what was asked for, and starting a clock on a row that cannot be read back would be worse
-    /// than not starting one.
-    private func start(_ createdID: Int, ifAskedTo startsTiming: Bool) {
-        guard startsTiming, let categories else { return }
-        guard let record = categories.category(id: createdID) else {
-            debugLog?.record(.mode, "Timing: category_id \(createdID) was made but could not be read back to start")
-            return
-        }
-        startTiming(record)
-    }
 
-    /// Acts on a typed category name.
-    ///
-    /// The decision is `CategoryCreateRules`', taken against the whole `category` table rather than the
-    /// list on screen -- which shows only active categories, so a retired namesake is invisible to it and
-    /// the one thing standing between a typo and two identical categories would be missing.
-    ///
-    /// The control that raised it is handed in rather than looked up, since there is now more than one and only the
-    /// one that was typed into should fold up.
-    private func saveNewCategory(_ typed: String, from control: CategoryCreateControl, startsTiming: Bool = false) {
-        guard let categories else { return }
-        switch CategoryCreateRules.decision(rawName: typed, matching: categories.matching(name:)) {
-        case .ignore:
-            control.collapse()
 
-        case let .insert(name):
-            let created = categories.insert(name: name)
-            debugLog?.record(
-                .click,
-                "Button clicked: Save new category \(name) -> \(created.map { "category_id \($0)" } ?? "refused")"
-            )
-            control.collapse()
-            // Re-read rather than adding the new row to the list by hand: the database is what the list
-            // shows, and a row put there by the writer would be a second answer to what it holds.
-            reloadSelectedPane()
-            if let created { start(created, ifAskedTo: startsTiming) }
 
-        case let .retiredNamesakes(existing):
-            debugLog?.record(
-                .click,
-                "Button clicked: Save new category \(existing[0].name) -> asking, \(existing.count) retired "
-                    + "under that name: \(existing.map(\.id))"
-            )
-            control.collapse()
-            askAboutRetiredNamesakes(existing, startsTiming: startsTiming)
 
-        case let .alreadyActive(existing):
-            debugLog?.record(
-                .click,
-                "Button clicked: Save new category \(existing.name) -> already active as category_id \(existing.id)"
-            )
-            control.collapse()
-            showAlreadyActive(existing)
-        }
-    }
-
-    /// Asks what to do about a name a retired category already holds, and does it.
-    ///
-    /// **Three answers, because two of them are legitimate.** Bringing the old one back keeps its history, which is
-    /// usually what typing a name used before means; making a new one leaves that history where it is under a name
-    /// being reused deliberately, which the database allows since only *active* names are unique. Nothing in the app
-    /// can tell which was meant, so it asks rather than choosing -- this used to reactivate silently, which quietly
-    /// took the second option away.
-    ///
-    /// The buttons and what they mean are `CategoryCreateRules`', in one list, so their order on screen and the
-    /// meaning of the answer cannot drift apart.
-    ///
-    /// **With more than one retired namesake the Reactivate button is not offered at all**, since there is no answer
-    /// to which of them to bring back: they share a name and nothing distinguishes them on a button. The dialogue
-    /// still appears, saying how many there are, and offers the answer that is still available -- creating a new one
-    /// -- or nothing. Somebody who wants a particular one back goes to the Inactive list, where each row carries the
-    /// date that tells them apart.
-    private func askAboutRetiredNamesakes(_ existing: [CategoryRecord], startsTiming: Bool = false) {
-        guard let categories, let first = existing.first else { return }
-        let asking = CategoryCreateRules.retiredNamesakeDialogue(name: first.name, count: existing.count)
-        dialogues.ask(asking.dialogue, offering: asking.choices) { [weak self] choice in
-            self?.act(
-                on: choice,
-                about: first,
-                named: first.name,
-                in: categories,
-                startsTiming: startsTiming
-            )
-        }
-    }
-
-    /// **`startsTiming` reaches here too, and that is the point rather than thoroughness.** All three outcomes come
-    /// from one press of one button on the Faces tab, so a name that happens to collide with a retired one would
-    /// otherwise behave differently from every other name -- and which names those are is exactly what the person
-    /// typing cannot know. Reinstating is included: "created" is not what they did, but it is what they got.
-    private func act(
-        on choice: CategoryCreateRules.RetiredNamesakeChoice?,
-        about existing: CategoryRecord,
-        named name: String,
-        in categories: CategoryStore,
-        startsTiming: Bool = false
-    ) {
-        var started: Int?
-        switch choice {
-        case .reactivate:
-            let succeeded = categories.setActive(id: existing.id, true)
-            debugLog?.record(
-                .click,
-                "Button clicked: Reactivate \(existing.name) -> category_id \(existing.id)"
-                    + "\(succeeded ? "" : " REFUSED")"
-            )
-            if succeeded { started = existing.id }
-
-        case .createNew:
-            let created = categories.insert(name: name)
-            debugLog?.record(
-                .click,
-                "Button clicked: Create new one \(name) -> \(created.map { "category_id \($0)" } ?? "refused")"
-                    + ", leaving category_id \(existing.id) retired"
-            )
-            started = created
-
-        case .cancel, nil:
-            // `nil` is a response no button of ours produced -- a sheet dismissed by something else -- and it means
-            // the same as Cancel: the name was typed and nothing came of it.
-            debugLog?.record(.click, "Button clicked: Cancel, \(name) not created")
-            return
-        }
-        // Only the two that wrote get here: either changes which rows belong in which list.
-        reloadSelectedPane()
-        if let started { start(started, ifAskedTo: startsTiming) }
-    }
-
-    /// The dead end: an active category already holds the name, so there is nothing to decide and only
-    /// something to say. Wording carried over from the previous app.
-    private func showAlreadyActive(_ existing: CategoryRecord) {
-        // **"OK" rather than the "Ok" this used to spell.** Every notice takes its dismissal from
-        // `AlertPresenter` now, so the twelve of them cannot disagree about how the one button is written.
-        dialogues.tell(Dialogue(
-            title: "That category already exists",
-            message: "\"\(existing.name)\" is already in the Active list. Scroll up -- it is right there."
-        ))
-    }
 
     @objc
     private func closeWindow() {
