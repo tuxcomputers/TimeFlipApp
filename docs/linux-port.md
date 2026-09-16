@@ -111,8 +111,8 @@ order; [what each machine owes](#what-each-machine-owes) is the same list split 
 - [x] **[21](#21---macos---reconcile-the-claudemd-scripted-suite-wording)** - macOS - Reconcile the `CLAUDE.md`
       scripted-suite wording with the 2026-09-16 instruction. **Done 2026-09-16.**
 - [x] **[22](#22---linux---secrettoolstores-doc-comment-describes-an-arrangement-that-is-gone)** - Linux -
-      `SecretToolStore`'s doc comment describes an arrangement that is gone. **Comment fixed 2026-09-16**; a
-      redundant `#if` in the same file is left for the Linux box, which can compile it.
+      `SecretToolStore`'s doc comment describes an arrangement that is gone. **Done 2026-09-16**: the comment by
+      the Mac, and the redundant `#if` by the Linux box, which can compile it.
 - [x] **[23](#23---core---the-ci-workflows-test-counts-are-stale)** - Core - The CI workflow's test counts are
       stale by a factor of ten. **Done 2026-09-16**, comments only.
 - [ ] **[24](#24---macos---libshs-quit_app-bypasses-platform_quit_app)** - macOS - `lib.sh`'s `quit_app`
@@ -717,11 +717,15 @@ Numbers are addresses and are never reused, so the order below is historical rat
 | [15](#15---linux---google-sign-in-on-linux) | Google sign-in | Small, but wants 11 or a decision about where to put it |
 | [12](#12---linux---the-scripted-suite-on-linux) | The scripted suite | Low priority by instruction; blocked by 24 anyway |
 | [16](#16---macos--linux---split-googleloopbacklistener) | The socket half of the listener split | ~200 lines, moved rather than written |
-| [22](#22---linux---secrettoolstores-doc-comment-describes-an-arrangement-that-is-gone) | A stale doc comment | Minutes |
+| ~~[22](#22---linux---secrettoolstores-doc-comment-describes-an-arrangement-that-is-gone)~~ | ~~A stale doc comment, and the dead `#if` under it~~ | **Done 2026-09-16** |
 
-**On either machine** ([13](#13---core---repo-restructure-and-the-claudemd-split),
-[14](#14---core---readme), [23](#23---core---the-ci-workflows-test-counts-are-stale)): the repo restructure, the
-README, and the CI workflow's stale counts. None blocks anything.
+**On either machine**: [13](#13---core---repo-restructure-and-the-claudemd-split), the repo restructure and the
+`CLAUDE.md` split, which is the only item left that is nobody's in particular. [14](#14---core---readme) and
+[23](#23---core---the-ci-workflows-test-counts-are-stale) are done.
+
+**So what is left on this side is 15 and 16, and both wait on the Mac** -- the sign-in cannot reach a listener the
+core still picks for itself. With 11 finished, a Linux box with no Mac to hand has nothing left it can do alone
+except 13.
 
 ### 1 - Core - Settle the `@MainActor` question
 
@@ -1207,11 +1211,11 @@ enforce.
 **The comment is fixed as of 2026-09-16.** It now says the store is handed over by `main.swift` and that
 nothing above it knows which it got, and keeps what the old text was for as a record of what changed.
 
-**One thing in that file is deliberately left**, and it is the Linux box's: `SecretToolStore` still opens with
-`#if !canImport(Security)`, which is dead weight now that the file lives in a target only Linux builds. Its
-macOS counterpart `KeychainSecretStore` dropped exactly that guard when it moved, and says why -- *which square
-gets built is the manifest's business*. Removing it is a code change the Mac cannot compile, and editing this
-side's files blind is what handover items 23 and 24 cost in the other direction.
+**The one thing left in that file was the Linux box's, and it is done 2026-09-16.** `SecretToolStore` opened
+with `#if !canImport(Security)`, which was dead weight once the file lived in a target only Linux builds -- the
+conditional was excluding it from a build it is never in. Its macOS counterpart `KeychainSecretStore` dropped
+exactly that guard when it moved, and says why: *which square gets built is the manifest's business*. Removed
+here, compiled and the 12 secret-store tests run, which is the check the Mac could not make.
 
 ### 23 - Core - The CI workflow's test counts are stale
 

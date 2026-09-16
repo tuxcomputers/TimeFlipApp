@@ -1,4 +1,3 @@
-#if !canImport(Security)
 import FacetCore
 import Foundation
 
@@ -9,6 +8,12 @@ import Foundation
 /// `GoogleTokenStore` take a `SecretStore` and name neither adapter; the macOS root passes
 /// `KeychainSecretStore` at the same point. That is `CLAUDE.md` under *The core is platform-blind*: the core
 /// states what it needs as a protocol and something outside hands over the thing that does it.
+///
+/// **No longer guarded, as of 2026-09-16.** It opened with `#if !canImport(Security)`, which was left over from
+/// the days when this file was in `FacetCore` and had to stand aside on Darwin. It lives in a target only Linux
+/// builds now, so the conditional was excluding this file from a build it is never in -- and it is the exact
+/// counterpart of the `#if canImport(Security)` `KeychainSecretStore` dropped when it moved, for the reason that
+/// one gives: which square gets built is the manifest's business.
 ///
 /// **This comment used to describe the arrangement that rule exists to forbid** -- both stores keeping Darwin
 /// bodies and branching here at compile time, which is what `docs/linux-port.md` item 7 originally settled on.
@@ -131,4 +136,3 @@ package struct SecretToolStore: SecretStore {
         )
     }
 }
-#endif
