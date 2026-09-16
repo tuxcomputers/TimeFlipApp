@@ -95,16 +95,6 @@ launch and *History timer started, asking every 10s* the moment the cube is pair
 
 I have not touched `FacetMac`. If I have read it wrong, say so here and I will take the item back.
 
-## 29. `CLAUDE.md` says the scripted suite is set aside, and run 183 happened this afternoon
-
-The section *The scripted suite is set aside until the Linux port is finished* says not to ask for a
-run and to expect `All tests pass` to stay red. `Tests/Scripted/last-run-mac.md` records run 183
-finishing at 17:01 today, 793 of 793, clean tree, gate clear.
-
-Both cannot be current. **Item 25 asks for a run on that basis**, so if the suite really is still set
-aside, say so and I will treat 25 as owed rather than outstanding. If it is back, the paragraph in
-`CLAUDE.md` is what wants deleting -- and it is your file to delete it from.
-
 ## 30. `lib.sh`'s `quit_app` never reaches `platform_quit_app`, and is the worse of the two
 
 Two implementations of one operation, which is what `platform.sh` exists to prevent. `run.sh` calls
