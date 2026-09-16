@@ -101,12 +101,14 @@ order; [what each machine owes](#what-each-machine-owes) is the same list split 
       platform-blind allowlist.
 - [ ] **[17](#17---macos---renamedevice-onto-devicesettingwrite)** - macOS - `renameDevice` onto
       `DeviceSettingWrite`. The last unticked row of the ports plan's window arm.
-- [ ] **[18](#18---macos---confirm-the-read-back-window-on-corebluetooth)** - macOS - Confirm the read-back
-      window on CoreBluetooth. **A possible live fault on the Mac** that Linux found in shared code.
-- [ ] **[19](#19---macos---the-history-timer-never-restarts-when-a-cube-arrives-late)** - macOS - The history
-      timer never restarts when a cube arrives late. **Confirmed in the source 2026-09-16.**
-- [ ] **[20](#20---macos---remove-the-twelve-compiler-artefacts-at-the-repository-root)** - macOS - Remove the
-      twelve compiler artefacts at the repository root.
+- [x] **[18](#18---macos---confirm-the-read-back-window-on-corebluetooth)** - macOS - Confirm the read-back
+      window on CoreBluetooth. **Answered 2026-09-16 from the trace: it never delivered into it**, 133
+      opportunities and zero occurrences, so the two faults were BlueZ's alone.
+- [x] **[19](#19---macos---the-history-timer-never-restarts-when-a-cube-arrives-late)** - macOS - The history
+      timer never restarts when a cube arrives late. **Fixed 2026-09-16**, behind a named list a new gate reads.
+- [x] **[20](#20---macos---remove-the-twelve-compiler-artefacts-at-the-repository-root)** - macOS - Remove the
+      twelve compiler artefacts at the repository root. **Done 2026-09-16**; a clean build does not reproduce
+      them, which was the item's open question.
 - [x] **[21](#21---macos---reconcile-the-claudemd-scripted-suite-wording)** - macOS - Reconcile the `CLAUDE.md`
       scripted-suite wording with the 2026-09-16 instruction. **Done 2026-09-16.**
 - [x] **[22](#22---linux---secrettoolstores-doc-comment-describes-an-arrangement-that-is-gone)** - Linux -
@@ -1142,24 +1144,39 @@ CoreBluetooth's has never been measured.
 
 ### 18 - macOS - Confirm the read-back window on CoreBluetooth
 
-**Linux found a fault in shared code and can only fix half of it.** `CubeCommandChannel.isAwaitingResult`
-reported the *intention* to read rather than the read, so a value arriving between writing the question and
-issuing the read was taken as the answer. On BlueZ that window is hit constantly, because a `read` produces the
-reply *and* a duplicate `PropertiesChanged` a few milliseconds later.
+**Answered 2026-09-16 from the trace, and the answer is no: CoreBluetooth never delivered into the window.**
 
-**Fixed in `FacetCore`** with a second flag set where the read actually goes out. **Whether CoreBluetooth ever
-delivers into the same window is unanswered**, and only the Mac can answer it. If it does, two faults have been
-on the Mac unnoticed: every login losing the cube's `0x10` state, and a quit reporting a refused auto-pause
-write the cube had in fact taken.
+**What the window was.** `CubeCommandChannel.isAwaitingResult` reported the *intention* to read rather than the
+read, so a value arriving between writing the question and issuing the read was taken as the answer. On BlueZ
+that is hit constantly, a `read` there producing the reply *and* a duplicate `PropertiesChanged` a few
+milliseconds later. Fixed in `FacetCore` with a second flag set where the read actually goes out. The window
+was shared, so the open question was whether the same two faults had been on the Mac unnoticed: every login
+losing the cube's `0x10` state, and a quit reporting a refused auto-pause write the cube had in fact taken.
 
-**Half of it needs no cube.** [handover-mac.md](handover-mac.md) item 25 asks for a run of `51-device-connect`,
-`55-device-settings` and `57-cube-pause`, but also for a look at whether any `0x10` on the Mac ever answered
-without a `commandResult: read requested` before it -- and that is answerable from a trace already held.
-**Under item 12's priority, do the trace half and leave the run.**
+**Measured against `debug.sqlite` from scripted run 183**, a full 32-script run on the real cube on 2026-09-13,
+10,767 rows. For every `0x10` write, the window is the interval between it and the `commandResult: read
+requested` that fetches its answer:
 
-**Whichever machine has the cube is not a consideration here.** It is on the Mac as of 2026-09-16, and if it
-ever is not, pulling the batteries takes a minute -- see [there is one
-cube](#there-is-one-cube-and-whichever-machine-paired-last-owns-its-pin) above.
+| | |
+|---|---|
+| `command withResponse: 10` writes | **133** |
+| of those, followed by a `commandResult: read requested` | **133**, none missing |
+| command-result values landing **inside** the window | **0** |
+| `0x10`-shaped answers whose most recent command-channel event was a *write* rather than a read request | **0** of 133 |
+
+**The premise was checked, because a query that matches nothing answers nothing.** The gate pattern matches all
+**701** command writes in the trace, so writes really were candidates for "most recent command-channel event"
+and never won. Without that check the result would have been the shape of a test that fails open.
+
+**One thing this does not say.** It is one trace, from one run, on one cube. It says CoreBluetooth did not
+deliver into the window in 133 opportunities, not that it cannot. That is enough to answer the question that
+was asked -- the two faults were BlueZ's and are not sitting unnoticed on the Mac -- and the fix costs this
+platform nothing either way.
+
+**The other half of [handover-mac.md](handover-mac.md) item 25 was a run of `51-device-connect`,
+`55-device-settings` and `57-cube-pause`.** Not done, and it would re-measure what run 183 already recorded:
+that run *is* those three scripts among the 32, and its trace is what the table above counts. Under item 12's
+priority there is nothing here worth a fresh run.
 
 ### 19 - macOS - The history timer never restarts when a cube arrives late
 

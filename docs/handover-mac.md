@@ -34,35 +34,6 @@ for something is to write it down where the other will look.
    [handover-linux.md](handover-linux.md) for the other machine. A blank file on both sides is the
    finished state.
 
-## 25. `CubeCommandChannel` changed under you, and only a scripted run can say it is right there
-
-**A read-back was answering on whatever arrived first rather than on what it read.**
-`isAwaitingResult` reported `isReadingBack`, which is set before the question is even written, and
-`DeviceLogin` routes command-result values by it -- so anything landing between the write and the
-read was taken as the reply. That is the exact thing this type's own comments say makes a `0x10`
-answer worthless: it carries no echoed command byte, and the characteristic frequently holds the
-previous command's reply.
-
-**What it cost on this side, both silent.** Every login reported *That was not an answer about the
-state of the cube*, so `cubeStatus` stayed nil through every connection and
-`DeviceSettingsSync.cubeReported(status:)` never ran at all. And a quit reported *The cube would not
-take auto-pause 0m* about a write the cube had narrated as `autopause OFF` and confirmed as zero
-two hundred milliseconds later.
-
-**The trigger is BlueZ and the window is shared.** BlueZ answers a read twice, once as the reply and
-once as a `PropertiesChanged` a few milliseconds later, so the duplicate of the login's `0x17` landed
-inside the `0x10` after it. **Whether CoreBluetooth ever delivers into that window is the question,
-and this box cannot answer it.** If it does, the same two faults are on the Mac and nobody has
-noticed; if it does not, the fix costs one turn of the loop and nothing else.
-
-The fix is `isReadingTheValue`, a second flag set where the read actually goes out.
-`CubeCommandChannelTests` changed one assertion -- it pinned the old claim that for the `0x10`
-exchange the write *is* the question -- and gained one for the window. 737 tests pass here.
-
-**What I want**: a run of `51-device-connect`, `55-device-settings` and `57-cube-pause`, and a look
-at whether any `0x10` on the Mac ever answered without a `commandResult: read requested` before it.
-That last one is answerable from a trace you already have, without a cube.
-
 ## 30. `lib.sh`'s `quit_app` never reaches `platform_quit_app`, and is the worse of the two
 
 Two implementations of one operation, which is what `platform.sh` exists to prevent. `run.sh` calls

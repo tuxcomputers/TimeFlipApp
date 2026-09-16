@@ -69,7 +69,7 @@ in three places -- a decision written independently here that now exists once in
 were taken. Two of them were not merely duplicates: the reach here had no settle wait and never paid for its
 own shortcut, and the narrowed `togglePause` left a menu item that looked live and did nothing.
 
-## 31. Put the cube-arrival clock resumes behind a named list, so a test can read them
+## 37. Put the cube-arrival clock resumes behind a named list, so a test can read them
 
 **Your root has never had this bug and mine did, which is why I am asking rather than telling.**
 `FacetMac/main.swift` resumed `dailyLimit` when a cube arrived and never `historyTimer`, so a Mac
