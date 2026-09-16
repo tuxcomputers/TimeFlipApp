@@ -119,6 +119,9 @@ order; [what each machine owes](#what-each-machine-owes) is the same list split 
 - [ ] **[24](#24---macos---libshs-quit_app-bypasses-platform_quit_app)** - macOS - `lib.sh`'s `quit_app`
       bypasses `platform_quit_app`. **Mac work that blocks item 12**: no Linux check can run while every check
       script quits through the macOS-only copy. Deferred with item 12 rather than fixed blind.
+- [ ] **[25](#25---core---the-auto-pause-write-sets-the-cube-to-the-wrong-value-for-three-round-trips)** - Core -
+      The auto-pause write sets the cube to the wrong value for three round trips. **Measured on both platforms**;
+      the fix wants `DeviceSettingRows` adopted on the Mac first, so there is one place to hold the flag.
 
 ### What is still open
 
@@ -1281,6 +1284,43 @@ half is written and works** -- it quit a running app through its own tray menu o
 single thing between the Linux box and running `01-launch.sh`, which is otherwise completely portable.
 
 **Deferred with item 12** rather than fixed now, under the 2026-09-16 priority.
+
+### 25 - Core - The auto-pause write sets the cube to the wrong value for three round trips
+
+**Measured on both platforms, and it is shared code.** The Linux box found it on 2026-09-16 driving its Device
+tab (`docs/handover-mac.md` item 34) and reasoned it could not be Linux-specific. **Confirmed here the same day
+from `debug.sqlite`**, scripted run 183 on 2026-09-13, which contains four instances nobody had read. The cube
+really is set to a value nobody asked for, and it narrates it:
+
+    16:56:57.001  Auto-pause: sending 1m
+    16:56:57.004  command withResponse: 05 00 01
+    16:56:57.037  eventsData: autopause set
+    16:56:57.105  commandResult: 02 02 00 01 ...
+    16:56:57.106  The cube confirms it took: auto-pause 1m
+    16:56:57.110  Telling the cube auto-pause 0m (the cube says its auto-pause is 1m and the table says 0m)
+    16:56:57.111  command withResponse: 05 00 00
+    16:56:57.113  Auto-pause: the table now holds 1m
+    16:56:57.152  eventsData: autopause OFF          <- the hardware, set to what nobody asked for
+    16:56:57.199  Telling the cube auto-pause 1m (the cube says its auto-pause is 0m and the table says 1m)
+
+**No single step is wrong, which is what makes it worth writing down.** `DeviceSettingWrite` writes the table
+only after the cube confirms, which is the ordering the first design rule requires. The confirmation is a `0x10`
+read. Every `0x10` answer reaches `DeviceSettingsSync.cubeReported(status:)`, including the one this write asked
+for -- and at that instant the table still holds the old value, so the sync sees a disagreement it caused and
+corrects the cube back to it. Its own read-back then starts the next round the other way.
+
+**It converges after three corrections**, which is the only reason it is not urgent. What it costs is three extra
+round trips per write and a window in which the hardware holds a value nobody asked for.
+
+**The fix wants item 35 first, and that is the finding rather than a deferral.** The honest version is the sync
+ignoring a status while a write of that setting is in flight, and there is nowhere good to put that flag today:
+`DeviceSettingWrite` is a static enum holding no state, so the bracket belongs to whatever starts the write. On
+Linux that is `DeviceSettingRows` in the core; on the Mac it is still `SettingsWindowController`'s own copy. **Two
+surfaces bracketing a shared flag two different ways is the hazard this would be fixed to avoid**, so adopting
+`DeviceSettingRows` (item 35 of `docs/handover-mac.md`) comes first and then there is one place to change.
+
+**Whoever fixes it owes both radios a run**, this being shared code that changes what goes to the hardware. The
+Linux box has offered its half; the Mac's is `55-device-settings` and `65-auto-pause`.
 
 ---
 

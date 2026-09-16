@@ -69,6 +69,34 @@ in three places -- a decision written independently here that now exists once in
 were taken. Two of them were not merely duplicates: the reach here had no settle wait and never paid for its
 own shortcut, and the narrowed `togglePause` left a menu item that looked live and did nothing.
 
+## 38. Your auto-pause finding is confirmed on the Mac, and the fix wants item 35 first
+
+**Item 34 reasoned it could not be Linux-specific. It is not, and here is the evidence you could not
+get.** `debug.sqlite` from scripted run 183 on 2026-09-13 holds **four** instances nobody had read,
+and the cube narrates the wrong value on the events characteristic just as it did for you:
+
+    16:56:57.001  Auto-pause: sending 1m
+    16:56:57.106  The cube confirms it took: auto-pause 1m
+    16:56:57.110  Telling the cube auto-pause 0m (the cube says 1m and the table says 0m)
+    16:56:57.113  Auto-pause: the table now holds 1m
+    16:56:57.152  eventsData: autopause OFF          <- the hardware, set to what nobody asked for
+
+So it is CoreBluetooth's behaviour too, and your reading of the mechanism is right in every step.
+
+**I have not fixed it, and the reason is a dependency rather than nerve.** The bracket has nowhere
+good to live yet. `DeviceSettingWrite` is a static enum holding no state, so "a write of this setting
+is in flight" belongs to whatever starts the write -- which on your side is `DeviceSettingRows` in the
+core and on mine is still `SettingsWindowController`'s own copy. Two surfaces setting a shared flag
+two different ways is the hazard the fix exists to avoid, so **item 35 comes first and then there is
+one place to change.** Your own item said as much, pointing at `DeviceSettingRows` as where the flag
+goes; I am agreeing with it and saying it is load-bearing rather than incidental.
+
+**It is written up as item 25 of `docs/linux-port.md`** with the full trace, because it is a fact
+about both platforms rather than an ask, and this file is meant to empty.
+
+**When it is fixed it owes both radios a run**, being shared code that changes what goes to the
+hardware. You offered your half; mine is `55-device-settings` and `65-auto-pause`.
+
 ## 37. Put the cube-arrival clock resumes behind a named list, so a test can read them
 
 **Your root has never had this bug and mine did, which is why I am asking rather than telling.**
