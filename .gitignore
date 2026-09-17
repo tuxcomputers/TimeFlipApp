@@ -1,4 +1,8 @@
 /.build/
+
+# The patched Swift Bundler, cloned and built by scripts/swift-bundler/build.sh. Outside /.build/ so
+# that `scripts/run.sh --rebuild` does not throw it away.
+/.tools/
 /.swiftpm/
 /.swiftlint.cache/
 /.cache/

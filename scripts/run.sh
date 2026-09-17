@@ -56,11 +56,15 @@ identity="$(scripts/codesign-identity.sh)"
 # ordinary case.
 scripts/generate-credentials.sh
 
+# Swift Bundler, patched and built locally by scripts/swift-bundler/build.sh, which says why. The
+# build fails here rather than later if the tool cannot be produced.
+bundler="$(scripts/swift-bundler/build.sh)"
+
 if [ -n "$identity" ]; then
     echo "Signing as: $identity"
-    mint run stackotter/swift-bundler@main run Facet --codesign --identity "$identity" $args
+    "$bundler" run Facet --codesign --identity "$identity" $args
 else
     printf 'No codesigning identity found, so this build is ad-hoc signed.\n'
     printf 'macOS will ask for Keychain access again after every rebuild; see docs/google-oauth-setup.md.\n'
-    mint run stackotter/swift-bundler@main run Facet $args
+    "$bundler" run Facet $args
 fi

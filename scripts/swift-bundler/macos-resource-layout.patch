@@ -1,0 +1,21 @@
+diff --git a/Sources/SwiftBundler/Bundler/ResourceBundler.swift b/Sources/SwiftBundler/Bundler/ResourceBundler.swift
+index 78f3c58..87535fe 100644
+--- a/Sources/SwiftBundler/Bundler/ResourceBundler.swift
++++ b/Sources/SwiftBundler/Bundler/ResourceBundler.swift
+@@ -181,7 +181,15 @@ enum ResourceBundler {
+       )
+     }
+ 
+-    try copyResources(from: bundle, to: destinationBundleResources)
++    // SwiftPM's `swiftbuild` build system, the default since Swift 6.4, emits a target's resource
++    // bundle in the macOS bundle layout with the resources under `Contents/Resources`. The `native`
++    // build system emitted them at the bundle's root. Read whichever layout this bundle is in, so
++    // that the destination receives the resources rather than a nested `Contents` directory.
++    let wrappedResources = bundle / "Contents/Resources"
++    let bundleResources =
++      wrappedResources.exists(withType: .directory) ? wrappedResources : bundle
++
++    try copyResources(from: bundleResources, to: destinationBundleResources)
+ 
+     let assetCatalogExists = assetCatalog.exists(withType: .directory)
+     let layeredIcon: [URL]

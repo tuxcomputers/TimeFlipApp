@@ -83,9 +83,13 @@ fi
 echo "Signing: $SIGNING"
 echo
 
+# Swift Bundler, patched and built locally by scripts/swift-bundler/build.sh, which says why. The
+# build fails here rather than later if the tool cannot be produced.
+BUNDLER="$(scripts/swift-bundler/build.sh)"
+
 BUNDLE=".build/bundler/apps/Facet/Facet.app"
 rm -rf "$BUNDLE"
-mint run stackotter/swift-bundler@main bundle Facet \
+"$BUNDLER" bundle Facet \
     --configuration release "${ARCH_ARGS[@]}" ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"}
 [ -d "$BUNDLE" ] || { echo "error: the build produced no bundle at $BUNDLE" >&2; exit 1; }
 
