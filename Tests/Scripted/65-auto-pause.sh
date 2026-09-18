@@ -27,7 +27,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_test_database
 ensure_app_running
 # What this script checks when everything passes. See `finish` in lib.sh for what a mismatch means.
-EXPECTED_CHECKS=18
+EXPECTED_CHECKS=19
 start "the cube auto-pause delay, sent to the cube, read back, and then written down"
 
 # **No cube check here.** `00-setup` asked once and `50-device-scan` stops the run if the answer was no, so anything
@@ -122,6 +122,23 @@ if [ -n "$confirmed" ] && [ -n "$stored" ] && [ "$stored" -gt "$confirmed" ]; th
 else
     fail "the confirmation was row ${confirmed:-none} and the write row ${stored:-none}"
 fi
+
+# **The correction loop, which this is the only check that can see.** Item 25 of `docs/linux-port.md`: the `0x10`
+# that confirms this write reaches `DeviceSettingsSync` like every other status, and until 2026-09-18 it arrived at
+# the one instant the table still held the old value -- so the sync read a disagreement it had caused and set the
+# cube back, and its own read-back started the next round the other way. Three extra round trips, and a window in
+# which the hardware held a delay nobody asked for.
+#
+# **Counted between the send and the write rather than over the whole step**, because a correction outside that
+# bracket is the sync doing its job: a cube that really has drifted is supposed to be put right. What must not
+# happen is the question being asked mid-write.
+#
+# Run 183 on 2026-09-13 has four of these rows; there should now be none. If this fails, the bracket is not
+# reaching this platform's writes -- the likeliest cause being `settingsWindow.deviceSettingsSync` never set in
+# `main.swift`, which is what routes the Mac through `DeviceSettingRows`.
+sent=$(dsql "SELECT MIN(debug_log_id) FROM debug_log WHERE debug_log_id > $since AND message LIKE 'Auto-pause: sending 1m';")
+corrections=$(dsql "SELECT COUNT(*) FROM debug_log WHERE debug_log_id > ${sent:-$since} AND debug_log_id < ${stored:-999999999} AND message LIKE 'Telling the cube auto-pause%';")
+check "and the cube was not corrected back mid-write" "0" "$corrections"
 
 wait_for_value "SELECT json_extract(setting_value, '\$.minutes') FROM setting WHERE setting_name = 'auto_pause_minutes';" "1" 10
 check "the table holds the stepped delay" "1" "$(setting auto_pause_minutes minutes)"

@@ -323,6 +323,14 @@ let deviceSettings = DeviceSettingsSync(
     debugLog: debugLog
 )
 settingsWindow.faceColours = faceColours
+// **Set here rather than passed in**, for the reason `quitSequence.letGoOfTheDevice` is: the sync is built after the
+// window controller, the window not being who mostly tells the cube these things.
+//
+// **What it buys is item 25 of `docs/linux-port.md`.** The Device tab's writes reach the cube through
+// `DeviceSettingRows`, which brackets each one so that the `0x10` confirming a write is not read as a disagreement
+// at the one instant the table still holds the old value. Without this line the writes still work and the cube is
+// set to a value nobody asked for for three round trips.
+settingsWindow.deviceSettingsSync = deviceSettings
 
 // What keeps a paired app's cube reachable: it looks for it now, and goes on looking whenever the link goes.
 //

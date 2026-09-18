@@ -176,7 +176,11 @@ package final class DeviceSettingRows {
             "LED",
             value: "\(what) \(value) \(unit)",
             through: send,
-            tookIt: "LED: the cube acknowledged \(what) \(value) \(unit), which is all this command can be asked",
+            // **The Mac's wording, restored 2026-09-18 and not a preference.** `63-led-settings.sh` check 8 matches
+            // this row in full, and it needs a cube -- so a module written on the other box cannot reword it and
+            // find out. The clause this replaced, *which is all this command can be asked*, said the same thing and
+            // would have failed that check the first time anybody ran it.
+            tookIt: "LED: the cube acknowledged \(what) \(value) \(unit), and there is no read-back to confirm it with",
             recording: { [weak self] in
                 guard let self else { return false }
                 let stored = settings.write("led_settings", field: field, value)

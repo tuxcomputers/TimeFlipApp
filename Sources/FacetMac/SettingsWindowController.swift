@@ -273,6 +273,45 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// row is painted. The menu bar reads the same object, which is what keeps the two flashing together.
     private weak var lowBattery: LowBatteryWatch?
 
+    /// The settings sync, so a write can say it is in flight.
+    ///
+    /// **Set by `main.swift` rather than passed in**, for the reason `quitSequence.letGoOfTheDevice` is: the sync is
+    /// built after this controller, the window not being who mostly tells the cube these things. Same shape, same
+    /// place.
+    ///
+    /// Without it the writes still work and the correction loop of item 25 comes back, which is why nothing here
+    /// guards on it: a launch that forgot to set it should misbehave the way it did before, not silently differently.
+    var deviceSettingsSync: DeviceSettingsSync?
+
+    /// The five Settings rows of the Device tab, which is where the writing sequence lives for both platforms.
+    ///
+    /// **Built at the point of use rather than stored**, which costs nothing and is the only way every reference is
+    /// current: the radio is adopted after `init`, and `deviceSettingsSync` is set after that again. The module holds
+    /// no state between writes -- the in-flight bracket lives in `DeviceSettingsSync`, which is shared and outlives
+    /// this -- so there is nothing a second instance could lose.
+    ///
+    /// `nil` only where there is no settings store, which is a launch with no database. The module is constructed
+    /// with one, so that case is answered at the call sites instead, as `.nowhereToRecord`.
+    private func deviceRows() -> DeviceSettingRows? {
+        guard let settings else { return nil }
+        let rows = DeviceSettingRows(settings: settings, dialogues: dialogues, debugLog: debugLog)
+        rows.send = radio.map { radio in { payload, reported in radio.send(payload, reported) } }
+        rows.settingsSync = deviceSettingsSync
+        rows.lowBattery = lowBattery
+        return rows
+    }
+
+    /// Says a write could not happen because there is no database, and puts the row back.
+    ///
+    /// **One place rather than five**, since `deviceRows()` is `nil` for one reason and every caller answers it the
+    /// same way.
+    private func withoutADatabase(_ setting: String, putBack: () -> Void) {
+        putBack()
+        if let notice = DeviceSettingWrite.notice(for: .nowhereToRecord, setting: setting) {
+            dialogues.tell(notice)
+        }
+    }
+
     /// The icon grid while it is open. Held because `NSPopover` needs an owner for as long as it is on screen, and
     /// because a second click on another row's icon should replace it rather than stack a second one behind it.
     private var iconPicker: NSPopover?
@@ -596,18 +635,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     // MARK: - The Device tab: settings written to the cube and the table
 
     private func applyPauseOnLock(_ pausesOnLock: Bool, on pane: DevicePane) {
-        let outcome = DeviceSettingWrite.record(
-            "Pause on lock",
-            value: pausesOnLock ? "on" : "off",
-            into: settings,
-            recording: { $0.write("pause_on_lock", field: "enabled", pausesOnLock) },
-            debugLog: debugLog
-        )
-        // What the table holds, read now rather than remembered, for the reason every put-back on this tab reads
-        // it: a write has just failed, so what is stored is precisely the question being asked.
-        if outcome.putsTheRowBack { pane.showPauseOnLock(deviceSettings().pausesOnLock) }
-        if let notice = DeviceSettingWrite.notice(for: outcome, setting: "the pause-on-lock setting") {
-            dialogues.tell(notice)
+        guard let rows = deviceRows() else {
+            return withoutADatabase("the pause-on-lock setting") {
+                pane.showPauseOnLock(deviceSettings().pausesOnLock)
+            }
+        }
+        rows.pauseOnLock(pausesOnLock) { [weak self, weak pane] outcome in
+            guard let self, let pane else { return }
+            // What the table holds, read now rather than remembered, for the reason every put-back on this tab
+            // reads it: a write has just failed, so what is stored is precisely the question being asked.
+            if outcome.putsTheRowBack { pane.showPauseOnLock(self.deviceSettings().pausesOnLock) }
         }
     }
 
@@ -627,22 +664,23 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// so this carries the number the arrows were let go on rather than the one the row opened with.
     private func applyBatteryWarning(on pane: DevicePane) {
         let percent = pane.batteryWarningPercent
-        let outcome = DeviceSettingWrite.record(
-            "Battery warning",
-            value: "\(percent) percent",
-            into: settings,
-            recording: { $0.write("low_battery_level", field: "percent", percent) },
-            debugLog: debugLog
-        )
-        if outcome.putsTheRowBack { pane.showBatteryWarning(deviceSettings().batteryWarningPercent) }
-        if let notice = DeviceSettingWrite.notice(for: outcome, setting: "the battery warning level") {
-            dialogues.tell(notice)
-            return
+        guard let rows = deviceRows() else {
+            return withoutADatabase("the battery warning level") {
+                pane.showBatteryWarning(deviceSettings().batteryWarningPercent)
+            }
         }
-        // Nothing moves on screen: a field stepped again while this was being written holds a newer number with a
-        // write of its own already queued, and assigning this one would take that edit off the screen.
-        pane.recordBatteryWarning(percent)
-        lowBattery?.reconsider(because: "the warning level changed")
+        // `lowBattery?.reconsider` is inside the module now, which is where it belongs: nothing else would ask it,
+        // and both platforms have to.
+        rows.batteryWarning(percent) { [weak self, weak pane] outcome in
+            guard let self, let pane else { return }
+            if outcome.putsTheRowBack {
+                pane.showBatteryWarning(self.deviceSettings().batteryWarningPercent)
+                return
+            }
+            // Nothing moves on screen: a field stepped again while this was being written holds a newer number
+            // with a write of its own already queued, and assigning this one would take that edit off the screen.
+            pane.recordBatteryWarning(percent)
+        }
     }
 
 
@@ -672,32 +710,21 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     private func applyLED(
         _ value: Int,
         named name: String,
-        unit: String,
-        field: String,
-        command: Data,
         on pane: DevicePane,
+        write: (DeviceSettingRows, @escaping @MainActor (DeviceSettingWrite.Outcome) -> Void) -> Void,
         putBack: @escaping (DevicePane, DevicePane.Values) -> Void,
         record: @escaping (DevicePane, Int) -> Void
     ) {
-        let described = "\(name) \(value) \(unit)"
+        guard let rows = deviceRows() else {
+            return withoutADatabase("the LED \(name)") { putBack(pane, deviceSettings()) }
+        }
         // **Acknowledged rather than confirmed.** `0x09` and `0x0A` have no read-back defined in the vendor
-        // spec, so the acknowledgement is genuinely all there is; the matrix is in `docs/timeflip.md`.
-        DeviceSettingWrite.send(
-            command,
-            "LED",
-            value: described,
-            through: radio.map { radio in { payload, reported in radio.send(payload, reported) } },
-            // Worded as an acknowledgement rather than a confirmation, which is the honest word here and the
-            // reason this row exists: somebody reading the log for a cube whose light did not change has to be
-            // able to see that nothing ever checked.
-            tookIt: "LED: the cube acknowledged \(described), and there is no read-back to confirm it with",
-            recording: { [weak self] in self?.recordLED(field: field, value, describing: described) ?? false },
-            debugLog: debugLog
-        ) { [weak self, weak pane] outcome in
+        // spec, so the acknowledgement is genuinely all there is; the matrix is in `docs/timeflip.md`. The row
+        // saying so is the module's now, and it says it in the words `63-led-settings.sh` matches.
+        write(rows) { [weak self, weak pane] outcome in
             guard let self, let pane else { return }
-            if outcome.putsTheRowBack { putBack(pane, self.deviceSettings()) }
-            if let notice = DeviceSettingWrite.notice(for: outcome, setting: "the LED \(name)") {
-                self.dialogues.tell(notice)
+            if outcome.putsTheRowBack {
+                putBack(pane, self.deviceSettings())
                 return
             }
             // Nothing moves on screen, deliberately: a field moved again while the command was out holds a newer
@@ -711,14 +738,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         applyLED(
             percent,
             named: "brightness",
+            on: pane,
             // **The word rather than the sign**, and it is the same hazard as an apostrophe: these rows are read
             // back out of `debug_log` by SQL `LIKE` patterns, where a literal `%` is the wildcard. A pattern naming
             // this row could never match it exactly, and would quietly match a great deal else. `CLAUDE.md` names
-            // apostrophes and quotation marks; this is the third one.
-            unit: "percent",
-            field: "brightness",
-            command: DeviceCommandRules.ledBrightness(percent),
-            on: pane,
+            // apostrophes and quotation marks; this is the third one. The unit is the module's word now, and it is
+            // the same one.
+            write: { rows, settled in rows.ledBrightness(percent, then: settled) },
             putBack: { $0.showLEDBrightness($1.ledBrightnessPercent) },
             record: { $0.recordLEDBrightness($1) }
         )
@@ -729,10 +755,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         applyLED(
             seconds,
             named: "blink interval",
-            unit: "sec",
-            field: "blink_interval",
-            command: DeviceCommandRules.ledBlink(seconds),
             on: pane,
+            write: { rows, settled in rows.ledBlink(seconds, then: settled) },
             putBack: { $0.showLEDBlink($1.ledBlinkSeconds) },
             record: { $0.recordLEDBlink($1) }
         )
@@ -760,23 +784,23 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// this carries the number the arrows were let go on rather than the one the row opened with.
     private func applyAutoPause(on pane: DevicePane) {
         let minutes = pane.autoPauseMinutes
-        // **Confirmed rather than merely acknowledged**, which is where this is stronger than the LED pair:
-        // `0x10` reports the delay the cube is set to, so `DeviceCommandRules.readBack(for:)` compares the
-        // cube's own answer against the bytes that went out and `send` reports that.
-        DeviceSettingWrite.send(
-            DeviceCommandRules.autoPause(minutes),
-            "Auto-pause",
-            value: "\(minutes)m",
-            through: radio.map { radio in { payload, reported in radio.send(payload, reported) } },
-            recording: { [weak self] in self?.recordAutoPause(minutes) ?? false },
-            debugLog: debugLog
-        ) { [weak self, weak pane] outcome in
+        guard let rows = deviceRows() else {
+            return withoutADatabase("the auto-pause delay") {
+                pane.showAutoPause(deviceSettings().autoPauseMinutes)
+            }
+        }
+        // **The bracket is why this row had to move**, and it is item 25 of `docs/linux-port.md`. The `0x10` that
+        // confirms this write reaches `DeviceSettingsSync` like any other status, at the one instant the table
+        // still holds the old value, so the sync used to correct the cube back to it and its own read-back started
+        // the next round the other way. Three extra round trips, and a window in which the hardware held a value
+        // nobody asked for. `DeviceSettingRows` tells the sync a write is out; writing that bracket here as well
+        // would be the two-surfaces hazard the module exists to remove.
+        rows.autoPause(minutes) { [weak self, weak pane] outcome in
             guard let self, let pane else { return }
             // What the table holds, read now rather than remembered: a write has just failed, so what is stored
             // is precisely the question being asked.
-            if outcome.putsTheRowBack { pane.showAutoPause(self.deviceSettings().autoPauseMinutes) }
-            if let notice = DeviceSettingWrite.notice(for: outcome, setting: "the auto-pause delay") {
-                self.dialogues.tell(notice)
+            if outcome.putsTheRowBack {
+                pane.showAutoPause(self.deviceSettings().autoPauseMinutes)
                 return
             }
             // Nothing moves on screen, deliberately: a field stepped again while the command was out holds a
@@ -786,44 +810,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         }
     }
 
-    /// Writes the `auto_pause_minutes` row and says whether the table took it, with a row either way.
-    ///
-    /// The setting name and its field are the ones `database/011_setting.sql` seeds, and `SettingStore.write` reads
-    /// the value back before reporting success, which is the check `CLAUDE.md` asks of a settings write.
-    ///
-    /// **Called only after the cube has confirmed**, which is what the row it writes can therefore claim: the table
-    /// holding 15m means a cube that answered `0x10` with 15m, not an app that asked for it.
-    private func recordAutoPause(_ minutes: Int) -> Bool {
-        guard let settings else {
-            debugLog?.record(.field, "Auto-pause: there is no settings store, so \(minutes)m cannot be recorded")
-            return false
-        }
-        let stored = settings.write("auto_pause_minutes", field: "minutes", minutes)
-        debugLog?.record(
-            .field,
-            stored ? "Auto-pause: the table now holds \(minutes)m" : "Auto-pause: the table REFUSED \(minutes)m"
-        )
-        return stored
-    }
 
-    /// Writes one field of the `led_settings` row and says whether the table took it, with a row either way.
-    ///
-    /// **One field, not the pair**, which is the opposite of `recordDoubleTap` and right for the opposite reason: the
-    /// registers go to the cube as a single command and describe nothing apart, while brightness and the blink period
-    /// are two commands that have never had to agree about anything. `SettingStore.write(_:field:_:)` merges into the
-    /// row it finds, so writing one leaves the other exactly as it was -- which the archive pinned in a test of its
-    /// own after the two shared a row (`SettingsPersistenceTests.testSavingLEDBrightnessLeavesBlinkIntervalIntact`).
-    ///
-    /// The field names are the ones `database/011_setting.sql` seeds.
-    private func recordLED(field: String, _ value: Int, describing what: String) -> Bool {
-        guard let settings else {
-            debugLog?.record(.field, "LED: there is no settings store, so \(what) cannot be recorded")
-            return false
-        }
-        let stored = settings.write("led_settings", field: field, value)
-        debugLog?.record(.field, stored ? "LED: the table now holds \(what)" : "LED: the table REFUSED \(what)")
-        return stored
-    }
 
 
 

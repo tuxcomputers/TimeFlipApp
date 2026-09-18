@@ -126,9 +126,10 @@ order; [what each machine owes](#what-each-machine-owes) is the same list split 
       script quits through the macOS-only copy. Deferred with item 12 rather than fixed blind.
 - [ ] **[25](#25---core---the-auto-pause-write-sets-the-cube-to-the-wrong-value-for-three-round-trips)** - Core -
       The auto-pause write sets the cube to the wrong value for three round trips. **Fixed 2026-09-18**, bracketed
-      in `DeviceSettingsSync` by `DeviceSettingRows`, with four tests and both mutations checked -- and **still
-      unticked, because it owes a run on either radio**. The Linux box cannot do its half: the cube answers to the
-      Mac's PIN now (`handover-mac.md` items 36 and 41).
+      in `DeviceSettingsSync` by `DeviceSettingRows`, with four tests and both mutations checked. **The Mac adopted
+      the module the same day**, which is what brackets this platform at all, and `65-auto-pause.sh` gained the
+      check that can see the loop. **Still unticked, because it owes a run**: the Linux box cannot do its half, the
+      cube answering to the Mac's PIN now (`handover-mac.md` items 36 and 41), so the Mac's is the run there is.
 
 ### What is still open
 
@@ -1437,6 +1438,24 @@ out: what was wrong was asking the question in the middle of a write, not the an
 brackets the auto-pause send, which is why this waited for that module to be adoptable on both platforms -- two
 surfaces bracketing a shared flag two different ways is the hazard the fix exists to avoid, and there is now one
 place that does it.
+
+**The Mac adopted it on 2026-09-18, and until it did the fix was Linux-only.** `DeviceSettingRows` was used by
+`FacetLinux` alone; `SettingsWindowController.applyAutoPause` had its own `DeviceSettingWrite.send` with no
+bracket, so this bug was still live on macOS while the item read as fixed. `handover-mac.md` item 40 says so
+plainly: *until then the Mac writes auto-pause through its own copy and the loop is still there, so the run is
+worth doing after the adoption rather than before.* All five rows go through the module now, `main.swift` hands
+the window controller the sync, and the two helpers the adoption orphaned are gone.
+
+**A reworded row would have failed a check that needs a cube, and was caught before the run rather than by it.**
+`DeviceSettingRows.led` wrote *which is all this command can be asked* where the Mac wrote *and there is no
+read-back to confirm it with*, and `63-led-settings.sh` check 8 matches that row in full. The module carries the
+Mac's wording now, that being the one a committed check pins. The other four rows already matched word for word.
+
+**`65-auto-pause.sh` gained the assertion that can actually see this**, which it did not have: zero
+`Telling the cube auto-pause` rows between the `sending` row and the `table now holds` row. Counted inside that
+bracket rather than across the step, because a correction outside it is the sync doing its job. Run 183 has four
+of them; there should be none. Without it the run would have proved the write works and said nothing about the
+loop it is for.
 
 **The bracket is cleared by the link going as well as by the write reporting**, which matters more than it looks:
 a cube carried out of range mid-command never reports, and without that this app would decline to correct that
