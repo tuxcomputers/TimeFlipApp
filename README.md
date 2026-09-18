@@ -33,6 +33,7 @@ from the using end.
 - **[Operation Spec](docs/operation-spec.md)** - how a device event becomes a calendar entry
 - **[Database Design](docs/database-design.md)** - the local SQLite schema
 - **[Features Under Development](docs/TODO-features-under-development.md)** - the longer-form notes behind individual features
+- **[The Rust port](docs/rust-port.md)** - the evaluation that decided the rewrite, and what is still unproven
 - **[State Reference](docs/state-reference.md)** - the one name every state in the app goes by
 - **[Scripted checks](Tests/Scripted/README.md)** - the suite that drives the real app against a real device
 
