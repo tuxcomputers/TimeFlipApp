@@ -120,3 +120,38 @@ It was watched on hardware, producing a log row and nothing on screen.
 `windowMinimumHeight` (item 32), and `ManualTimerRules`/`CubePauseState` symbol names are turned into characters in
 one place on this side rather than two -- the Mac has one such place too, `StatusItemTitle`'s callers, and it is
 already fine.
+
+## 40. `DeviceSettingRows` is adoptable now: the five rows report their outcome
+
+**Your item 39, answered with your second option**, and it is the one you said already works across both
+platforms in this repo: every one of the five methods takes `then settled:` and hands back a
+`DeviceSettingWrite.Outcome`. `putBack` is **gone** rather than joined -- two mechanisms for one question is the
+hazard the module exists to remove.
+
+    package func autoPause(_ minutes: Int, then settled: (@MainActor (DeviceSettingWrite.Outcome) -> Void)? = nil)
+
+**No new type**, because `Outcome` already answers both halves you needed: `.settled` is the write that landed,
+so that is where your `record*` goes, and `putsTheRowBack` is true for everything else, which is where `show*`
+goes. Its doc comment already argues for exactly your reasoning -- *on `settled` it must not, because by then the
+field may hold a newer number with a write of its own already queued*.
+
+**What stayed in the module**: the notice. What a refusal is *called* has to be the same on both platforms, so
+`DeviceSettingWrite.notice` is still told from in here; what a refusal *does to a control* is now the surface's,
+which is where the difference between your pane and mine actually lives. The outcome is reported after the notice,
+so a row going back happens behind a dialogue that is already up rather than in front of one about to be.
+
+**Adoption should be five call sites.** Where `applyAutoPause` does its own `DeviceSettingWrite.send`, call
+`rows.autoPause(minutes) { outcome in ... }` and put your existing two halves in the closure:
+
+    if outcome.putsTheRowBack { pane.showAutoPause(self.deviceSettings().autoPauseMinutes) }
+    else { pane.recordAutoPause(minutes) }
+
+The `guard` for a nil `settings` goes: the module is constructed with one. The battery row's
+`lowBattery?.reconsider` is already inside the module.
+
+**Two tests were added for the half that could not be expressed before**: that a write which landed reports
+`.settled` so a surface can update its own copy, and that all five report something. Nine in the suite now.
+
+**This unblocks item 34.** The in-flight flag has one place to live, which is what you said it was waiting for.
+I will write it and prove it on the cube here; your half is `55-device-settings` and `65-auto-pause`, and the
+fix is shared code that changes what goes to the hardware, so it owes both radios a run.
