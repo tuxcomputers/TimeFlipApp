@@ -435,6 +435,22 @@ faceEdits.faceColours = faceColours
 // platform sums the same range the same way.
 let reportReadout = ReportReadout(entries: entries, settings: settings)
 
+// **The Google account**, which is core: every ordering in a sign-in is `GoogleConnection`'s, and the one line this
+// platform owns is handing a URL to `xdg-open`.
+let googleTokens = GoogleTokenStore(secrets: secrets)
+let googleConnection = GoogleConnection(settings: settings, tokens: googleTokens, debugLog: debugLog)
+
+// **Recorded time on its way to Google**, wired as a closure rather than handed to the recorder: writing a
+// `time_entry` row does not depend on there being an account at all, so with nothing connected this sweeps, finds
+// it has nowhere to put anything, says so once and stops. The same shape the Mac's root has.
+let calendarSync = CalendarSync(
+    connection: database,
+    settings: settings,
+    debugLog: debugLog,
+    accessToken: { try await GoogleCalendarClient.currentAccessToken(tokens: googleTokens) }
+)
+timeEntries.onEntryRecorded = { calendarSync.sweep(because: "an entry was recorded") }
+
 // **The five rows of the Device tab's Settings section**, which is core: three of them reach the cube before the
 // table, and which command each carries and what order the two happen in are not a window's to decide.
 let deviceRows = DeviceSettingRows(settings: settings, dialogues: dialogues, debugLog: debugLog)
@@ -458,6 +474,7 @@ let settingsWindow = SettingsWindow(
     timing: timingReadout,
     report: reportReadout,
     dialogues: dialogues,
+    google: googleConnection,
     deviceRows: deviceRows,
     // What the Device tab needs from the radio, handed over as four closures: the window knows nothing about BlueZ,
     // and this is the only file that knows both halves.
@@ -634,6 +651,9 @@ faceEdits.timingChanged = timingChanged
 // repaint runs on a tick that only turns while something is being timed -- so a setting changed against a paused
 // session would be stored and not shown, which reads as a control that did nothing.
 settingsWindow.onTimingChanged = timingChanged
+// **Connecting an account is the other moment a sweep becomes possible.** Without this, somebody who signs in
+// after a week of recorded time waits for the next entry before any of it goes.
+settingsWindow.onGoogleConnected = { calendarSync.sweep(because: "a calendar was connected") }
 
 // Recorded time changed, so everything drawn from it is stale.
 historyIngestor.onChanged = {

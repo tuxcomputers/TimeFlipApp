@@ -37,6 +37,7 @@ final class SettingsWindow {
     private let timing: TimingReadout
     private let report: ReportReadout
     private let dialogues: DialoguePresenter
+    private let google: GoogleConnection
     private let deviceRows: DeviceSettingRows
     private let deviceReadings: DeviceReadings
 
@@ -120,6 +121,10 @@ final class SettingsWindow {
         shown?.device.reload()
     }
 
+    /// An account was connected, so a sweep becomes possible. **Assigned rather than taken at init**, for the
+    /// reason `onTimingChanged` is: what it reaches is built after this window.
+    var onGoogleConnected: (@MainActor () -> Void)?
+
     /// Everything drawn from the app's own clock, after a setting that one of them is drawn from changed.
     ///
     /// **Assigned rather than taken at init**, which is the Mac's arrangement (`settingsWindow.onTimingChanged`) and
@@ -140,6 +145,7 @@ final class SettingsWindow {
         timing: TimingReadout,
         report: ReportReadout,
         dialogues: DialoguePresenter,
+        google: GoogleConnection,
         deviceRows: DeviceSettingRows,
         deviceReadings: DeviceReadings,
         categoryEdits: CategoryEdits,
@@ -157,6 +163,7 @@ final class SettingsWindow {
         self.timing = timing
         self.report = report
         self.dialogues = dialogues
+        self.google = google
         self.deviceRows = deviceRows
         self.deviceReadings = deviceReadings
         self.categoryEdits = categoryEdits
@@ -229,6 +236,8 @@ final class SettingsWindow {
         let appPane = AppSettingsPane(
             settings: settings,
             dialogues: dialogues,
+            google: google,
+            googleConnected: { [weak self] in self?.onGoogleConnected?() },
             debugLog: debugLog,
             timingChanged: { [weak self] in self?.onTimingChanged?() }
         )

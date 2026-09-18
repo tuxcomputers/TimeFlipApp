@@ -4,10 +4,15 @@ import Foundation
 
 /// The App tab: the app's own preferences, and the debug trace.
 ///
-/// **Two sections where the Mac has three.** Its Google section is not built here yet -- the listener the sign-in
-/// needs is still a port with two implementations behind one conditional, which is item 16 of `docs/linux-port.md`
-/// and is the Mac's half to do. Drawing a Connect button that cannot connect would be the control that looks live
-/// and does nothing, which this app refuses everywhere else, so there is no section rather than a dead one.
+/// **Three sections, as of 2026-09-18**: the app's preferences, the Google account, and the debug trace. The
+/// Google one was absent until the listener became a port with an adapter this platform could be handed
+/// (item 16's Linux half), because drawing a Connect button that cannot connect would be the control that looks
+/// live and does nothing, which this app refuses everywhere else.
+///
+/// **What the Google section does and does not do.** It signs in, says who is connected and whether there is a
+/// token behind that, and disconnects. It does **not** manage the calendar -- create, rename or delete -- which is
+/// another ~200 lines of `SettingsWindowController` and is named in `docs/linux-port.md` rather than half-built
+/// here. A sweep still reaches the calendar the table already names, `CalendarSync` needing no window.
 ///
 /// **Every row is written straight through and read back**, which is `CLAUDE.md`'s licence for an open Settings
 /// window: the window holds what it read when it opened, a changed field is written through `AppSettingWrite`, and
@@ -27,7 +32,21 @@ final class AppSettingsPane {
     private let dialogues: DialoguePresenter
     private let timingChanged: () -> Void
 
+    /// Connecting and disconnecting a Google account, which is core: every ordering in a sign-in -- what is refused
+    /// before a browser opens, when the token is saved against when the rows are written, what is read back
+    /// afterwards -- is `GoogleConnection`'s, and the same module the Mac is asked to adopt.
+    private let google: GoogleConnection
+
+    /// Told when an account is connected, so a sweep can happen: somebody who signs in after a week of recorded
+    /// time has a week to send, and nothing else would ask.
+    private let googleConnected: () -> Void
+
+    /// Whether a sign-in is out right now, which is the one thing here that is not a row: it is what the app is
+    /// doing, and the button says so rather than looking pressable twice.
+    private var isSigningIn = false
+
     private let preferences: UnsafeMutablePointer<GtkWidget>
+    private let googleRows: UnsafeMutablePointer<GtkWidget>
     private let debugRows: UnsafeMutablePointer<GtkWidget>
     private var signals = GtkSignals()
 
@@ -70,11 +89,15 @@ final class AppSettingsPane {
     init(
         settings: SettingStore,
         dialogues: DialoguePresenter,
+        google: GoogleConnection,
+        googleConnected: @escaping () -> Void,
         debugLog: DebugLog?,
         timingChanged: @escaping () -> Void
     ) {
         self.settings = settings
         self.dialogues = dialogues
+        self.google = google
+        self.googleConnected = googleConnected
         self.debugLog = debugLog
         self.timingChanged = timingChanged
 
@@ -93,6 +116,17 @@ final class AppSettingsPane {
             isExpanded: true,
             content: preferences
         )
+        googleRows = SettingsWidgets.column()
+        let googleSection = PanelSection(
+            title: "Google",
+            identifier: "app-google-section",
+            isExpanded: true,
+            content: googleRows
+        )
+        googleSection.onToggle = { [weak self] isExpanded in
+            self?.debugLog?.record(.tab, "App section Google \(isExpanded ? "opened" : "folded")")
+        }
+
         let debugSection = PanelSection(
             title: "Debug",
             identifier: "app-debug-section",
@@ -107,8 +141,9 @@ final class AppSettingsPane {
         debugSection.onToggle = { [weak self] isExpanded in
             self?.debugLog?.record(.tab, "App section Debug \(isExpanded ? "opened" : "folded")")
         }
-        sections = [preferencesSection, debugSection]
+        sections = [preferencesSection, googleSection, debugSection]
         facet_box_pack_start(widget, preferencesSection.widget, 0, 1, 0)
+        facet_box_pack_start(widget, googleSection.widget, 0, 1, 0)
         facet_box_pack_start(widget, debugSection.widget, 0, 1, 0)
     }
 
@@ -143,13 +178,122 @@ final class AppSettingsPane {
     }
 
     private func redraw() {
-        for child in SettingsWidgets.children(of: preferences) + SettingsWidgets.children(of: debugRows) {
+        for child in SettingsWidgets.children(of: preferences)
+            + SettingsWidgets.children(of: googleRows)
+            + SettingsWidgets.children(of: debugRows)
+        {
             gtk_widget_destroy(child)
         }
         signals = GtkSignals()
         drawPreferences()
+        drawGoogle()
         drawDebug()
         gtk_widget_show_all(widget)
+    }
+
+    // MARK: - the Google account
+
+    /// **Two readings and one control**, and both readings are read at the moment they are drawn: who the table
+    /// says is connected, and whether the secret store has a token behind that. One without the other is the
+    /// half-answer that let this section say Connected with nothing behind it on the Mac.
+    ///
+    /// **The status wording is `GoogleAccountRules`'**, including the distinction the whole thing turns on: a store
+    /// that could not be read is not somebody who is signed out, and saying so would push them through a browser
+    /// consent to fix a keyring that was merely locked.
+    private func drawGoogle() {
+        let account = google.stored()
+        let state = GoogleAccountRules.state(
+            for: account,
+            credential: google.credential(),
+            // **Not asked, and this platform does not ask.** Verifying a stored sign-in is a network round trip the
+            // Mac makes on every open; there is nothing here yet to draw its answer, so the honest state is the one
+            // that says nobody has asked.
+            verification: .notAsked
+        )
+        let status = GoogleAccountRules.status(for: state)
+        facet_box_pack_start(googleRows, reading("Account", account.email ?? status, "app-google-account"), 0, 1, 0)
+        facet_box_pack_start(googleRows, reading("Status", status, "app-google-status"), 0, 1, 0)
+
+        let hasCredentials = GoogleCredentials.resolve() != nil
+        let button = gtk_button_new_with_label(
+            isSigningIn ? "Connecting…" : (account.hasGoogleIdentity ? "Disconnect" : "Connect")
+        )!
+        SettingsWidgets.identify(button, account.hasGoogleIdentity ? "app-google-disconnect" : "app-google-connect")
+        // **Dead where this build has no OAuth client in it**, which is not a setting and cannot be fixed from
+        // here: `GoogleCredentials.resolve` reads the bundle and an override file, and a Connect button in a build
+        // with neither is one that can only fail.
+        gtk_widget_set_sensitive(button, hasCredentials && !isSigningIn ? 1 : 0)
+        gtk_widget_set_tooltip_text(
+            button,
+            hasCredentials ? nil : "This build has no Google client in it, so there is nothing to connect to"
+        )
+        signals.connect(button, "clicked") { [weak self] in
+            guard let self else { return }
+            account.hasGoogleIdentity ? disconnect() : signIn()
+        }
+        facet_box_pack_start(googleRows, row("", control: button), 0, 1, 0)
+    }
+
+    /// Opens a browser and waits for the redirect.
+    ///
+    /// **The browser is the one line this platform owns**, which is what `GoogleSignIn.run` says by refusing a
+    /// default for it: `xdg-open` here, `NSWorkspace` there, and the whole of the rest is core.
+    private func signIn() {
+        isSigningIn = true
+        redraw()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let answer = await google.signIn(
+                open: { url in
+                    let process = Process()
+                    process.executableURL = URL(fileURLWithPath: "/usr/bin/xdg-open")
+                    process.arguments = [url.absoluteString]
+                    do {
+                        try process.run()
+                    } catch {
+                        // **Said rather than swallowed**, and it is the one failure a person can do something
+                        // about: the sign-in URL is in the trace, so a desktop with no `xdg-open` can still be
+                        // signed in by pasting it.
+                        self.debugLog?.record(.field, "A browser could not be opened: \(error.localizedDescription)")
+                        self.debugLog?.record(.field, "The sign-in URL is \(url.absoluteString)")
+                    }
+                },
+                listening: { try SocketLoopbackListener(expectedState: $0) }
+            )
+            isSigningIn = false
+            switch answer {
+            case .connected:
+                // **A week of recorded time may be waiting**, and nothing else would ask: a sweep happens when an
+                // entry is recorded, and somebody who signs in afterwards has already missed all of them.
+                googleConnected()
+            case let .failed(notice):
+                dialogues.tell(notice)
+            }
+            redraw()
+        }
+    }
+
+    private func disconnect() {
+        debugLog?.record(.click, "Button clicked: Disconnect Google")
+        if let notice = google.disconnect() {
+            dialogues.tell(notice)
+        }
+        redraw()
+    }
+
+    /// One reading: the words on the left, the value on the right, as the Device tab draws its readings.
+    private func reading(
+        _ label: String,
+        _ value: String,
+        _ identifier: String
+    ) -> UnsafeMutablePointer<GtkWidget> {
+        let line = SettingsWidgets.row()
+        gtk_widget_set_size_request(line, -1, Int32(SettingsMetrics.rowHeight))
+        facet_box_pack_start(line, SettingsWidgets.label(label), 0, 1, 0)
+        let text = SettingsWidgets.label(value)
+        SettingsWidgets.identify(text, identifier, saying: value)
+        facet_box_pack_end(line, text, 0, 0, 0)
+        return line
     }
 
     // MARK: - the preferences

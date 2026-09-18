@@ -94,8 +94,10 @@ order; [what each machine owes](#what-each-machine-owes) is the same list split 
       `CLAUDE.md` split. **Not started.**
 - [x] **[14](#14---core---readme)** - Core - README. **Done 2026-09-16**; it describes two platforms and the
       three targets.
-- [ ] **[15](#15---linux---google-sign-in-on-linux)** - Linux - Google sign-in on Linux. **Not started**;
-      nothing in the Linux composition root names Google at all.
+- [ ] **[15](#15---linux---google-sign-in-on-linux)** - Linux - Google sign-in on Linux. **Built 2026-09-18 and
+      never exercised end to end**: the section signs in, says who is connected and disconnects, `CalendarSync`
+      sweeps, and this build has no OAuth client in it -- so `Connect` is correctly dead and the flow has never met
+      Google from this platform. Managing the calendar is the part still missing.
 - [ ] **[16](#16---macos--linux---split-googleloopbacklistener)** - macOS + Linux - Split
       `GoogleLoopbackListener`. **The Linux half is done 2026-09-18**: the core states the port, the socket
       adapter is in `FacetLinux`, and `GoogleOAuthClient` no longer constructs either. What is left is the Mac
@@ -1130,14 +1132,29 @@ the project in its first line.
 
 ### 15 - Linux - Google sign-in on Linux
 
-**Not started.** The listener is portable and tested on both halves (item 9), and `GoogleSignIn.run(open:)` is
-the arm, taking the browser as a parameter rather than reaching for `NSWorkspace`. **Nothing in
-`Sources/FacetLinux` names Google at all**: there is no `CalendarSync`, no `GoogleTokenStore`, and no slot filled
-for opening a URL. The Linux equivalent of the browser is `xdg-open` through `Process`.
+**Built 2026-09-18, and honestly unfinished in two named ways.** What landed:
 
-**It is a small item that depends on a large one.** On the Mac, signing in is a Settings-window control, so a
-Linux sign-in wants either the Settings window from item 11 or a deliberate decision to put it somewhere else.
-The flow has never been exercised end to end on this platform with a real Google account.
+- **`GoogleConnection` in the core**, which is the sign-in sequence and the disconnect: what is refused before a
+  browser opens, when the token is saved against when the rows are written, what is read back afterwards, and what
+  a sign-out keeps. All of it was inside `SettingsWindowController`, and none of it had a test; there are eight now.
+- **The App tab's Google section**: who is connected, whether there is a token behind that identity, and one
+  control. Both readings are read at the moment they are drawn -- one without the other is the half-answer that let
+  this section say Connected with nothing behind it on the Mac.
+- **`xdg-open` as the browser**, which is the one line this platform owns. `GoogleSignIn.run` refuses a default for
+  it, which is what obliges a caller to supply one.
+- **`CalendarSync` in the composition root**, wired as the Mac wires it: as a closure off the time-entry recorder,
+  so writing a row does not depend on there being an account at all. Connecting is the other moment a sweep becomes
+  possible, and the window says so.
+
+**It has never met Google from this platform, and cannot yet.** `GoogleCredentials.resolve()` answers `nil` here --
+no `google-client.json` in the bundle and none at `~/.config/facet/` -- so `Connect` is drawn **dead**, with a
+tooltip saying this build has no client in it. That is the correct drawing of the state rather than a stub: the
+control cannot work, so it does not offer to. Signing in for real needs a client in the build and somebody's
+account, which is a decision for the owner rather than a task.
+
+**Managing the calendar is not built**: create, rename and delete are another ~200 lines of
+`SettingsWindowController` and are left out rather than half-done. A sweep still reaches the calendar the table
+already names, `CalendarSync` needing no window at all.
 
 
 ### 16 - macOS + Linux - Split `GoogleLoopbackListener`

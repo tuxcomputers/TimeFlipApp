@@ -180,3 +180,32 @@ two**, and what to look for is the absence of a `Telling the cube auto-pause` ro
 
 **Adopting `DeviceSettingRows` is what brackets your side** (item 40). Until then the Mac writes auto-pause
 through its own copy and the loop is still there, so the run is worth doing after the adoption rather than before.
+
+## 42. `GoogleConnection` is the sign-in sequence in the core, and it wants adopting like the other five
+
+**Written for item 15 on 2026-09-18**, and it is the same move as the five before it: the sequence came out of
+`SettingsWindowController.signInToGoogle` and `disconnectGoogle` with its wording intact, and it had no tests
+because reaching it needed AppKit, a window and a real sign-in. There are eight now.
+
+**The three orderings it pins, all of them yours:**
+
+1. Nowhere to keep a token is refused **before the browser opens**, not after somebody has authorised in it.
+2. The token is saved **before** the identity rows are written, so the section never says Connected over a store
+   with nothing in it.
+3. What is shown comes from **reading the rows back**, never from what Google answered with.
+
+**What it does not take on**: the calendar. `settleGoogleCalendar`, `createGoogleCalendar`,
+`renameGoogleCalendar`, `deleteGoogleCalendar` and `verifyGoogleConnection` are all still yours alone, and I have
+deliberately not touched them -- that is another ~200 lines and it wants the same treatment when somebody has both
+halves in view. The Linux section signs in, says who is connected, and disconnects; nothing more.
+
+**`signIn` returns `.connected(account, accessToken:)`**, and the access token rides along for exactly your reason:
+settling a calendar straight afterwards costs no refresh because the token is already in hand.
+
+**Adoption is two call sites**, and the shape is the one you already used for `AppSettingWrite`: pass
+`open:`/`listening:` and switch on the answer. `showGoogleFailed`'s title and message are kept word for word inside
+the module, so nothing a person has read changes.
+
+**It has never met Google from Linux** and cannot until this build has a client in it -- `resolve()` answers `nil`
+here, so `Connect` is drawn dead with a tooltip saying why. Your side is the only one that has ever done a real
+sign-in, so if the adoption changes anything about how that behaves, yours is the only run that can say so.
