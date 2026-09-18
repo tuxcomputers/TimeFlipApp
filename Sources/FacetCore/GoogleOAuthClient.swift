@@ -24,14 +24,19 @@ package enum GoogleSignIn {
     /// window keeps its one rule: write, read back, and only then believe it.
     /// - Parameter open: hands the sign-in URL to whatever shows the user a browser. **No default**, which is
     ///   what obliges a caller to supply one: a default would be this module choosing a platform.
+    /// - Parameter listening: makes the listener the redirect comes back on, given the `state` it has to check.
+    ///   **Handed over rather than chosen**, which is the ports rule: this module states what it needs and
+    ///   something outside supplies it, so the core cannot find out whether it is on `Network` or on sockets. It
+    ///   constructed the concrete type until 2026-09-18, which is the thing that rule forbids.
     package static func run(
         credentials: GoogleCredentials,
         open: (URL) -> Void,
+        listening: (String) throws -> GoogleRedirectListener,
         session: URLSession = .shared
     ) async throws -> GoogleOAuthRules.Tokens {
         let pkce = GoogleOAuthRules.pkce()
         let state = GoogleOAuthRules.state()
-        let listener = try GoogleLoopbackListener(expectedState: state)
+        let listener = try listening(state)
         let port = try await listener.start()
         let redirectURI = "http://127.0.0.1:\(port)"
 

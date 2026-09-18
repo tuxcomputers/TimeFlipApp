@@ -91,7 +91,12 @@ struct PlatformBlindCoreTests {
     /// `SecretToolStore` is also the one this check found that the hand survey before it had missed, because that
     /// grep matched `#if canImport` and the file opened `#if !canImport`.
     private static let adaptersStillInTheCore: Set<String> = [
-        "GoogleLoopbackListener",
+        // **Renamed rather than added to, 2026-09-18.** `GoogleLoopbackListener` held both implementations behind
+        // one `#if`; the socket half is now `FacetLinux/SocketLoopbackListener` and the core states the port
+        // (`GoogleRedirectListener`). What is left here is the Darwin adapter and the one overload that supplies
+        // it, both in this file, so the list is one file's worth of debt as it was before -- and moving it is the
+        // Mac's half of item 16 of `docs/linux-port.md`.
+        "NetworkLoopbackListener",
     ]
 
     private struct Conditional {

@@ -1,166 +1,19 @@
+import FacetCore
 import Foundation
-#if canImport(Network)
-import Network
-#else
 #if canImport(Glibc)
 import Glibc
 #endif
-#endif
 
-// **The loopback listener, twice: Network where there is Network, and Berkeley sockets where there is
-// not.** One interface, `init(expectedState:)` / `start()` / `redirect()` / `cancel(with:)`, and both
-// answer the same three `GoogleOAuthRules.Redirect` cases from the same request line, through the same
-// `GoogleOAuthRules.redirect(fromRequestLine:expectedState:)` and `redirectResponse(_:)`. What differs is
-// only how bytes arrive.
+// **The Linux slot in the sign-in's listener arm**, moved out of `FacetCore` on 2026-09-18 (item 16 of
+// `docs/linux-port.md`). It is unchanged from the day it was written except for its name and the protocol it
+// now names: the core states `GoogleRedirectListener` and this performs it, where before one core file held
+// this and the Network implementation behind a `#if` -- a port wearing a conditional.
 //
-// **The Darwin half is moved across unchanged**, deliberately: it is the path a real sign-in has used,
-// and there is nothing to gain on that platform by rewriting it in sockets for the sake of having one
-// implementation. What made this file portable enough to live in the core was taking it *out* of
-// `GoogleOAuthClient`, which has since followed it in: that file's one tie to AppKit was a default argument
-// handing the sign-in URL to a browser, and removing the default is what moved it. The browser is now
-// supplied by whoever starts a sign-in, so both halves of the flow are core and only the opening is not.
-
-#if canImport(Network)
-/// Listens on a loopback port for the one redirect Google sends back.
-///
-/// **The port is whatever the system gives**, never a fixed number. Google accepts any port on the loopback address
-/// for an installed app precisely so it does not have to be registered, and a hardcoded one is a sign-in that breaks
-/// the moment something else is holding it.
-///
-/// `@unchecked Sendable` because Network's callbacks arrive on its own queue: every mutable field here is touched
-/// only inside `queue`, which is what makes that safe.
-package final class GoogleLoopbackListener: @unchecked Sendable {
-    private let listener: NWListener
-    private let queue = DispatchQueue(label: "au.com.tux.facet.oauth-loopback")
-    private let expectedState: String
-    private var waiting: CheckedContinuation<GoogleOAuthRules.Redirect, Never>?
-    private var starting: CheckedContinuation<UInt16, Error>?
-    private var arrived: GoogleOAuthRules.Redirect?
-    private var connections: [NWConnection] = []
-
-    package init(expectedState: String) throws {
-        self.expectedState = expectedState
-        let parameters = NWParameters.tcp
-        // Loopback only. The redirect never crosses an interface, and binding wider would put a listener on the
-        // network for as long as somebody has a browser tab open.
-        parameters.requiredInterfaceType = .loopback
-        parameters.allowLocalEndpointReuse = true
-        do {
-            listener = try NWListener(using: parameters)
-        } catch {
-            throw GoogleOAuthRules.Failure.listenerFailed(error.localizedDescription)
-        }
-    }
-
-    /// Starts listening and answers with the port the system assigned.
-    ///
-    /// The continuation is held as a field rather than guarded by a lock: `stateUpdateHandler` is called on `queue`,
-    /// which is serial, so "resume it once and only once" needs nothing more than clearing it first.
-    package func start() async throws -> UInt16 {
-        try await withCheckedThrowingContinuation { continuation in
-            queue.async {
-                self.starting = continuation
-                self.listener.stateUpdateHandler = { state in
-                    switch state {
-                    case .ready:
-                        guard let port = self.listener.port?.rawValue else {
-                            self.finishStart(.failure(GoogleOAuthRules.Failure.listenerFailed("no port was assigned")))
-                            return
-                        }
-                        self.finishStart(.success(port))
-                    case let .failed(error):
-                        self.finishStart(.failure(GoogleOAuthRules.Failure.listenerFailed(error.localizedDescription)))
-                    case let .waiting(error):
-                        // On loopback this means the port could not be taken, which is not going to improve on its own.
-                        self.finishStart(.failure(GoogleOAuthRules.Failure.listenerFailed(error.localizedDescription)))
-                    default:
-                        break
-                    }
-                }
-                self.listener.newConnectionHandler = { [weak self] connection in
-                    self?.accept(connection)
-                }
-                self.listener.start(queue: self.queue)
-            }
-        }
-    }
-
-    private func finishStart(_ result: Result<UInt16, Error>) {
-        guard let starting else { return }
-        self.starting = nil
-        starting.resume(with: result)
-    }
-
-    /// The redirect, once it arrives. One value only: the listener is stopped as soon as it has one.
-    package func redirect() async -> GoogleOAuthRules.Redirect {
-        await withCheckedContinuation { continuation in
-            queue.async {
-                if let arrived = self.arrived {
-                    continuation.resume(returning: arrived)
-                } else {
-                    self.waiting = continuation
-                }
-            }
-        }
-    }
-
-    /// Gives up waiting, so a browser tab nobody ever finishes does not leave a port open for the life of the process.
-    package func cancel(with redirect: GoogleOAuthRules.Redirect = .ignored) {
-        queue.async {
-            self.deliver(redirect)
-        }
-    }
-
-    private func accept(_ connection: NWConnection) {
-        connections.append(connection)
-        connection.start(queue: queue)
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { [weak self] data, _, _, _ in
-            guard let self else { return }
-            let text = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-            let line = text.split(separator: "\r\n", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
-            let result = GoogleOAuthRules.redirect(fromRequestLine: String(line), expectedState: expectedState)
-
-            // A browser asks for /favicon.ico beside the redirect. Answering it and carrying on is the difference
-            // between a sign-in that works and one that ends on whichever request happened to land second.
-            guard result != .ignored else {
-                connection.cancel()
-                return
-            }
-            let body: String
-            if case .code = result {
-                body = "Facet is connected."
-            } else {
-                body = "Facet is not connected."
-            }
-            // The redirect is delivered from inside the completion, not beside the send. `deliver` cancels every
-            // connection it holds, this one among them, so delivering before the send has been processed discards
-            // the response: the app takes the code and the browser is left on an empty tab. `.contentProcessed`
-            // arrives on `queue`, which is where every mutable field here is already touched.
-            connection.send(
-                content: Data(GoogleOAuthRules.redirectResponse(body).utf8),
-                completion: .contentProcessed { [weak self] _ in
-                    connection.cancel()
-                    self?.deliver(result)
-                }
-            )
-        }
-    }
-
-    /// Hands the redirect to whoever is waiting, exactly once, and shuts everything down.
-    private func deliver(_ redirect: GoogleOAuthRules.Redirect) {
-        guard arrived == nil else { return }
-        arrived = redirect
-        waiting?.resume(returning: redirect)
-        waiting = nil
-        listener.cancel()
-        for connection in connections {
-            connection.cancel()
-        }
-        connections = []
-    }
-}
-
-#else
+// **The three things it had to get right are still the three things**, and none of them shows in the Network
+// half: `poll` with a timeout rather than a bare `accept`, because closing a descriptor another thread is
+// blocked in `accept` on does not reliably wake it here; `bigEndian` rather than `htons`, which is a C macro
+// Swift cannot call; and `SO_REUSEADDR`, which is what `NWParameters.allowLocalEndpointReuse` asks for on the
+// other side.
 
 /// Listens on a loopback port for the one redirect Google sends back, over Berkeley sockets.
 ///
@@ -171,7 +24,7 @@ package final class GoogleLoopbackListener: @unchecked Sendable {
 /// `@unchecked Sendable` for the same reason as the other half: every mutable field is touched only on
 /// `queue`, which is serial. The accept loop runs on a thread of its own because `accept` blocks, and it
 /// reaches state through `queue` like everything else.
-package final class GoogleLoopbackListener: @unchecked Sendable {
+final class SocketLoopbackListener: GoogleRedirectListener, @unchecked Sendable {
     private let expectedState: String
     private let queue = DispatchQueue(label: "au.com.tux.facet.oauth-loopback")
     private var listening: Int32 = -1
@@ -183,7 +36,7 @@ package final class GoogleLoopbackListener: @unchecked Sendable {
     private let stopLock = NSLock()
     private var stopRequested = false
 
-    package init(expectedState: String) throws {
+    init(expectedState: String) throws {
         self.expectedState = expectedState
     }
 
@@ -191,7 +44,7 @@ package final class GoogleLoopbackListener: @unchecked Sendable {
     ///
     /// Synchronous work in an `async` signature, matching the other half's shape: there is nothing to wait
     /// for here, a `bind` either takes the port or does not.
-    package func start() async throws -> UInt16 {
+    func start() async throws -> UInt16 {
         let socketDescriptor = socket(AF_INET, Int32(SOCK_STREAM.rawValue), 0)
         guard socketDescriptor >= 0 else {
             throw GoogleOAuthRules.Failure.listenerFailed(Self.reasonFromErrno("a socket could not be made"))
@@ -249,7 +102,7 @@ package final class GoogleLoopbackListener: @unchecked Sendable {
     }
 
     /// The redirect, once it arrives. One value only: the listener stops as soon as it has one.
-    package func redirect() async -> GoogleOAuthRules.Redirect {
+    func redirect() async -> GoogleOAuthRules.Redirect {
         await withCheckedContinuation { continuation in
             queue.async {
                 if let arrived = self.arrived {
@@ -263,7 +116,7 @@ package final class GoogleLoopbackListener: @unchecked Sendable {
 
     /// Gives up waiting, so a browser tab nobody ever finishes does not leave a port open for the life of
     /// the process.
-    package func cancel(with redirect: GoogleOAuthRules.Redirect = .ignored) {
+    func cancel(with redirect: GoogleOAuthRules.Redirect = .ignored) {
         queue.async {
             self.deliver(redirect)
         }
@@ -361,5 +214,3 @@ package final class GoogleLoopbackListener: @unchecked Sendable {
         "\(what): \(String(cString: strerror(errno)))"
     }
 }
-
-#endif

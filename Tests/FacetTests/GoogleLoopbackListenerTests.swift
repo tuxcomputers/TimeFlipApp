@@ -1,11 +1,14 @@
 import Foundation
 import Testing
 @testable import FacetCore
+#if canImport(FacetLinux)
+@testable import FacetLinux
+#endif
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
 
-/// `GoogleLoopbackListener`, driven over a real loopback connection.
+/// The loopback listener, driven over a real loopback connection -- whichever of the two this platform builds.
 ///
 /// **The point of these is that they run on both platforms against two different implementations.** The
 /// listener is Network on Darwin and Berkeley sockets where there is no Network, and the only thing that
@@ -18,6 +21,20 @@ import FoundationNetworking
 /// leaves the listener waiting.
 @Suite(.timeLimit(.minutes(1)))
 struct GoogleLoopbackListenerTests {
+    /// The adapter this platform builds, behind one name so the five tests below stay one copy rather than two.
+    ///
+    /// **Which one it is, is the manifest's business** -- the same argument `KeychainSecretStore` makes about its
+    /// own conditional -- so this is the one place in the suite that asks. The tests drive it through
+    /// `GoogleRedirectListener`, which is what both halves now perform, and every assertion below is about the
+    /// port rather than about either implementation.
+    private func listener(expectedState: String) throws -> any GoogleRedirectListener {
+        #if canImport(Network)
+        try NetworkLoopbackListener(expectedState: expectedState)
+        #else
+        try SocketLoopbackListener(expectedState: expectedState)
+        #endif
+    }
+
     /// Fetches a URL and answers the body, or `nil` if the connection failed.
     private func get(_ url: URL) async -> String? {
         guard let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
@@ -29,8 +46,8 @@ struct GoogleLoopbackListenerTests {
     }
 
     @Test func aPortIsAssignedAndItIsNotAFixedOne() async throws {
-        let first = try GoogleLoopbackListener(expectedState: "state-1")
-        let second = try GoogleLoopbackListener(expectedState: "state-2")
+        let first = try listener(expectedState: "state-1")
+        let second = try listener(expectedState: "state-2")
         let firstPort = try await first.start()
         let secondPort = try await second.start()
         defer {
@@ -46,7 +63,7 @@ struct GoogleLoopbackListenerTests {
     }
 
     @Test func theCodeArrivesAndTheBrowserIsToldItWorked() async throws {
-        let listener = try GoogleLoopbackListener(expectedState: "state-abc")
+        let listener = try listener(expectedState: "state-abc")
         let port = try await listener.start()
 
         async let arriving = listener.redirect()
@@ -58,7 +75,7 @@ struct GoogleLoopbackListenerTests {
     }
 
     @Test func aRefusalArrivesAsDeniedAndSaysSo() async throws {
-        let listener = try GoogleLoopbackListener(expectedState: "state-def")
+        let listener = try listener(expectedState: "state-def")
         let port = try await listener.start()
 
         async let arriving = listener.redirect()
@@ -73,7 +90,7 @@ struct GoogleLoopbackListenerTests {
     /// `/favicon.ico` beside the redirect, and a listener that answered the first request it got and
     /// stopped would end on whichever landed first.
     @Test func aRequestThatIsNotTheRedirectLeavesItWaiting() async throws {
-        let listener = try GoogleLoopbackListener(expectedState: "state-ghi")
+        let listener = try listener(expectedState: "state-ghi")
         let port = try await listener.start()
 
         _ = await get(URL(string: "http://127.0.0.1:\(port)/favicon.ico")!)
@@ -87,7 +104,7 @@ struct GoogleLoopbackListenerTests {
     }
 
     @Test func cancellingSettlesWhoeverIsWaiting() async throws {
-        let listener = try GoogleLoopbackListener(expectedState: "state-jkl")
+        let listener = try listener(expectedState: "state-jkl")
         _ = try await listener.start()
 
         async let arriving = listener.redirect()

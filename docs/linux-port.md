@@ -97,8 +97,9 @@ order; [what each machine owes](#what-each-machine-owes) is the same list split 
 - [ ] **[15](#15---linux---google-sign-in-on-linux)** - Linux - Google sign-in on Linux. **Not started**;
       nothing in the Linux composition root names Google at all.
 - [ ] **[16](#16---macos--linux---split-googleloopbacklistener)** - macOS + Linux - Split
-      `GoogleLoopbackListener`. **The one item with real work on both machines**, and what empties the
-      platform-blind allowlist.
+      `GoogleLoopbackListener`. **The Linux half is done 2026-09-18**: the core states the port, the socket
+      adapter is in `FacetLinux`, and `GoogleOAuthClient` no longer constructs either. What is left is the Mac
+      moving `NetworkLoopbackListener` into `FacetMac`, which empties the platform-blind allowlist.
 - [ ] **[17](#17---macos---renamedevice-onto-devicesettingwrite)** - macOS - `renameDevice` onto
       `DeviceSettingWrite`. The last unticked row of the ports plan's window arm.
 - [x] **[18](#18---macos---confirm-the-read-back-window-on-corebluetooth)** - macOS - Confirm the read-back
@@ -1141,7 +1142,27 @@ The flow has never been exercised end to end on this platform with a real Google
 
 ### 16 - macOS + Linux - Split `GoogleLoopbackListener`
 
-**The one item with real work on both machines, and what empties the platform-blind allowlist.** The file is
+**The Linux half is done, 2026-09-18, and the Mac's half is one file.** What landed:
+
+- **The core states the port**: `GoogleRedirectListener`, four members, and it is a description of what both halves
+  already had rather than a shape either was bent into -- they were written against one interface deliberately.
+- **`FacetLinux/SocketLoopbackListener`** is the socket half, moved unchanged but for its name and conformance.
+- **`GoogleOAuthClient` no longer constructs a listener.** It takes `listening:` the way it already takes `open:`,
+  and for the reason that parameter's own comment gives: a default would be this module choosing a platform.
+- **The five tests drive the port**, one copy, asking once which adapter this platform builds -- which is the
+  manifest's business, the same argument `KeychainSecretStore` makes about its own conditional.
+
+**What is left is the Mac's**: move `NetworkLoopbackListener` into `FacetMac`, delete the Darwin overload sitting
+in that file with it, and have the composition root supply the listener as it already supplies the browser. That
+empties `PlatformBlindCoreTests.adaptersStillInTheCore`.
+
+**The overload is a staging post and is named as one.** It keeps every macOS call site working unchanged while the
+Linux half is out, which is what let one machine do one half of a two-machine item without breaking the other --
+and it lives *inside* `NetworkLoopbackListener.swift` deliberately, so the allowlist is one file's worth of debt
+exactly as it was, rather than two entries where there was one. The whole `#if canImport(Network)` in `FacetCore`
+is now that one file.
+
+**The item as it was written, which is still what the Mac's half needs:** The file is
 365 lines holding two whole implementations behind one `#if canImport(Network)`: roughly 140 lines of
 `Network.framework` and 200 of Berkeley sockets. Both work and both are covered by the same five tests
 (item 9). **It is a port wearing an `#if`**, and it is the last entry on
