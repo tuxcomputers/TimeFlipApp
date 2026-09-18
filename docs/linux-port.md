@@ -120,8 +120,10 @@ order; [what each machine owes](#what-each-machine-owes) is the same list split 
       bypasses `platform_quit_app`. **Mac work that blocks item 12**: no Linux check can run while every check
       script quits through the macOS-only copy. Deferred with item 12 rather than fixed blind.
 - [ ] **[25](#25---core---the-auto-pause-write-sets-the-cube-to-the-wrong-value-for-three-round-trips)** - Core -
-      The auto-pause write sets the cube to the wrong value for three round trips. **Measured on both platforms**;
-      the fix wants `DeviceSettingRows` adopted on the Mac first, so there is one place to hold the flag.
+      The auto-pause write sets the cube to the wrong value for three round trips. **Fixed 2026-09-18**, bracketed
+      in `DeviceSettingsSync` by `DeviceSettingRows`, with four tests and both mutations checked -- and **still
+      unticked, because it owes a run on either radio**. The Linux box cannot do its half: the cube answers to the
+      Mac's PIN now (`handover-mac.md` items 36 and 41).
 
 ### What is still open
 
