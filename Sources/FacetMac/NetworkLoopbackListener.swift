@@ -1,21 +1,26 @@
+import FacetCore
 import Foundation
-#if canImport(Network)
 import Network
-#endif
 
-// **The Darwin half of the listener, and it is the half still in the core.** The socket half moved to
-// `FacetLinux/SocketLoopbackListener.swift` on 2026-09-18, which is the Linux side of item 16 of
-// `docs/linux-port.md`; this one is the Mac's to move, and until it does this file is the last entry on
-// `PlatformBlindCoreTests.adaptersStillInTheCore`.
+// **The Darwin slot in the sign-in's listener arm**, moved out of `FacetCore` on 2026-09-18, which is the
+// Mac's half of item 16 of `docs/linux-port.md` and the half that completes it. The core states
+// `GoogleRedirectListener` and this performs it, where before one core file held this and the socket
+// implementation behind a `#if` -- a port wearing a conditional. `FacetLinux/SocketLoopbackListener` is the
+// other slot, moved on the same day.
 //
-// **Nothing about it changed in the move except its name and its conformance.** It is the path a real
-// sign-in has used, and there was nothing to gain by touching it while shifting the other half out.
+// **No `#if` of its own, and that is the point of the move rather than a tidy-up.** An adapter that has
+// reached its own target needs none: which square is built is the manifest's business, the same argument
+// `KeychainSecretStore` makes about its own. `PlatformBlindCoreTests.adaptersStillInTheCore` is empty as a
+// result, which is the check that was waiting on this.
 //
-// **`GoogleLoopbackListener` was what both halves were called**, one visible at a time, and the name said
-// nothing about which. `NetworkLoopbackListener` and `SocketLoopbackListener` each say what performs the
-// capability, which is what the ports rule asks of an adapter's name.
+// **The `GoogleOAuthClient.run(credentials:open:session:)` overload went with it.** It supplied this listener
+// from inside the core so that macOS call sites kept working while the Linux half was out, and it named itself
+// a staging post. `SettingsWindowController` now hands the listener over the way it already hands over the
+// browser, which is what `FacetLinux/AppSettingsPane` has done since the Linux half landed.
+//
+// **Nothing about the class changed in either move except its name and its conformance.** It is the path a
+// real sign-in has used.
 
-#if canImport(Network)
 /// Listens on a loopback port for the one redirect Google sends back.
 ///
 /// **The port is whatever the system gives**, never a fixed number. Google accepts any port on the loopback address
@@ -24,7 +29,7 @@ import Network
 ///
 /// `@unchecked Sendable` because Network's callbacks arrive on its own queue: every mutable field here is touched
 /// only inside `queue`, which is what makes that safe.
-package final class NetworkLoopbackListener: GoogleRedirectListener, @unchecked Sendable {
+final class NetworkLoopbackListener: GoogleRedirectListener, @unchecked Sendable {
     private let listener: NWListener
     private let queue = DispatchQueue(label: "au.com.tux.facet.oauth-loopback")
     private let expectedState: String
@@ -33,7 +38,7 @@ package final class NetworkLoopbackListener: GoogleRedirectListener, @unchecked 
     private var arrived: GoogleOAuthRules.Redirect?
     private var connections: [NWConnection] = []
 
-    package init(expectedState: String) throws {
+    init(expectedState: String) throws {
         self.expectedState = expectedState
         let parameters = NWParameters.tcp
         // Loopback only. The redirect never crosses an interface, and binding wider would put a listener on the
@@ -51,7 +56,7 @@ package final class NetworkLoopbackListener: GoogleRedirectListener, @unchecked 
     ///
     /// The continuation is held as a field rather than guarded by a lock: `stateUpdateHandler` is called on `queue`,
     /// which is serial, so "resume it once and only once" needs nothing more than clearing it first.
-    package func start() async throws -> UInt16 {
+    func start() async throws -> UInt16 {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 self.starting = continuation
@@ -87,7 +92,7 @@ package final class NetworkLoopbackListener: GoogleRedirectListener, @unchecked 
     }
 
     /// The redirect, once it arrives. One value only: the listener is stopped as soon as it has one.
-    package func redirect() async -> GoogleOAuthRules.Redirect {
+    func redirect() async -> GoogleOAuthRules.Redirect {
         await withCheckedContinuation { continuation in
             queue.async {
                 if let arrived = self.arrived {
@@ -100,7 +105,7 @@ package final class NetworkLoopbackListener: GoogleRedirectListener, @unchecked 
     }
 
     /// Gives up waiting, so a browser tab nobody ever finishes does not leave a port open for the life of the process.
-    package func cancel(with redirect: GoogleOAuthRules.Redirect = .ignored) {
+    func cancel(with redirect: GoogleOAuthRules.Redirect = .ignored) {
         queue.async {
             self.deliver(redirect)
         }
@@ -154,28 +159,3 @@ package final class NetworkLoopbackListener: GoogleRedirectListener, @unchecked 
         connections = []
     }
 }
-
-extension GoogleOAuthClient {
-    /// The Darwin call, which supplies the listener still living in the core.
-    ///
-    /// **A staging post rather than a design.** `NetworkLoopbackListener` belongs in `FacetMac` beside every other
-    /// Darwin adapter, and moving it is the Mac's half of item 16 of `docs/linux-port.md` -- a file this box cannot
-    /// compile. Until then this overload keeps every macOS call site working unchanged while the Linux half is out,
-    /// which is what let one machine do one half of a two-machine item without breaking the other.
-    ///
-    /// **It goes when that lands**, along with this whole file's `#if`, and the composition root supplies the
-    /// listener the way it already supplies the browser.
-    package static func run(
-        credentials: GoogleCredentials,
-        open: (URL) -> Void,
-        session: URLSession = .shared
-    ) async throws -> GoogleOAuthRules.Tokens {
-        try await run(
-            credentials: credentials,
-            open: open,
-            listening: { try NetworkLoopbackListener(expectedState: $0) },
-            session: session
-        )
-    }
-}
-#endif

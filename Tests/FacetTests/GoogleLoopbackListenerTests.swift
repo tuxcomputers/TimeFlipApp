@@ -1,6 +1,9 @@
 import Foundation
 import Testing
 @testable import FacetCore
+#if canImport(FacetMac)
+@testable import FacetMac
+#endif
 #if canImport(FacetLinux)
 @testable import FacetLinux
 #endif
@@ -27,8 +30,12 @@ struct GoogleLoopbackListenerTests {
     /// own conditional -- so this is the one place in the suite that asks. The tests drive it through
     /// `GoogleRedirectListener`, which is what both halves now perform, and every assertion below is about the
     /// port rather than about either implementation.
+    ///
+    /// **It asks which platform target was built rather than whether `Network` imports**, since 2026-09-18 when
+    /// the Darwin half reached `FacetMac`. Both adapters live in platform targets now, so the honest question is
+    /// which target this build has, and `canImport(Network)` would have been answering it by coincidence.
     private func listener(expectedState: String) throws -> any GoogleRedirectListener {
-        #if canImport(Network)
+        #if canImport(FacetMac)
         try NetworkLoopbackListener(expectedState: expectedState)
         #else
         try SocketLoopbackListener(expectedState: expectedState)

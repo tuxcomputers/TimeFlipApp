@@ -1574,10 +1574,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
         Task { @MainActor [weak self, weak pane] in
             defer { pane?.setSigningIn(false) }
             do {
-                // **The browser is handed over rather than reached for.** `GoogleSignIn` is core and has no
-                // default for this, so the one AppKit line in the sign-in is here, on the platform side.
+                // **The browser and the listener are both handed over rather than reached for.** `GoogleSignIn`
+                // is core and has a default for neither, so the one AppKit line in the sign-in is here, on the
+                // platform side, and the Darwin adapter is named here too. Until item 16 landed on 2026-09-18 an
+                // overload in `FacetCore` supplied the listener, which was the core choosing a platform.
                 let tokens = try await GoogleSignIn.run(
-                    credentials: credentials, open: { NSWorkspace.shared.open($0) }
+                    credentials: credentials,
+                    open: { NSWorkspace.shared.open($0) },
+                    listening: { try NetworkLoopbackListener(expectedState: $0) }
                 )
                 guard let refresh = tokens.refreshToken, tokenStore.save(refreshToken: refresh) else {
                     throw GoogleOAuthRules.Failure.exchangeFailed("the token could not be saved to your Keychain")

@@ -90,14 +90,18 @@ struct PlatformBlindCoreTests {
     ///
     /// `SecretToolStore` is also the one this check found that the hand survey before it had missed, because that
     /// grep matched `#if canImport` and the file opened `#if !canImport`.
-    private static let adaptersStillInTheCore: Set<String> = [
-        // **Renamed rather than added to, 2026-09-18.** `GoogleLoopbackListener` held both implementations behind
-        // one `#if`; the socket half is now `FacetLinux/SocketLoopbackListener` and the core states the port
-        // (`GoogleRedirectListener`). What is left here is the Darwin adapter and the one overload that supplies
-        // it, both in this file, so the list is one file's worth of debt as it was before -- and moving it is the
-        // Mac's half of item 16 of `docs/linux-port.md`.
-        "NetworkLoopbackListener",
-    ]
+    ///
+    /// **Empty since 2026-09-18, which is what item 16 of `docs/linux-port.md` was for.** The last entry was
+    /// `NetworkLoopbackListener`: `GoogleLoopbackListener` had held both implementations behind one `#if`, the
+    /// socket half moved to `FacetLinux/SocketLoopbackListener`, and the Darwin half moved to
+    /// `FacetMac/NetworkLoopbackListener` with the overload that had been supplying it from inside the core.
+    /// Both composition roots hand the listener over now, as they already did the browser.
+    ///
+    /// **Empty is the answer, not a gap.** `theAllowlistIsHonest` passes trivially on an empty list, and the
+    /// check that matters is `theCoreHoldsNoUnlistedAdapter`: with nothing allowed, every conditional the scan
+    /// finds in `FacetCore` must be a known shim or the suite fails. Adding a name back here is admitting a new
+    /// adapter into the core, and it should be as hard to do as it now looks.
+    private static let adaptersStillInTheCore: Set<String> = []
 
     private struct Conditional {
         let file: String
@@ -134,8 +138,10 @@ struct PlatformBlindCoreTests {
     func theCoreHoldsNoUnlistedAdapter() throws {
         let all = try conditionals()
 
-        // The premise. A scan finding nothing is how a check like this fails open, and this one has known
-        // work outstanding, so it should never be empty until the allowlist is.
+        // The premise. A scan finding nothing is how a check like this fails open. The allowlist emptied on
+        // 2026-09-18, so what keeps this assertion meaningful is the shims rather than the debt: `FacetCore`
+        // still asks `canImport` about `FoundationNetworking`, `CryptoKit` and `CoreGraphics`, and a scan that
+        // found none of those has stopped working rather than found a clean core.
         #expect(!all.isEmpty, "the scan found no conditionals at all, so it has stopped working")
 
         for conditional in all where !Self.shims.contains(conditional.subject) {

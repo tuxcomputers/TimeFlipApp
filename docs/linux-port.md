@@ -98,10 +98,10 @@ order; [what each machine owes](#what-each-machine-owes) is the same list split 
       never exercised end to end**: the section signs in, says who is connected and disconnects, `CalendarSync`
       sweeps, and this build has no OAuth client in it -- so `Connect` is correctly dead and the flow has never met
       Google from this platform. Managing the calendar is the part still missing.
-- [ ] **[16](#16---macos--linux---split-googleloopbacklistener)** - macOS + Linux - Split
-      `GoogleLoopbackListener`. **The Linux half is done 2026-09-18**: the core states the port, the socket
-      adapter is in `FacetLinux`, and `GoogleOAuthClient` no longer constructs either. What is left is the Mac
-      moving `NetworkLoopbackListener` into `FacetMac`, which empties the platform-blind allowlist.
+- [x] **[16](#16---macos--linux---split-googleloopbacklistener)** - macOS + Linux - Split
+      `GoogleLoopbackListener`. **Done 2026-09-18, both halves.** The core states the port, each adapter sits in
+      its own platform target, both composition roots hand one over, and
+      `PlatformBlindCoreTests.adaptersStillInTheCore` is empty.
 - [ ] **[17](#17---macos---renamedevice-onto-devicesettingwrite)** - macOS - `renameDevice` onto
       `DeviceSettingWrite`. The last unticked row of the ports plan's window arm.
 - [x] **[18](#18---macos---confirm-the-read-back-window-on-corebluetooth)** - macOS - Confirm the read-back
@@ -721,6 +721,9 @@ Numbers are addresses and are never reused, so the order below is historical rat
 
 **On the Mac**, seven items, and the two at the bottom are the Linux port's business rather than the Mac's own:
 
+**Item 16 came off on 2026-09-18**, which leaves nothing on this table blocking Linux except 24, and 24 blocks
+only the low-priority 12.
+
 | # | What | Does it block Linux? |
 |---|---|---|
 | [17](#17---macos---renamedevice-onto-devicesettingwrite) | `renameDevice` onto `DeviceSettingWrite` | Only when a Linux Settings window wants a rename control |
@@ -729,7 +732,7 @@ Numbers are addresses and are never reused, so the order below is historical rat
 | [20](#20---macos---remove-the-twelve-compiler-artefacts-at-the-repository-root) | Remove twelve compiler artefacts from the root | No |
 | [21](#21---macos---reconcile-the-claudemd-scripted-suite-wording) | Reconcile the `CLAUDE.md` scripted-suite wording | No |
 | [24](#24---macos---libshs-quit_app-bypasses-platform_quit_app) | `lib.sh`'s `quit_app` bypasses the port | **Yes -- it blocks [12](#12---linux---the-scripted-suite-on-linux) outright**, though 12 is low priority |
-| [16](#16---macos--linux---split-googleloopbacklistener) | The Darwin half of the listener split | **Yes**, for [15](#15---linux---google-sign-in-on-linux) |
+| ~~[16](#16---macos--linux---split-googleloopbacklistener)~~ | ~~The Darwin half of the listener split~~ | **Done 2026-09-18**, which unblocks [15](#15---linux---google-sign-in-on-linux) |
 
 **On the Linux box:**
 
@@ -738,16 +741,17 @@ Numbers are addresses and are never reused, so the order below is historical rat
 | ~~[11](#11---linux---the-ui-filling-the-gtk-slots)~~ | ~~The Settings window~~ | **Done 2026-09-16**: all five tabs, four confirmed against a real cube |
 | [15](#15---linux---google-sign-in-on-linux) | Google sign-in | Small, but wants 11 or a decision about where to put it |
 | [12](#12---linux---the-scripted-suite-on-linux) | The scripted suite | Low priority by instruction; blocked by 24 anyway |
-| [16](#16---macos--linux---split-googleloopbacklistener) | The socket half of the listener split | ~200 lines, moved rather than written |
+| ~~[16](#16---macos--linux---split-googleloopbacklistener)~~ | ~~The socket half of the listener split~~ | **Done 2026-09-18**, both halves |
 | ~~[22](#22---linux---secrettoolstores-doc-comment-describes-an-arrangement-that-is-gone)~~ | ~~A stale doc comment, and the dead `#if` under it~~ | **Done 2026-09-16** |
 
 **On either machine**: [13](#13---core---repo-restructure-and-the-claudemd-split), the repo restructure and the
 `CLAUDE.md` split, which is the only item left that is nobody's in particular. [14](#14---core---readme) and
 [23](#23---core---the-ci-workflows-test-counts-are-stale) are done.
 
-**So what is left on this side is 15 and 16, and both wait on the Mac** -- the sign-in cannot reach a listener the
-core still picks for itself. With 11 finished, a Linux box with no Mac to hand has nothing left it can do alone
-except 13.
+**So what is left on this side is 15, and it no longer waits on the Mac**: 16 landed on 2026-09-18, so the
+sign-in can be handed a listener rather than having the core pick one. What 15 still wants is an OAuth client in
+the build, which is a credentials question rather than a code one. With 11 and 16 finished, a Linux box with no
+Mac to hand can do 15 and 13.
 
 ### 1 - Core - Settle the `@MainActor` question
 
@@ -1169,17 +1173,35 @@ already names, `CalendarSync` needing no window at all.
 - **The five tests drive the port**, one copy, asking once which adapter this platform builds -- which is the
   manifest's business, the same argument `KeychainSecretStore` makes about its own conditional.
 
-**What is left is the Mac's**: move `NetworkLoopbackListener` into `FacetMac`, delete the Darwin overload sitting
-in that file with it, and have the composition root supply the listener as it already supplies the browser. That
-empties `PlatformBlindCoreTests.adaptersStillInTheCore`.
+**The Mac's half landed the same day**, and it was the four things the item asked for:
 
-**The overload is a staging post and is named as one.** It keeps every macOS call site working unchanged while the
-Linux half is out, which is what let one machine do one half of a two-machine item without breaking the other --
-and it lives *inside* `NetworkLoopbackListener.swift` deliberately, so the allowlist is one file's worth of debt
-exactly as it was, rather than two entries where there was one. The whole `#if canImport(Network)` in `FacetCore`
-is now that one file.
+- **`NetworkLoopbackListener` moved to `FacetMac`**, unchanged but for its access level, which dropped from
+  `package` to internal to match `SocketLoopbackListener`. Nothing outside the target constructs it and the tests
+  reach it through `@testable`.
+- **Its `#if canImport(Network)` went with the move rather than travelling.** An adapter that has reached its own
+  target needs no conditional: which square is built is the manifest's business, the same argument
+  `KeychainSecretStore` makes.
+- **The Darwin overload is gone.** `SettingsWindowController` now passes `listening:` beside the `open:` it
+  already passed, which is what `FacetLinux/AppSettingsPane` has done since the Linux half landed. Neither
+  composition root is now further from the other than the framework it calls.
+- **`GoogleLoopbackListenerTests` asks `canImport(FacetMac)` rather than `canImport(Network)`.** Both adapters
+  live in platform targets, so the honest question is which target this build has; the old spelling was
+  answering it by coincidence.
 
-**The item as it was written, which is still what the Mac's half needs:** The file is
+**`PlatformBlindCoreTests.adaptersStillInTheCore` is empty**, which was the point of the item. What keeps the
+scan's own premise honest is now the shims rather than the debt: `FacetCore` still asks `canImport` about
+`FoundationNetworking`, `CryptoKit` and `CoreGraphics`, and a scan finding none of those has broken rather than
+found a clean core. That is written at the assertion.
+
+**Measured on the Mac, 2026-09-18**: 1,225 XCTest and 740 swift-testing, zero failures. **Not exercised against
+Google**, which is item 15's business on either platform: this moved where a listener is constructed and touched
+nothing about what it does.
+
+**The overload was a staging post and was named as one.** It kept every macOS call site working unchanged while
+the Linux half was out, which is what let one machine do one half of a two-machine item without breaking the
+other.
+
+**The item as it was written**, kept because the reasoning is what made it tractable: The file is
 365 lines holding two whole implementations behind one `#if canImport(Network)`: roughly 140 lines of
 `Network.framework` and 200 of Berkeley sockets. Both work and both are covered by the same five tests
 (item 9). **It is a port wearing an `#if`**, and it is the last entry on
