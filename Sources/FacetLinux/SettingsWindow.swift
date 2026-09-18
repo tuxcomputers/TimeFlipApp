@@ -244,6 +244,7 @@ final class SettingsWindow {
         let devicePane = DevicePane(
             settings: settings,
             rows: deviceRows,
+            dialogues: dialogues,
             battery: deviceReadings.battery,
             isReachingForCube: deviceReadings.isReachingForCube,
             pair: deviceReadings.pair,

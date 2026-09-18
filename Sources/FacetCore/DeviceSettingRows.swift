@@ -215,6 +215,107 @@ package final class DeviceSettingRows {
         }
     }
 
+    // MARK: - the eighth row, and the odd one
+
+    /// The device's own name.
+    ///
+    /// **The odd one on this tab, and it is odd in four ways that all come from one fact**: the name is what a scan
+    /// filters on (`DeviceScanRules.isEligible`), so a name that reached neither the cube nor the table is not a
+    /// stale row, it is an app that may not find its cube again.
+    ///
+    /// 1. **It speaks on success**, which no other row does: the cube keeps advertising the old name until it is
+    ///    power-cycled, so somebody who renamed it and then watched a scan would think nothing happened.
+    /// 2. **It speaks where `nothingToSendTo` is silent everywhere else**, for the reason above.
+    /// 3. **It announces itself in its own words.** `Renaming the cube to <name>` replaces the default
+    ///    `label: sending value`, because `Tests/Scripted/66-device-rename.sh` matches that row in full and reads
+    ///    its row id to prove the table was written after the cube. `DeviceSettingWrite.send`'s `announcing` is
+    ///    there for this one caller; the default scheme is the interface for everything else.
+    /// 4. **The row is re-read on every outcome, success included**, where the other five leave a field alone that
+    ///    landed. The Name field has committed and closed itself by then, and on success the new name is exactly
+    ///    what the row should start showing.
+    ///
+    /// - Parameter current: what the surface is showing, which is what the table said when it was drawn. It is used
+    ///   only to spot a name that did not change and to word the success notice; the name that matters is the one
+    ///   going to the cube.
+    /// - Returns, through `settled`: what to tell somebody, or `nil` when there is nothing to say -- and the caller
+    ///   re-reads its row either way.
+    package func rename(
+        to typed: String,
+        replacing current: String?,
+        then settled: (@MainActor (Dialogue?) -> Void)? = nil
+    ) {
+        switch DeviceNameRules.renameDecision(typed: typed, current: current) {
+        case .ignore:
+            // The field has closed itself, and an alert saying nothing happened would be worse than nothing
+            // happening.
+            debugLog?.record(.field, "The device name was left as it was")
+            settled?(nil)
+        case let .refuse(problem):
+            debugLog?.record(.field, "The device cannot be called \(typed): \(problem.title)")
+            settled?(Dialogue(title: problem.title, message: problem.message))
+        case let .write(name):
+            send(name, replacing: current, then: settled)
+        }
+    }
+
+    private func send(
+        _ name: String,
+        replacing previous: String?,
+        then settled: (@MainActor (Dialogue?) -> Void)?
+    ) {
+        guard let command = DeviceCommandRules.setName(name) else {
+            // A name the command itself cannot carry. `renameDecision` has already refused the names that are
+            // unsendable for a reason worth naming, so this is the residue, and `writeFailed` is the notice worded
+            // for it: it does not quote the character rules, which would send somebody looking in the wrong place.
+            //
+            // **Its own guard rather than one branch with the missing radio.** The two say one thing on screen and
+            // different things in the log, which is the gain -- a row reading that there was no radio is a
+            // different diagnosis from one reading that the name would not fit in a command.
+            debugLog?.record(.field, "The name \(name) could not be sent to the cube")
+            settled?(Self.notice(.writeFailed))
+            return
+        }
+        DeviceSettingWrite.send(
+            command,
+            "The device name",
+            value: name,
+            through: send,
+            announcing: "Renaming the cube to \(name)",
+            recording: { [weak self] in
+                guard let self else { return false }
+                return DevicePairingRecorder(settings: settings, debugLog: debugLog)
+                    .recordName(name, because: "renamed from the Device tab")
+            },
+            debugLog: debugLog
+        ) { outcome in
+            switch outcome {
+            case .settled:
+                settled?(Dialogue(
+                    title: "The TimeFlip has been renamed",
+                    message: DeviceNameRules.renameLagNotice(newName: name, previousName: previous)
+                ))
+            case .nothingToSendTo, .refusedByTheCube:
+                // **One notice for both on purpose**: each means nothing reached the cube, which is what
+                // `writeFailed` is worded for.
+                settled?(Self.notice(.writeFailed))
+            case .notRecorded, .nowhereToRecord:
+                // The cube took it and the table did not. The surface follows the table, that being what the next
+                // open reads.
+                settled?(Dialogue(
+                    title: "That setting was not saved",
+                    message: """
+                    The TimeFlip took the new name and this app could not write it down, so it will be sent again \
+                    the next time they are connected.
+                    """
+                ))
+            }
+        }
+    }
+
+    private static func notice(_ problem: DeviceNameProblem) -> Dialogue {
+        Dialogue(title: problem.title, message: problem.message)
+    }
+
     /// Says why a write did not land if there is something to say, and hands the outcome on.
     ///
     /// **The notice is this module's and the row is the surface's**, which is the split item 39 settled: what a

@@ -240,24 +240,12 @@ final class AppSettingsPane {
     /// default for it: `xdg-open` here, `NSWorkspace` there, and the whole of the rest is core.
     private func signIn() {
         isSigningIn = true
+        debugLog?.record(.click, "Button clicked: Connect Google")
         redraw()
         Task { @MainActor [weak self] in
             guard let self else { return }
             let answer = await google.signIn(
-                open: { url in
-                    let process = Process()
-                    process.executableURL = URL(fileURLWithPath: "/usr/bin/xdg-open")
-                    process.arguments = [url.absoluteString]
-                    do {
-                        try process.run()
-                    } catch {
-                        // **Said rather than swallowed**, and it is the one failure a person can do something
-                        // about: the sign-in URL is in the trace, so a desktop with no `xdg-open` can still be
-                        // signed in by pasting it.
-                        self.debugLog?.record(.field, "A browser could not be opened: \(error.localizedDescription)")
-                        self.debugLog?.record(.field, "The sign-in URL is \(url.absoluteString)")
-                    }
-                },
+                open: { [weak self] url in self?.openInABrowser(url) },
                 listening: { try SocketLoopbackListener(expectedState: $0) }
             )
             isSigningIn = false
@@ -271,6 +259,50 @@ final class AppSettingsPane {
             }
             redraw()
         }
+    }
+
+    /// Hands the sign-in URL to the desktop's browser, and says what became of that.
+    ///
+    /// **The URL is written to the trace every time, not only on failure**, and that is a decision rather than
+    /// debugging left in. A desktop can report success and show nobody anything -- measured on this box
+    /// 2026-09-19, where `xdg-open` exits 0 and the Firefox it hands the URL to has no visible window -- and at
+    /// that point the sign-in is live, the loopback listener is up, and the only thing missing is a person seeing
+    /// the page. The URL in the trace is what lets them finish it by pasting it somewhere they can see.
+    ///
+    /// **It carries no secret.** The client id is public by design for an installed app, the redirect is
+    /// `127.0.0.1`, and what stands in for the secret is the PKCE *challenge* -- a hash whose verifier never
+    /// leaves this process (`GoogleOAuthRules.pkce`).
+    ///
+    /// **Waited for, rather than launched and forgotten.** `xdg-open` returns as soon as it has handed off, so the
+    /// wait is short, and its exit status is the only thing that distinguishes a desktop that took the URL from
+    /// one with no handler for `https` at all. A status nobody reads is the swallowed failure `CLAUDE.md` names
+    /// twice.
+    private func openInABrowser(_ url: URL) {
+        debugLog?.record(.field, "The sign-in URL is \(url.absoluteString)")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xdg-open")
+        process.arguments = [url.absoluteString]
+        do {
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus != 0 else {
+                debugLog?.record(.field, "The desktop was given the sign-in URL")
+                return
+            }
+            debugLog?.record(
+                .field,
+                "xdg-open refused the sign-in URL, exit \(process.terminationStatus)"
+            )
+        } catch {
+            debugLog?.record(.field, "A browser could not be opened: \(error.localizedDescription)")
+        }
+        dialogues.tell(Dialogue(
+            title: "Facet could not open a browser",
+            message: """
+            The sign-in is waiting and the page could not be opened here. The address is in the debug trace: \
+            open it in a browser on this machine to finish signing in.
+            """
+        ))
     }
 
     private func disconnect() {

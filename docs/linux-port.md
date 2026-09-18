@@ -1497,6 +1497,37 @@ is not worth doing for a check the Mac can run. Its half is `55-device-settings`
 
 ---
 
+## Found: `gtk_main` runs no Swift concurrency until it is told to
+
+**Measured 2026-09-19, and it had been silently true for eight days.** Pressing *Connect* on the App tab logged
+the press and then did nothing at all: no browser, no listener, no failure. A probe row inside the
+`Task { @MainActor }` that runs the sign-in never appeared, while the row written synchronously in the click
+handler did.
+
+**Swift's main-actor executor on Linux enqueues to `DispatchQueue.main`**, and that queue is drained by whoever
+owns the main thread -- `dispatchMain()`, or Foundation's `RunLoop` through libdispatch's two CoreFoundation
+hooks. `gtk_main` owns the thread here and drains neither. So every `Task { @MainActor }` in the process was
+enqueued and never reached.
+
+**It is the same fault `GLibScheduler` was written to close, in a second spelling.** Six core modules used to put
+a `Timer` on `RunLoop.main`, which this loop does not run either, so not one of them would ever have fired. What
+differs is the blast radius: a clock that does not tick is visible, and this shows only where the app uses
+`async` -- which on this platform is the Google half and nothing else. Neither sign-in nor `CalendarSync.sweep` is
+reachable without an account, so the app ran for eight days with the whole of its concurrency inert.
+
+**The fix is nine lines in `FacetLinux` and nothing in the core**, which is what an adapter is for:
+`DispatchOnTheMainLoop.start` attaches the dispatch main queue's eventfd to GLib's default context with
+`g_unix_fd_add`, and drains it with `_dispatch_main_queue_callback_4CF`. Those two symbols are libdispatch's own
+CF integration hooks, exported from the toolchain's `libdispatch.so` and exactly what `RunLoop` on Linux already
+uses -- so this is the supported path rather than a trick. `CalendarSync.sweep` and `GoogleSignIn.run` are written
+against the main actor and are right; what was missing was a platform making the main actor true.
+
+**What it means for anything else on this platform**: `async` now works here, and any core module that was written
+expecting it can be composed into this app without a second implementation. Nothing else in `FacetLinux` uses it
+yet, the radio and the clocks being callbacks and `Scheduler` wakes.
+
+---
+
 ## Open questions
 
 | Question | How to answer it |

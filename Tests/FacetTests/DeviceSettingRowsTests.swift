@@ -63,6 +63,86 @@ final class DeviceSettingRowsTests {
         #expect(sent.isEmpty, "a threshold this app applies to readings the cube volunteers")
     }
 
+    // MARK: - the eighth row
+
+    @Test func testANameThatDidNotChangeIsIgnoredWithNothingSaid() {
+        withRadio()
+        var notices: [Dialogue?] = []
+
+        rows.rename(to: "TimeFlip v2.0", replacing: "TimeFlip v2.0") { notices.append($0) }
+
+        #expect(sent.isEmpty)
+        #expect(notices == [nil], "an alert saying nothing happened is worse than nothing happening")
+    }
+
+    @Test func testANameTheCubeCannotHoldIsRefusedBeforeAnythingIsSent() {
+        withRadio()
+        var notices: [Dialogue?] = []
+
+        rows.rename(to: String(repeating: "x", count: 200), replacing: nil) { notices.append($0) }
+
+        #expect(sent.isEmpty, "the refusal is about what the cube can hold, so nothing is asked of it")
+        #expect(notices.first??.title == DeviceNameProblem.tooLong(count: 200).title)
+    }
+
+    @Test func testARenameThatLandsSaysSoOnSuccess() {
+        withRadio()
+        var notices: [Dialogue?] = []
+
+        rows.rename(to: "Desk cube", replacing: "TimeFlip v2.0") { notices.append($0) }
+
+        #expect(sent.first == DeviceCommandRules.setName("Desk cube"))
+        #expect(settings.string("device_name", field: "name") == "Desk cube")
+        // **The only row on this tab that speaks on success**, because the cube goes on advertising the old name
+        // until it is power-cycled and a scan would otherwise look like nothing happened.
+        #expect(notices.first??.title == "The TimeFlip has been renamed")
+    }
+
+    @Test func testARenameWithNoRadioSpeaksWhereEveryOtherRowIsSilent() {
+        var notices: [Dialogue?] = []
+
+        rows.rename(to: "Desk cube", replacing: nil) { notices.append($0) }
+
+        #expect(settings.string("device_name", field: "name") != "Desk cube")
+        // A name that reached neither the cube nor the table is not a stale row: it is an app that may not find its
+        // cube again, the scan filtering on exactly this (`DeviceScanRules.isEligible`).
+        #expect(notices.first??.title == DeviceNameProblem.writeFailed.title)
+    }
+
+    @Test func testACubeThatRefusesTheRenameLeavesTheTableAlone() {
+        withRadio()
+        cubeTakesIt = false
+        var notices: [Dialogue?] = []
+
+        rows.rename(to: "Desk cube", replacing: nil) { notices.append($0) }
+
+        #expect(settings.string("device_name", field: "name") != "Desk cube")
+        #expect(notices.first??.title == DeviceNameProblem.writeFailed.title)
+    }
+
+    @Test func testTheRenameAnnouncesItselfInTheWordsTheScriptedCheckMatches() throws {
+        // `66-device-rename.sh` matches `Renaming the cube to <name>` in full and reads its row id to prove the
+        // table was written after the cube, so this row is an interface rather than a message. There is one caller
+        // of `announcing:` and this is it.
+        try database.bootstrapDebug()
+        let rows = DeviceSettingRows(
+            settings: settings,
+            dialogues: dialogues,
+            debugLog: DebugLog(databaseURL: database.debugURL, isRecording: true)
+        )
+        rows.send = { [self] command, reported in
+            sent.append(command)
+            reported(true)
+        }
+
+        rows.rename(to: "Desk cube", replacing: nil)
+
+        let row = database.debugString(
+            "SELECT message FROM debug_log WHERE message = 'Renaming the cube to Desk cube';"
+        )
+        #expect(row == "Renaming the cube to Desk cube")
+    }
+
     // MARK: - the three that reach the cube
 
     @Test func testAutoPauseGoesToTheCubeBeforeTheTable() {

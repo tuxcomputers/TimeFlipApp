@@ -9,6 +9,7 @@
    by somebody working out what the module contains, and a header that arrives as a side effect of another
    one is a dependency nobody can see. */
 #include <gtk/gtk.h>
+#include <glib-unix.h>
 #include <libayatana-appindicator/app-indicator.h>
 
 /* **The three things below are macros in GTK, and Swift cannot see a macro.**
@@ -412,4 +413,41 @@ static inline gulong facet_on_draw(GtkWidget *widget,
                                    gboolean (*handler)(GtkWidget *, cairo_t *, gpointer),
                                    gpointer data) {
     return g_signal_connect(widget, "draw", G_CALLBACK(handler), data);
+}
+
+/* **Swift concurrency does not run under `gtk_main` unless this is done, and that is measured.**
+
+   Swift's `MainActor` executor on Linux enqueues to `DispatchQueue.main`, and the dispatch main queue is
+   drained by whoever owns the main thread -- `dispatchMain()`, or Foundation's `RunLoop` through the two
+   hooks below. `gtk_main` owns the thread here and drains neither, so **every `Task { @MainActor }` in the
+   process silently never runs**. Measured 2026-09-19 with a probe row inside one: the press that started it
+   was logged and the task body was not.
+
+   It is the same fault `GLibScheduler` was written to close, in a different spelling: six core modules used
+   to build a `Timer` on `RunLoop.main`, which `gtk_main` does not run either. What differs is the blast
+   radius -- that one was visible the moment a clock did not tick, and this one only shows where the app
+   uses `async`, which on this platform is the Google half and nothing else.
+
+   **The two symbols are libdispatch's CoreFoundation integration hooks**, which is exactly what this is: an
+   event loop that is not CF asking to drain the main queue. They are exported from the toolchain's
+   `libdispatch.so` (checked with `nm -D`) and are what `RunLoop` on Linux already uses, so this is the
+   supported path rather than a trick. They are not in the public headers, hence the declarations.
+
+   `g_unix_fd_add` watches the queue's eventfd on the default context, so the callback lands on the GTK
+   thread -- which is where the main actor's work has to run. */
+extern int _dispatch_get_main_queue_handle_4CF(void);
+extern void _dispatch_main_queue_callback_4CF(void *context);
+
+static gboolean facet_dispatch_main_queue_ready(gint fd, GIOCondition condition, gpointer data) {
+    (void)fd;
+    (void)condition;
+    (void)data;
+    _dispatch_main_queue_callback_4CF(NULL);
+    return G_SOURCE_CONTINUE;
+}
+
+/* Attaches the dispatch main queue to the GLib main loop. Answers the source id, which nothing removes: it
+   lives as long as the process, as the main queue does. */
+static inline guint facet_drain_dispatch_on_the_main_loop(void) {
+    return g_unix_fd_add(_dispatch_get_main_queue_handle_4CF(), G_IO_IN, facet_dispatch_main_queue_ready, NULL);
 }

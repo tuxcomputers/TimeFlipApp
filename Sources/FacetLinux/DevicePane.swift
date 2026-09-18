@@ -51,6 +51,11 @@ final class DevicePane {
 
     private let settings: SettingStore
     private let rows: DeviceSettingRows
+
+    /// Where a rename says what it came to. **The only row on this tab that raises one from the pane**: the other
+    /// five are answered inside `DeviceSettingRows`, which tells the same presenter, and a rename is the one whose
+    /// notices differ per outcome -- including on success.
+    private let dialogues: DialoguePresenter
     private let debugLog: DebugLog?
     private let battery: () -> Int?
     private let isReachingForCube: () -> Bool
@@ -71,6 +76,10 @@ final class DevicePane {
     private let settingRows: UnsafeMutablePointer<GtkWidget>
     private var sections: [PanelSection] = []
     private var signals = GtkSignals()
+
+    /// The name cell on show, held for the reason every `EditableNameCell` is: it owns the handlers on its own
+    /// widgets, and GTK retains the widgets rather than the Swift object around them.
+    private var nameCell: EditableNameCell?
     private var values = Values(
         isCubePaired: false,
         isCubeConnected: false,
@@ -90,6 +99,7 @@ final class DevicePane {
     init(
         settings: SettingStore,
         rows: DeviceSettingRows,
+        dialogues: DialoguePresenter,
         battery: @escaping () -> Int?,
         isReachingForCube: @escaping () -> Bool,
         pair: @escaping () -> Void,
@@ -99,6 +109,7 @@ final class DevicePane {
     ) {
         self.settings = settings
         self.rows = rows
+        self.dialogues = dialogues
         self.battery = battery
         self.isReachingForCube = isReachingForCube
         self.pair = pair
@@ -199,6 +210,7 @@ final class DevicePane {
             gtk_widget_destroy(child)
         }
         signals = GtkSignals()
+        nameCell = nil
         drawTimeFlip()
         drawSettings()
         gtk_widget_show_all(widget)
@@ -209,11 +221,7 @@ final class DevicePane {
     /// **Every reading's wording is `DeviceInfoRules`'**, including the three different kinds of "no device": not
     /// paired, paired but unreachable, and paired and connected but not having said yet.
     private func drawTimeFlip() {
-        facet_box_pack_start(
-            readings,
-            reading("Name", DeviceInfoRules.name(isCubePaired: values.isCubePaired, deviceName: values.deviceName), "device-name"),
-            0, 1, 0
-        )
+        facet_box_pack_start(readings, nameRow(), 0, 1, 0)
         facet_box_pack_start(
             readings,
             reading(
@@ -392,6 +400,46 @@ final class DevicePane {
         SettingsWidgets.identify(text, identifier, saying: value)
         facet_box_pack_end(line, text, 0, 0, 0)
         return line
+    }
+
+    /// The cube's own name, which is a reading until it is clicked and a field after that.
+    ///
+    /// **The same cell the Categories tab renames a category with**, which is deliberate: a name edited in place
+    /// behaves the same way wherever this app offers one -- Return commits, Escape abandons, a click elsewhere
+    /// abandons.
+    ///
+    /// **Editable only while a cube is connected.** A rename is a command, so with nothing to send it to there is
+    /// nothing the field could do but fail -- and `DeviceInfoRules.name` is already saying *Not paired* in that
+    /// case, which is a reading rather than a value to edit.
+    private func nameRow() -> UnsafeMutablePointer<GtkWidget> {
+        let line = SettingsWidgets.row()
+        gtk_widget_set_size_request(line, -1, Int32(SettingsMetrics.rowHeight))
+        facet_box_pack_start(line, SettingsWidgets.label("Name"), 0, 1, 0)
+
+        let cell = EditableNameCell(
+            name: DeviceInfoRules.name(isCubePaired: values.isCubePaired, deviceName: values.deviceName),
+            identifier: "device-name",
+            isEnabled: values.isCubeConnected,
+            refusalHelp: values.isCubeConnected ? nil : "Connect to the cube to rename it"
+        )
+        cell.onCommit = { [weak self] typed in self?.rename(to: typed) }
+        nameCell = cell
+        facet_box_pack_end(line, cell.widget, 0, 0, 0)
+        return line
+    }
+
+    /// Sends a typed name to the cube, and says whatever the sequence answers with.
+    ///
+    /// **The row is re-read on every outcome, success included**, which is where a rename departs from the other
+    /// five: the field has committed and closed itself by then, and on success the new name is exactly what the row
+    /// should start showing.
+    private func rename(to typed: String) {
+        rows.rename(to: typed, replacing: values.deviceName) { [weak self] notice in
+            guard let self else { return }
+            reload()
+            guard let notice else { return }
+            dialogues.tell(notice)
+        }
     }
 
     /// A number with arrows, bounded by the command that carries it.

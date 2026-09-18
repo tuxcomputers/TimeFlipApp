@@ -109,6 +109,12 @@ let dayTotal = DayTotal(settings: settings, entries: entries, events: deviceEven
 // `QuitSequence` all take a `Scheduler`, and the menu bar's own repaint tick takes this one.
 let scheduler = GLibScheduler()
 
+// **Swift concurrency, made to run at all.** `gtk_main` drains neither `RunLoop.main` nor `DispatchQueue.main`, and
+// the main actor's executor is the second of those -- so without this every `Task { @MainActor }` in the process is
+// enqueued and never reached. It is the same fault `GLibScheduler` closed for the six modules that used to build a
+// `Timer`, found on 2026-09-19 when a sign-in logged its own press and then did nothing at all.
+DispatchOnTheMainLoop.start(debugLog: debugLog)
+
 // The radio, which is the app's and not any window's -- there being no window here at all. A paired app has to
 // reach its cube whether or not anybody is looking, which is what makes this the composition root's rather than a
 // surface's on either platform.
