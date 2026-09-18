@@ -1154,22 +1154,23 @@ the project in its first line.
   so writing a row does not depend on there being an account at all. Connecting is the other moment a sweep becomes
   possible, and the window says so.
 
-**Tried on 2026-09-19, and it got three of the four steps.** The credentials arrived on this box, `Connect` went
-live, and the press now reaches the sign-in at all -- which it did not until the concurrency fault above was
-found and closed. What happened, in the order item 40 of `docs/handover-linux.md` asks for:
+**It signed in on 2026-09-19**, which is the first time this flow has met Google from Linux. What each step did,
+in the order item 40 of `docs/handover-linux.md` asked for:
 
 | Step | What happened |
 |---|---|
-| The browser opens | **The URL was handed over and `xdg-open` exited 0** -- and nothing appeared. Firefox is running on this desktop with no visible window, so the page went somewhere nobody can see |
-| The loopback listener answers | **Yes.** `SocketLoopbackListener` bound port 0 and `ss` showed `127.0.0.1:40689` held by `FacetLinux` for the whole wait -- the first time that adapter has had a real browser pointed at it |
-| The token is saved before the identity rows | **Not reached.** Nobody could complete the consent, so the five-minute window expired and the sequence answered *Sign-in was cancelled* |
-| `CalendarSync` sweeps | **Not reached** |
+| The browser opens | **The URL was handed over and `xdg-open` exited 0 -- and nothing appeared.** Firefox runs on this desktop with no visible window, so the first attempt timed out after five minutes with nobody able to see the consent page. The URL is written to the trace on every attempt for exactly this case, and pasting it into a browser that *does* show a window is what got past it |
+| The loopback listener answers | **Yes.** `SocketLoopbackListener` bound port 0 and held `127.0.0.1:43485` through the wait, took the redirect, and answered the browser -- the first time that adapter has had a real one pointed at it |
+| The token is saved before the identity rows | **Yes.** `secret-tool` holds `au.com.tux.facet.google` / `refresh-token`, and `google_account` holds the name and the email. The section then read them back and said *Connected*, which is the reading rather than what Google answered with |
+| `CalendarSync` sweeps | **Yes, and it said the honest thing**: `22 entries waiting to sync, but no calendar is connected` |
 
-**So the flow still has not met Google, and what is in the way is a desktop rather than the app.** The sign-in URL
-is written to the trace on every attempt for exactly this case: it can be pasted into any browser that shows a
-window, and the listener is up and waiting while it is.
+**That last row is the state of this platform in one sentence.** The account is connected and there is nothing to
+sync *to*, because the calendar half is not built here: no `Facet` calendar has ever been created from Linux, and
+`settleGoogleCalendar` -- the thing that checks or makes one -- is still macOS-only.
 
-**It has never completed from this platform, and the remaining blocker is not code.** `GoogleCredentials.resolve()` answers `nil` here --
+**What the sweep proves is worth more than the sign-in**, though: it ran at all. It is a `Task { @MainActor }`, so
+before the concurrency fault above was closed it was one of the two things in this app that silently never
+happened. `GoogleCredentials.resolve()` answers `nil` here --
 no `google-client.json` in the bundle and none at `~/.config/facet/` -- so `Connect` is drawn **dead**, with a
 tooltip saying this build has no client in it. That is the correct drawing of the state rather than a stub: the
 control cannot work, so it does not offer to. Signing in for real needs a client in the build and somebody's

@@ -93,45 +93,6 @@ worth sharing should come out into the core as you find them, the same way every
 here when you hit one**, rather than reimplementing it: a rule spelled twice is the thing this whole model
 exists to prevent.
 
-## 40. Sign in to Google from that box, which is now possible for the first time
-
-**Everything item 15 was waiting on has landed, and the credentials are on your machine.** The owner copied
-`~/.config/facet/google-client.json` across on 2026-09-18, so `GoogleCredentials.resolve` finds it at the second
-of its three places and `Connect` is live rather than correctly dead. Item 16's Mac half went the same day, so
-`GoogleOAuthClient` no longer picks a listener for itself and `SocketLoopbackListener` is what yours gets.
-
-**So the flow has never met Google from this platform and now can.** What to watch, in the order it happens:
-
-1. **The browser opens at all.** That is `main.swift`'s `open:`, and it is the one line of the sign-in that is
-   yours rather than the core's.
-2. **The loopback listener answers.** `SocketLoopbackListener` binds port 0 and reads the port back with
-   `getsockname`; five shared tests drive it, but none of them has had a real browser on the other end.
-3. **The redirect is accepted and the token is saved before the identity rows are written**, which is
-   `GoogleConnection`'s second ordering and the one worth checking in the log rather than on screen.
-4. **`CalendarSync` sweeps.**
-
-**Managing the calendar will not work and that is expected**, not a fault to chase: `settleGoogleCalendar`,
-`createGoogleCalendar`, `renameGoogleCalendar` and `deleteGoogleCalendar` are still macOS-only, which
-`handover-mac.md` item 42 records as deliberately untouched. Sign in, say who is connected, disconnect. Nothing
-more.
-
-**Say what Google actually did**, in `linux-port.md` item 15, because nothing on either machine knows yet.
-
----
-
-**Tried 2026-09-19 and it is not done, so this stays put.** Three of the four steps happened and the fourth
-could not: the URL was handed over, `xdg-open` exited 0, and `SocketLoopbackListener` held `127.0.0.1:40689`
-for the whole five-minute wait -- but **Firefox on this desktop has no visible window**, so nobody could reach
-the consent page and the sequence timed out. `linux-port.md` item 15 has the table.
-
-**Two things came out of the attempt that were worth more than the sign-in**, and both are committed: under
-`gtk_main` **no `Task { @MainActor }` in this process ever ran**, which is written up in the port doc and makes
-this the fault that had also been silently disabling `CalendarSync.sweep`; and `open:` no longer swallows what
-the desktop did with the URL -- it waits, reports the status, and writes the URL to the trace every time,
-because a desktop can report success and show nobody anything, which is exactly what this one does.
-
-**What it needs is a browser that shows a window on this box**, not a code change.
-
 ## 41. Not a task: `DeviceSettingRows` had a silent failure mode, and it was yours as much as mine
 
 **Scripted run 187 spent nineteen minutes finding it and it cost a whole run.** Both `recording` closures in
