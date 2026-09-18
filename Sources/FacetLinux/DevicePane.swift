@@ -150,8 +150,21 @@ final class DevicePane {
         facet_box_pack_start(timeflipRows, controls, 0, 1, 0)
         facet_box_pack_start(widget, timeflip.widget, 0, 1, 0)
         facet_box_pack_start(widget, settingsSection.widget, 0, 1, 0)
+    }
 
-        rows.putBack = { [weak self] in self?.reload() }
+    /// What this pane does about a write that did not land: read the whole tab again.
+    ///
+    /// **Blunter than the Mac's, and it can afford to be.** There each row has a `show*` that puts one field back,
+    /// because its fields are debounced and a second write can be out while the first is being answered. Nothing
+    /// here is debounced -- GTK emits `value-changed` when a value settles rather than per tick -- so a rebuild
+    /// cannot take an edit off the screen that a write has not already been made for.
+    ///
+    /// **Worth revisiting the first time somebody holds an arrow down against a real cube**, which is the note the
+    /// stepper carries: if a held arrow turns out to queue commands, this becomes the fault the Mac's two halves
+    /// exist to avoid and this pane needs them too.
+    private func settled(_ outcome: DeviceSettingWrite.Outcome) {
+        guard outcome.putsTheRowBack else { return }
+        reload()
     }
 
     /// Reads every value this tab shows, in one go.
@@ -303,7 +316,7 @@ final class DevicePane {
             let wanted = facet_toggle_get_active(pauseBox) != 0
             guard wanted != values.pausesOnLock else { return }
             values.pausesOnLock = wanted
-            rows.pauseOnLock(wanted)
+            rows.pauseOnLock(wanted, then: settled)
         }
         facet_box_pack_start(settingRows, row("", control: pauseBox, live: isLive), 0, 1, 0)
 
@@ -318,7 +331,7 @@ final class DevicePane {
                 live: isLive
             ) { [weak self] percent in
                 self?.values.batteryWarningPercent = percent
-                self?.rows.batteryWarning(percent)
+                self?.rows.batteryWarning(percent) { [weak self] in self?.settled($0) }
             },
             0, 1, 0
         )
@@ -333,7 +346,7 @@ final class DevicePane {
                 live: isLive
             ) { [weak self] minutes in
                 self?.values.autoPauseMinutes = minutes
-                self?.rows.autoPause(minutes)
+                self?.rows.autoPause(minutes) { [weak self] in self?.settled($0) }
             },
             0, 1, 0
         )
@@ -348,7 +361,7 @@ final class DevicePane {
                 live: isLive
             ) { [weak self] percent in
                 self?.values.ledBrightnessPercent = percent
-                self?.rows.ledBrightness(percent)
+                self?.rows.ledBrightness(percent) { [weak self] in self?.settled($0) }
             },
             0, 1, 0
         )
@@ -363,7 +376,7 @@ final class DevicePane {
                 live: isLive
             ) { [weak self] seconds in
                 self?.values.ledBlinkSeconds = seconds
-                self?.rows.ledBlink(seconds)
+                self?.rows.ledBlink(seconds) { [weak self] in self?.settled($0) }
             },
             0, 1, 0
         )

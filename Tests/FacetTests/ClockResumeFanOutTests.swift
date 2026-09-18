@@ -34,12 +34,19 @@ import Testing
 /// the other moments a clock is resumed. `settingsWindow.onTimingChanged` and `historyIngestor.onChanged` are both
 /// real and both stay: a clock has more than one reason to come back, and this list is only the cube-arrival one.
 ///
-/// **`Sources/FacetLinux/main.swift` is deliberately not read yet**, which is a gap rather than a decision.
-/// That root resumes both clocks inline in `onLoginEnded` and so has never had this fault, but it carries no named
-/// list for this test to find. Adopting one is asked for in `docs/handover-linux.md`, because it is a change to a file
-/// the Mac cannot compile and editing this side's sources blind is what handover items 23 and 24 cost in the other
-/// direction. The day it lands, this test takes a second path rather than a second copy -- the same note
-/// `LinkEndedFanOutTests` carries.
+/// **Both composition roots are read, as of 2026-09-18**, which is what this file said it would do the day the
+/// Linux list landed: a second path rather than a second copy. Every assertion below runs against each root, and
+/// what differs between them is one string -- **which callback the list is iterated from** -- which is a real
+/// difference rather than a style:
+///
+/// - The Mac's has to be `onCubeReady`, because `connection` is not written until then and
+///   `HistoryTimer.hasSomethingToFollow` reads that row: a resume any earlier does nothing at all.
+/// - Linux's is `onLoginEnded`, and may be, because `CubeReports.loginEnded` writes that row earlier in the same
+///   callback. It is the earliest moment that works, and earlier is what a clock wants.
+///
+/// The Mac asked for the list and left the callback to the other machine (`docs/handover-linux.md` item 37,
+/// answered 2026-09-18). So the moment is per root here, and a root that moved its list somewhere neither name
+/// covers fails.
 @Suite
 struct ClockResumeFanOutTests {
     /// The repository root, from this file's own path, so nothing depends on the working directory a runner uses.
@@ -73,12 +80,45 @@ struct ClockResumeFanOutTests {
         return found
     }
 
-    /// The contents of `clocksResumedOnLink` in the macOS composition root, or `nil` if it has gone.
-    private func macFanOut() throws -> String? {
-        let main = try String(
-            contentsOf: Self.repositoryRoot.appendingPathComponent("Sources/FacetMac/main.swift"),
-            encoding: .utf8
-        )
+    /// One composition root: where its `main.swift` is, which callback its list has to be iterated from, and how
+    /// that callback's block ends in that file.
+    private struct Root {
+        let target: String
+        /// The callback the fan-out belongs in, as it is written in that file.
+        let callback: String
+        /// The line that closes that callback. Top level on the Mac, one level in on Linux, where the radio's
+        /// callbacks are wired inside `if let radio {`.
+        let blockEnd: String
+        /// Why it is that callback, said in the failure so nobody has to come and read this file.
+        let because: String
+
+        var path: String { "Sources/\(target)/main.swift" }
+    }
+
+    /// **Both roots, and each with its own moment.** Named once so every test below runs against the pair.
+    private static let roots = [
+        Root(
+            target: "FacetMac",
+            callback: "radio.onCubeReady = {",
+            blockEnd: "\n}",
+            because: "earlier and connection is not written yet, so hasSomethingToFollow reads false"
+        ),
+        Root(
+            target: "FacetLinux",
+            callback: "radio.onLoginEnded = {",
+            blockEnd: "\n    }",
+            because: "CubeReports.loginEnded writes connection earlier in that same callback, so this root may "
+                + "resume at the login rather than waiting for the characteristics"
+        ),
+    ]
+
+    private func source(of root: Root) throws -> String {
+        try String(contentsOf: Self.repositoryRoot.appendingPathComponent(root.path), encoding: .utf8)
+    }
+
+    /// The contents of `clocksResumedOnLink` in one root, or `nil` if it has gone.
+    private func fanOut(in root: Root) throws -> String? {
+        let main = try source(of: root)
         guard let list = main.range(of: "let clocksResumedOnLink: [() -> Void] = ["),
               let close = main.range(of: "]", range: list.upperBound..<main.endIndex)
         else { return nil }
@@ -95,11 +135,17 @@ struct ClockResumeFanOutTests {
             "the scan found \(resumable.count) modules with resumeIfStopped(), so it has stopped working"
         )
 
-        guard let wired = try macFanOut() else {
-            Issue.record("main.swift no longer declares `clocksResumedOnLink`, so nothing here can check it")
-            return
+        for root in Self.roots {
+            guard let wired = try fanOut(in: root) else {
+                Issue.record("\(root.path) no longer declares clocksResumedOnLink, so nothing here can check it")
+                continue
+            }
+            expectEveryClock(resumable, isIn: wired, of: root)
         }
+    }
 
+    /// The completeness check for one root.
+    private func expectEveryClock(_ resumable: Set<String>, isIn wired: String, of root: Root) {
         for module in resumable.sorted() {
             // The instance is lower-camel of the type for one of the two and shortened for the other
             // (`dailyLimit` for `DailyLimitWatch`), so the match is on a stem: what matters is that something in
@@ -109,7 +155,7 @@ struct ClockResumeFanOutTests {
             #expect(
                 wired.lowercased().contains(head.lowercased()),
                 """
-                \(module) declares resumeIfStopped() and nothing in main.swift's `clocksResumedOnLink` mentions \
+                \(module) declares resumeIfStopped() and nothing in \(root.path)'s fan-out mentions \
                 it. A clock that stands itself down when there is nothing to follow, and is never started again \
                 when a cube arrives, is dead for the rest of that launch -- silently, and only on the launches \
                 where the cube was out of range at startup. That is docs/handover-mac.md item 28, which is what \
@@ -121,43 +167,49 @@ struct ClockResumeFanOutTests {
 
     @Test("The cube-arrival fan-out is actually called, and on the link coming up")
     func theFanOutIsReached() throws {
-        let main = try String(
-            contentsOf: Self.repositoryRoot.appendingPathComponent("Sources/FacetMac/main.swift"),
-            encoding: .utf8
-        )
-        // A list nothing iterates is the same fault wearing a name, and it would pass the test above.
-        #expect(
-            main.contains("for resume in clocksResumedOnLink"),
-            "`clocksResumedOnLink` is declared and never iterated, so no clock is resumed when a cube arrives"
-        )
-        // And it has to hang off the link coming up rather than somewhere that happens to run. `onCubeReady` is the
-        // moment: the characteristics are discovered and `connection` is already written, which is what
-        // `HistoryTimer.hasSomethingToFollow` reads.
-        guard let ready = main.range(of: "radio.onCubeReady = {"),
-              let close = main.range(of: "\n}", range: ready.upperBound..<main.endIndex)
-        else {
-            Issue.record("main.swift no longer wires `radio.onCubeReady`, so nothing here can check where it runs")
-            return
+        for root in Self.roots {
+            let main = try source(of: root)
+            // A list nothing iterates is the same fault wearing a name, and it would pass the test above.
+            #expect(
+                main.contains("for resume in clocksResumedOnLink"),
+                "\(root.path) declares clocksResumedOnLink and never iterates it, so no clock is resumed"
+            )
+            // And it has to hang off the link coming up rather than somewhere that happens to run.
+            guard let opens = main.range(of: root.callback),
+                  let close = main.range(of: root.blockEnd, range: opens.upperBound..<main.endIndex)
+            else {
+                Issue.record("\(root.path) no longer wires \(root.callback), so nothing here can check the moment")
+                continue
+            }
+            #expect(
+                main[opens.upperBound..<close.lowerBound].contains("clocksResumedOnLink"),
+                """
+                \(root.path) iterates clocksResumedOnLink somewhere other than \(root.callback). The clocks have \
+                to come back when the link comes up, and for this root that callback is the moment: \(root.because).
+                """
+            )
         }
-        #expect(
-            main[ready.upperBound..<close.lowerBound].contains("clocksResumedOnLink"),
-            """
-            `clocksResumedOnLink` is iterated somewhere other than `radio.onCubeReady`. The clocks have to come \
-            back when the link comes up: earlier and `connection` is not written yet, so `hasSomethingToFollow` \
-            reads false and the resume does nothing at all.
-            """
-        )
     }
 
     @Test("The fan-out has no entry for a module that no longer stands its clock down")
     func theFanOutHasNothingStale() throws {
-        guard let wired = try macFanOut() else {
-            Issue.record("main.swift no longer declares `clocksResumedOnLink`, so nothing here can check it")
-            return
+        let resumable = try typesWithAResumableClock().count
+        for root in Self.roots {
+            guard let wired = try fanOut(in: root) else {
+                Issue.record("\(root.path) no longer declares clocksResumedOnLink, so nothing here can check it")
+                continue
+            }
+            let entries = wired
+                .split(separator: "\n")
+                .filter { $0.contains(".resumeIfStopped") }
+            #expect(
+                entries.count == resumable,
+                """
+                \(root.path)'s fan-out has \(entries.count) entries against \(resumable) modules that stand a \
+                clock down. An entry for a module that no longer has one is a line nobody will delete, and the \
+                count is what notices.
+                """
+            )
         }
-        let entries = wired
-            .split(separator: "\n")
-            .filter { $0.contains(".resumeIfStopped") }
-        #expect(entries.count == (try typesWithAResumableClock().count))
     }
 }

@@ -135,41 +135,6 @@ about both platforms rather than an ask, and this file is meant to empty.
 **When it is fixed it owes both radios a run**, being shared code that changes what goes to the
 hardware. You offered your half; mine is `55-device-settings` and `65-auto-pause`.
 
-## 37. Put the cube-arrival clock resumes behind a named list, so a test can read them
-
-**Your root has never had this bug and mine did, which is why I am asking rather than telling.**
-`FacetMac/main.swift` resumed `dailyLimit` when a cube arrived and never `historyTimer`, so a Mac
-launch whose cube turned up a minute later had a dead `fetch_history_interval_seconds` for the rest
-of the session. That is item 28, which you found by reading my file. You read it right.
-
-**Fixed here on 2026-09-16, and made checkable rather than just fixed.** The two calls are now a
-named list beside `linkEnders`, which is its mirror -- one is what a link ending has to let go of,
-the other what a link coming up has to put back:
-
-    let clocksResumedOnLink: [() -> Void] = [
-        historyTimer.resumeIfStopped,
-        dailyLimit.resumeIfStopped,
-    ]
-    radio.onCubeReady = { _ in
-        historyIngestor.refresh(because: "the link came up")
-        for resume in clocksResumedOnLink { resume() }
-    }
-
-`ClockResumeFanOutTests` reads that list against every `FacetCore` module declaring
-`resumeIfStopped()` and fails if one is missing, if the list is never iterated, or if it is iterated
-from a moment other than the link coming up. Mutation-checked on all three.
-
-**What I want**: the same named list in `FacetLinux/main.swift`. Yours does the job correctly today,
-inline in `onLoginEnded`, so this changes no behaviour -- it only gives the test something to read.
-The test's doc says it takes a second path rather than a second copy when that lands, which is the
-note `LinkEndedFanOutTests` already carries for the same reason.
-
-**Yours rather than mine because I cannot compile `FacetLinux`**, and editing your sources blind is
-what items 23 and 24 cost us in the other direction. If `onLoginEnded` is the better moment on your
-side -- you have an argument for it that I do not, `onCubeReady` being where mine has to go because
-`connection` is written by then -- then say so and keep it there; the list is the part I am asking
-for, not the callback.
-
 ## 22. Not a task: what is not ready for you yet
 
 **The Settings window.** The remodel took the menu bar, the radio, the clock, the dialogues, the quit sequence

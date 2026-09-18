@@ -29,9 +29,18 @@ package final class DeviceSettingRows {
     /// and nothing here knows whether it is CoreBluetooth or BlueZ underneath.
     package var send: ((Data, @escaping (Bool) -> Void) -> Void)?
 
-    /// Put the rows back to what the table holds. Called only when a write did not land, which is when the screen
-    /// and the database would otherwise disagree.
-    package var putBack: (@MainActor () -> Void)?
+    /// **There is no `putBack` property, and there was one until 2026-09-18.** It was a single closure for the
+    /// whole pane, set once, and the Mac could not adopt it: its rows deliberately do not reload, each having a
+    /// `show*` for putting one refused row back and a `record*` for updating its own copy after a write that
+    /// landed -- because a field stepped again while a write was in flight holds a newer number with a write of
+    /// its own already queued, and reloading would take that edit off the screen. The LED rows are debounced, so
+    /// two writes really can be out at once.
+    ///
+    /// **Every method reports its outcome instead**, which is `handover-linux.md` item 39's second option and the
+    /// one to take: it is the shape `AppSettingWrite.apply` already has, that one adopted on the Mac in four lines
+    /// where this module did not adopt at all, and the outcome is a value rather than a stored property two
+    /// overlapping writes would fight over. What to do about a refusal is then the surface's, which is where the
+    /// difference between the two panes actually lives.
 
     /// The low-battery watch, told to think again when the level changes.
     ///
@@ -49,7 +58,10 @@ package final class DeviceSettingRows {
     // MARK: - the two that send nothing
 
     /// Whether locking the cube should pause it first.
-    package func pauseOnLock(_ pausesOnLock: Bool) {
+    package func pauseOnLock(
+        _ pausesOnLock: Bool,
+        then settled: (@MainActor (DeviceSettingWrite.Outcome) -> Void)? = nil
+    ) {
         settle(
             DeviceSettingWrite.record(
                 "Pause on lock",
@@ -58,12 +70,16 @@ package final class DeviceSettingRows {
                 recording: { $0.write("pause_on_lock", field: "enabled", pausesOnLock) },
                 debugLog: debugLog
             ),
-            setting: "the pause-on-lock setting"
+            setting: "the pause-on-lock setting",
+            then: settled
         )
     }
 
     /// What counts as the cube running flat.
-    package func batteryWarning(_ percent: Int) {
+    package func batteryWarning(
+        _ percent: Int,
+        then settled: (@MainActor (DeviceSettingWrite.Outcome) -> Void)? = nil
+    ) {
         let outcome = DeviceSettingWrite.record(
             "Battery warning",
             value: "\(percent) percent",
@@ -71,7 +87,7 @@ package final class DeviceSettingRows {
             recording: { $0.write("low_battery_level", field: "percent", percent) },
             debugLog: debugLog
         )
-        guard settle(outcome, setting: "the battery warning level") else { return }
+        guard settle(outcome, setting: "the battery warning level", then: settled) else { return }
         lowBattery?.reconsider(because: "the warning level changed")
     }
 
@@ -82,7 +98,10 @@ package final class DeviceSettingRows {
     /// **Confirmed rather than merely acknowledged**, which is where this is stronger than the LED pair: `0x10`
     /// reports the delay the cube is set to, so the read-back compares the cube's own answer against the bytes that
     /// went out.
-    package func autoPause(_ minutes: Int) {
+    package func autoPause(
+        _ minutes: Int,
+        then settled: (@MainActor (DeviceSettingWrite.Outcome) -> Void)? = nil
+    ) {
         DeviceSettingWrite.send(
             DeviceCommandRules.autoPause(minutes),
             "Auto-pause",
@@ -99,7 +118,7 @@ package final class DeviceSettingRows {
             },
             debugLog: debugLog
         ) { [weak self] outcome in
-            _ = self?.settle(outcome, setting: "the auto-pause delay")
+            _ = self?.settle(outcome, setting: "the auto-pause delay", then: settled)
         }
     }
 
@@ -107,22 +126,35 @@ package final class DeviceSettingRows {
     ///
     /// **The word rather than the sign**, and it is the same hazard as an apostrophe: these rows are read back out
     /// of `debug_log` by SQL `LIKE` patterns, where a literal `%` is the wildcard.
-    package func ledBrightness(_ percent: Int) {
+    package func ledBrightness(
+        _ percent: Int,
+        then settled: (@MainActor (DeviceSettingWrite.Outcome) -> Void)? = nil
+    ) {
         led(percent, named: "brightness", unit: "percent", field: "brightness",
-            command: DeviceCommandRules.ledBrightness(percent))
+            command: DeviceCommandRules.ledBrightness(percent), then: settled)
     }
 
     /// How often it blinks.
-    package func ledBlink(_ seconds: Int) {
+    package func ledBlink(
+        _ seconds: Int,
+        then settled: (@MainActor (DeviceSettingWrite.Outcome) -> Void)? = nil
+    ) {
         led(seconds, named: "blink interval", unit: "sec", field: "blink_interval",
-            command: DeviceCommandRules.ledBlink(seconds))
+            command: DeviceCommandRules.ledBlink(seconds), then: settled)
     }
 
     /// The pair, which differ only in the three words and the field.
     ///
     /// **Acknowledged is the honest word**, and the row says so: the vendor spec defines no read-back for either, so
     /// somebody reading the log for a light that did not change has to be able to see that nothing ever checked.
-    private func led(_ value: Int, named what: String, unit: String, field: String, command: Data) {
+    private func led(
+        _ value: Int,
+        named what: String,
+        unit: String,
+        field: String,
+        command: Data,
+        then settled: (@MainActor (DeviceSettingWrite.Outcome) -> Void)?
+    ) {
         DeviceSettingWrite.send(
             command,
             "LED",
@@ -142,18 +174,30 @@ package final class DeviceSettingRows {
             },
             debugLog: debugLog
         ) { [weak self] outcome in
-            _ = self?.settle(outcome, setting: "the LED \(what)")
+            _ = self?.settle(outcome, setting: "the LED \(what)", then: settled)
         }
     }
 
-    /// Puts the rows back if the write did not land, and says why if there is something to say.
+    /// Says why a write did not land if there is something to say, and hands the outcome on.
+    ///
+    /// **The notice is this module's and the row is the surface's**, which is the split item 39 settled: what a
+    /// refusal is *called* has to be the same on both platforms, and what a refusal *does to a control* is the
+    /// difference between a pane that reloads and one that puts one field back.
+    ///
+    /// **The outcome is reported after the notice**, so a surface that puts a row back does it behind a dialogue
+    /// that is already up rather than in front of one about to be.
     ///
     /// - Returns: whether the write landed, for the one caller that has something to do afterwards.
     @discardableResult
-    private func settle(_ outcome: DeviceSettingWrite.Outcome, setting: String) -> Bool {
-        if outcome.putsTheRowBack { putBack?() }
-        guard let notice = DeviceSettingWrite.notice(for: outcome, setting: setting) else { return true }
-        dialogues.tell(notice)
-        return false
+    private func settle(
+        _ outcome: DeviceSettingWrite.Outcome,
+        setting: String,
+        then reported: (@MainActor (DeviceSettingWrite.Outcome) -> Void)?
+    ) -> Bool {
+        if let notice = DeviceSettingWrite.notice(for: outcome, setting: setting) {
+            dialogues.tell(notice)
+        }
+        reported?(outcome)
+        return outcome == .settled
     }
 }

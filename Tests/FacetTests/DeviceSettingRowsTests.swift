@@ -17,7 +17,9 @@ final class DeviceSettingRowsTests {
     /// What went to the cube, and what the cube said about it.
     private var sent: [Data] = []
     private var cubeTakesIt = true
-    private var putBacks = 0
+
+    /// Every outcome reported back, which is the whole of what a surface is told.
+    private var outcomes: [DeviceSettingWrite.Outcome] = []
 
     init() throws {
         database = TemporaryDatabase()
@@ -25,7 +27,7 @@ final class DeviceSettingRowsTests {
         settings = SettingStore(connection: database.connection())
         dialogues = RecordingDialogues()
         rows = DeviceSettingRows(settings: settings, dialogues: dialogues, debugLog: nil)
-        rows.putBack = { [self] in putBacks += 1 }
+
     }
 
     deinit {
@@ -46,7 +48,7 @@ final class DeviceSettingRowsTests {
     @Test func testPauseOnLockIsTheTableAndNothingElse() {
         withRadio()
 
-        rows.pauseOnLock(true)
+        rows.pauseOnLock(true) { [self] in outcomes.append($0) }
 
         #expect(settings.flag("pause_on_lock", field: "enabled") == true)
         #expect(sent.isEmpty, "no command carries this: the app reads it on its way to a lock")
@@ -55,7 +57,7 @@ final class DeviceSettingRowsTests {
     @Test func testTheBatteryWarningIsTheTableAndNothingElse() {
         withRadio()
 
-        rows.batteryWarning(25)
+        rows.batteryWarning(25) { [self] in outcomes.append($0) }
 
         #expect(settings.integer("low_battery_level", field: "percent") == 25)
         #expect(sent.isEmpty, "a threshold this app applies to readings the cube volunteers")
@@ -66,31 +68,60 @@ final class DeviceSettingRowsTests {
     @Test func testAutoPauseGoesToTheCubeBeforeTheTable() {
         withRadio()
 
-        rows.autoPause(15)
+        rows.autoPause(15) { [self] in outcomes.append($0) }
 
         #expect(sent.count == 1)
         #expect(sent.first == DeviceCommandRules.autoPause(15))
         #expect(settings.integer("auto_pause_minutes", field: "minutes") == 15)
     }
 
-    @Test func testACubeThatRefusesLeavesTheTableAloneAndPutsTheRowBack() {
+    @Test func testACubeThatRefusesLeavesTheTableAloneAndSaysSo() {
         withRadio()
         cubeTakesIt = false
         let before = settings.integer("auto_pause_minutes", field: "minutes")
 
-        rows.autoPause(15)
+        rows.autoPause(15) { [self] in outcomes.append($0) }
 
         #expect(settings.integer("auto_pause_minutes", field: "minutes") == before, "the cube said no")
-        #expect(putBacks == 1)
+        #expect(outcomes == [.refusedByTheCube])
+        #expect(outcomes.first?.putsTheRowBack == true, "and the surface is told to put its row back")
         #expect(dialogues.told.count == 1, "and it says so rather than leaving a field showing what was typed")
     }
 
-    @Test func testWithNoRadioNothingIsWrittenAndTheRowGoesBack() {
-        rows.autoPause(15)
+    @Test func testWithNoRadioNothingIsWrittenAndTheOutcomeSaysWhy() {
+        rows.autoPause(15) { [self] in outcomes.append($0) }
 
         #expect(sent.isEmpty)
         #expect(settings.integer("auto_pause_minutes", field: "minutes") != 15)
-        #expect(putBacks == 1)
+        // **A refusal rather than a quiet success**: a row left showing a number that reached neither the cube nor
+        // the table is the surface claiming something about hardware nobody ever asked.
+        #expect(outcomes == [.nothingToSendTo])
+    }
+
+    @Test func testAWriteThatLandedReportsSettledSoASurfaceCanUpdateItsOwnCopy() {
+        // **The half `putBack` could not express**, and the reason the Mac could not adopt this module: it needs to
+        // tell a write that landed from one that did not, so its pane can bring its copy up to date without
+        // reloading a field somebody may have stepped again since.
+        withRadio()
+
+        rows.autoPause(15) { [self] in outcomes.append($0) }
+
+        #expect(outcomes == [.settled])
+        #expect(outcomes.first?.putsTheRowBack == false)
+    }
+
+    @Test func testEveryRowReportsSomething() {
+        withRadio()
+        let report: @MainActor (DeviceSettingWrite.Outcome) -> Void = { [self] in outcomes.append($0) }
+
+        rows.pauseOnLock(true, then: report)
+        rows.batteryWarning(25, then: report)
+        rows.autoPause(15, then: report)
+        rows.ledBrightness(60, then: report)
+        rows.ledBlink(4, then: report)
+
+        // Five rows, five answers: a surface never has to work out which of them it has been told about.
+        #expect(outcomes == [.settled, .settled, .settled, .settled, .settled])
     }
 
     @Test func testTheTwoLEDValuesShareARowAndDoNotOverwriteEachOther() {

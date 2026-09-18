@@ -647,6 +647,16 @@ historyIngestor.onChanged = {
 // The app's half of everything the radio reports: the rotated PIN, the pairing rows, the reconnect loop's feedback
 // and the low-battery warning.
 //
+// **What a cube arriving has to put back, as a list rather than two calls.** Its mirror is `linkEnders` below: one
+// is what a link ending has to let go of, the other what a link coming up has to start again. Asked for by the Mac
+// (`docs/handover-linux.md` item 37) after a launch there whose cube turned up late spent the session with a dead
+// history timer -- a fault this root never had, because it resumed both. What the list buys is that
+// `ClockResumeFanOutTests` can read it, and so a third clock cannot be added to `FacetCore` and forgotten here.
+let clocksResumedOnLink: [() -> Void] = [
+    historyTimer.resumeIfStopped,
+    dailyLimit.resumeIfStopped,
+]
+
 // **The same module the Mac reaches through `SettingsWindowController`** (adopted here 2026-09-13). The five
 // callbacks below were written here independently and made the same decisions in the same order, down to the
 // comments -- which is the good case and still the hazard `docs/state-reference.md` opens with: two copies of one
@@ -694,8 +704,12 @@ if let radio {
         // stood down under a launch with nothing to follow, and this is the funnel that puts them back on their
         // feet. It stays here rather than in `CubeReports`, which decides and records and deliberately does not
         // drive the app's own clocks.
-        historyTimer.resumeIfStopped()
-        dailyLimit.resumeIfStopped()
+        //
+        // **Here rather than on `onCubeReady`, which is where the Mac's has to go** (item 37 asked, and this is the
+        // answer): a resume before `connection` is written does nothing at all, because `hasSomethingToFollow`
+        // reads that row -- and on this side the row is already written, `reports.loginEnded` above being the call
+        // that writes it. So this is the earliest moment that works, and earlier is what a clock wants.
+        for resume in clocksResumedOnLink { resume() }
         forcedPause.check()
     }
 
