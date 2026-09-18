@@ -1,6 +1,6 @@
 # The Rust port
 
-[← Back to README](../README.md) · [Installation →](installation.md) · [Distribution →](distribution.md) · [TimeFlip BLE →](timeflip.md)
+[← Back to README](../README.md) · [The Linux port →](linux-port.md) · [BlueZ notes →](linux-bluez-port-notes.md) · [The ports plan →](architecture-ports-plan.md) · [The two systems →](systems-info.md) · [TimeFlip BLE →](timeflip.md)
 
 **The evaluation that decided Facet will be rewritten in Rust, and the requirements it was judged against.**
 Written 2026-09-18. Nothing here has been built into the app: this is the record of a decision and of what was
@@ -137,7 +137,13 @@ unlike the Settings window, the menu bar is the real thing on each platform rath
 | **macOS** | App's event | App's event | Yes |
 | **Windows** | App's event | App's event | **Never** |
 | **Linux, KSNI backend** | App's event | Host shows the menu, app never sees it | Yes, if an icon is set too |
-| **Linux, AppIndicator backend** | **No event at all** | Host shows the menu | Yes, if an icon is set too |
+| **Linux, AppIndicator backend** | **No event at all** | Host shows the menu | Yes, **measured** |
+
+**The Linux title column is not a guess.** `linux-port.md` records that `XAyatanaLabel` on
+`org.kde.StatusNotifierItem` answers what `StatusItemReadout` produced, measured on the Linux box 2026-09-13,
+so the menu bar clock already works there and a scripted check can read it back. What it cannot carry is
+colour, an AppIndicator label being plain text. See
+[the tray is a D-Bus object](linux-port.md#found-a-gtk3-app-is-drivable-and-the-tray-is-a-d-bus-object).
 
 Three consequences:
 
@@ -165,6 +171,12 @@ The historical click bugs are largely closed: `mate-panel`
 [#976](https://github.com/mate-desktop/mate-panel/issues/976) were closed in 2018 and 2019. The one still open,
 [`mate-indicator-applet` #33](https://github.com/mate-desktop/mate-indicator-applet/issues/33), is a
 **different applet**: the Indicator Applet, not the Notification Area.
+
+**The Linux box is already running the wrong applet for this.** `linux-port.md` records it as Linux Mint 22.3
+on MATE 1.26.1 under X11, with `libayatana-appindicator3` and **`mate-indicator-applet`** present. That is the
+Indicator Applet, which is precisely the one whose left and right click bug is still open, rather than the
+Notification Area applet whose bugs are closed and which also speaks XEmbed. **Any test of click behaviour has
+to say which applet it ran against**, or it measures the wrong thing and answers the wrong question.
 
 **So left-click pause and right-click menu is plausible on MATE and unproven. UNTESTED, and it is the open
 question that matters most.** A probe exists to settle it; see *Open questions*.
@@ -195,13 +207,20 @@ that has no menu equivalent, or Linux users lose a feature rather than a conveni
 
 The Ayatana AppIndicator model is menu-only: it takes a menu and provides no click callbacks. **So the Linux
 port as currently designed has the same left-click limitation described above**, and the divergence from the
-macOS menu bar is already present rather than being something Rust would introduce.
+macOS menu bar is already present rather than being something Rust would introduce. `linux-port.md` records
+the tray as a D-Bus object driven through `com.canonical.dbusmenu`, which is the menu, not the icon: **no
+click behaviour has been measured on Linux at all**, and nothing in that file claims otherwise.
 
 **MATE supports XEmbed, and the Swift port already calls GTK3 through a modulemap**, so `gtk_status_icon_new`
-and its `activate` and `popup-menu` signals are reachable from the existing code today. `GtkStatusIcon` is
-deprecated in GTK3 and absent from GTK4, but MATE is a GTK3 desktop. **This is reasoning, not a measurement:
-it has not been tried, and the deprecation makes it a route with a known end date.** It is recorded here
-because the option is open now and closes when the app leaves Swift.
+and its `activate` and `popup-menu` signals are reachable from the existing code today. That route needs no
+new dependency: the toolkit decision already made is
+[one process, Swift calling GTK3 through a modulemap](linux-port.md#decided-one-process-swift-calling-gtk3-through-a-modulemap),
+and it sidesteps the reason Rust cannot take the same route, which is that the *bindings* are unmaintained
+rather than the C API being gone. `GtkStatusIcon` is deprecated in GTK3 and absent from GTK4, but MATE 1.26.1
+is a GTK3 desktop.
+
+**This is reasoning, not a measurement: it has not been tried, and the deprecation makes it a route with a
+known end date.** It is recorded here because the option is open now and closes when the app leaves Swift.
 
 ---
 
@@ -220,8 +239,11 @@ Each of these is a thing to run, not a thing to think about further.
 3. **The scripted suite's hold on the status item.** `MenuBarController` sets an accessibility identifier on
    the status item button, which is how `scripts/status-item-click.py` finds it. `tray-icon` exposes no
    equivalent API, so that script and every scripted check that presses the status item would need rewriting
-   against whatever handle the Rust item does expose. Against a 32-script suite whose front door is the status
-   item, this is a real line item.
+   against whatever handle the Rust item does expose. **The Linux port has already solved the same problem
+   and its answer transfers**: `linux-port.md` records that no identifier crosses to the tray there either, so
+   a Linux check addresses a tray item **by its label**. That is the pattern macOS would adopt, which makes
+   this a conversion rather than an invention. It is still a real line item against a 32-script suite whose
+   front door is the status item.
 4. **Editable tables in Slint.** The prototype is static. The real Categories and Faces tabs have editable
    cells, sorting, and rows driven by the database. A prototype flatters a toolkit; the cost arrives with live
    editing.
