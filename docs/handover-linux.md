@@ -117,6 +117,21 @@ more.
 
 **Say what Google actually did**, in `linux-port.md` item 15, because nothing on either machine knows yet.
 
+---
+
+**Tried 2026-09-19 and it is not done, so this stays put.** Three of the four steps happened and the fourth
+could not: the URL was handed over, `xdg-open` exited 0, and `SocketLoopbackListener` held `127.0.0.1:40689`
+for the whole five-minute wait -- but **Firefox on this desktop has no visible window**, so nobody could reach
+the consent page and the sequence timed out. `linux-port.md` item 15 has the table.
+
+**Two things came out of the attempt that were worth more than the sign-in**, and both are committed: under
+`gtk_main` **no `Task { @MainActor }` in this process ever ran**, which is written up in the port doc and makes
+this the fault that had also been silently disabling `CalendarSync.sweep`; and `open:` no longer swallows what
+the desktop did with the URL -- it waits, reports the status, and writes the URL to the trace every time,
+because a desktop can report success and show nobody anything, which is exactly what this one does.
+
+**What it needs is a browser that shows a window on this box**, not a code change.
+
 ## 41. Not a task: `DeviceSettingRows` had a silent failure mode, and it was yours as much as mine
 
 **Scripted run 187 spent nineteen minutes finding it and it cost a whole run.** Both `recording` closures in

@@ -1154,7 +1154,22 @@ the project in its first line.
   so writing a row does not depend on there being an account at all. Connecting is the other moment a sweep becomes
   possible, and the window says so.
 
-**It has never met Google from this platform, and cannot yet.** `GoogleCredentials.resolve()` answers `nil` here --
+**Tried on 2026-09-19, and it got three of the four steps.** The credentials arrived on this box, `Connect` went
+live, and the press now reaches the sign-in at all -- which it did not until the concurrency fault above was
+found and closed. What happened, in the order item 40 of `docs/handover-linux.md` asks for:
+
+| Step | What happened |
+|---|---|
+| The browser opens | **The URL was handed over and `xdg-open` exited 0** -- and nothing appeared. Firefox is running on this desktop with no visible window, so the page went somewhere nobody can see |
+| The loopback listener answers | **Yes.** `SocketLoopbackListener` bound port 0 and `ss` showed `127.0.0.1:40689` held by `FacetLinux` for the whole wait -- the first time that adapter has had a real browser pointed at it |
+| The token is saved before the identity rows | **Not reached.** Nobody could complete the consent, so the five-minute window expired and the sequence answered *Sign-in was cancelled* |
+| `CalendarSync` sweeps | **Not reached** |
+
+**So the flow still has not met Google, and what is in the way is a desktop rather than the app.** The sign-in URL
+is written to the trace on every attempt for exactly this case: it can be pasted into any browser that shows a
+window, and the listener is up and waiting while it is.
+
+**It has never completed from this platform, and the remaining blocker is not code.** `GoogleCredentials.resolve()` answers `nil` here --
 no `google-client.json` in the bundle and none at `~/.config/facet/` -- so `Connect` is drawn **dead**, with a
 tooltip saying this build has no client in it. That is the correct drawing of the state rather than a stub: the
 control cannot work, so it does not offer to. Signing in for real needs a client in the build and somebody's
