@@ -102,10 +102,9 @@ order; [what each machine owes](#what-each-machine-owes) is the same list split 
       `GoogleLoopbackListener`. **Done 2026-09-18, both halves.** The core states the port, each adapter sits in
       its own platform target, both composition roots hand one over, and
       `PlatformBlindCoreTests.adaptersStillInTheCore` is empty.
-- [ ] **[17](#17---macos---renamedevice-onto-devicesettingwrite)** - macOS - `renameDevice` onto
-      `DeviceSettingWrite`. **Built 2026-09-18 and owes a cube.** The ports plan's window arm is fully ticked and
-      the hermetic suite is green, but the only check that proves a rename still reaches the hardware is
-      `66-device-rename.sh`, which needs the device. Unticked until it has had one.
+- [x] **[17](#17---macos---renamedevice-onto-devicesettingwrite)** - macOS - `renameDevice` onto
+      `DeviceSettingWrite`. **Done, and proven on the cube 2026-09-18**, scripted run 189: `66-device-rename` all
+      22 checks, the rename reaching the hardware and the row written after the command rather than beside it.
 - [x] **[18](#18---macos---confirm-the-read-back-window-on-corebluetooth)** - macOS - Confirm the read-back
       window on CoreBluetooth. **Answered 2026-09-16 from the trace: it never delivered into it**, 133
       opportunities and zero occurrences, so the two faults were BlueZ's alone.
@@ -128,8 +127,10 @@ order; [what each machine owes](#what-each-machine-owes) is the same list split 
       The auto-pause write sets the cube to the wrong value for three round trips. **Fixed 2026-09-18**, bracketed
       in `DeviceSettingsSync` by `DeviceSettingRows`, with four tests and both mutations checked. **The Mac adopted
       the module the same day**, which is what brackets this platform at all, and `65-auto-pause.sh` gained the
-      check that can see the loop. **Still unticked, because it owes a run**: the Linux box cannot do its half, the
-      cube answering to the Mac's PIN now (`handover-mac.md` items 36 and 41), so the Mac's is the run there is.
+      check that can see the loop. **Proven on the cube 2026-09-18**, scripted run 189: check 8, *and the cube was
+      not corrected back mid-write*, passed. Run 183 had four such corrections; there are none. The Linux box
+      still owes its own half and cannot do it, the cube answering to the Mac's PIN now (`handover-mac.md` items
+      36 and 41).
 
 ### What is still open
 
@@ -1473,6 +1474,10 @@ refreshed at each use rather than set once.
 **The silent half is fixed too**, because that is what cost the run rather than the bug itself: both `recording`
 closures capture `debugLog` alongside `self` and write a row saying the rows were released mid-write. 1,225
 hermetic tests were green through all of it, which is the distinction this file keeps making.
+
+**Run 189 passed on the fix**, 2026-09-18: 32 of 32 scripts, 794 checks, none failed, against a clean tree at
+`275fbd8`. That is what proves items 17 and 25 on this platform, and `63-led-settings` check 6 -- the one run 187
+died on -- is among them.
 
 **The bracket is cleared by the link going as well as by the write reporting**, which matters more than it looks:
 a cube carried out of range mid-command never reports, and without that this app would decline to correct that
