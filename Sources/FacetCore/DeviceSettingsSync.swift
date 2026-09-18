@@ -31,7 +31,7 @@ import Foundation
 @MainActor
 package final class DeviceSettingsSync {
     /// One thing the cube can be told.
-    enum Setting: Equatable {
+    package enum Setting: Equatable {
         case autoPause
         case ledBrightness
         case blinkInterval
@@ -150,6 +150,26 @@ package final class DeviceSettingsSync {
     /// **Arrives on every login and after every command this app reads back**, so a disagreement is noticed at the
     /// first moment it can be. A cube that agrees costs nothing: the comparison is two integers.
     package func cubeReported(status: DeviceCommandRules.Status) {
+        // **A status this app's own write asked for is not the cube disagreeing with the table.**
+        //
+        // Measured on both platforms and written up as item 25 of `docs/linux-port.md`: setting auto-pause sends
+        // the command, reads `0x10` back to confirm it, and writes the table only once the cube has confirmed --
+        // which is the ordering the first design rule requires. That read-back arrives here like any other status,
+        // at the one moment the table still holds the old value, so this compared a value the app had just asked
+        // for against a row it had not written yet and corrected the cube back. It converged after three round
+        // trips, and for three round trips the hardware was set to a number nobody had asked for.
+        //
+        // **The bracket is the fix, not the comparison.** What is wrong is asking the question in the middle of a
+        // write, so a setting with a write out is left alone until the write reports. `DeviceSettingRows` is what
+        // brackets it, being what starts every such write on both platforms.
+        guard !isWriting.contains(.autoPause) else {
+            debugLog?.record(
+                .command,
+                "The cube says its auto-pause is \(status.autoPauseMinutes)m while a write of it is out, so this "
+                    + "is that write being confirmed rather than a disagreement"
+            )
+            return
+        }
         let wanted = stored().autoPauseMinutes
         guard status.autoPauseMinutes != wanted else { return }
         queue(
@@ -228,6 +248,8 @@ package final class DeviceSettingsSync {
         isLinkSettled = false
         wasCubeConnected = false
         isSending = false
+        // See `isWriting`: a write whose answer never came must not leave a setting permanently uncorrectable.
+        isWriting.removeAll()
     }
 
     /// Which setting a request is about, or `nil` for one nothing here can answer.
@@ -241,6 +263,29 @@ package final class DeviceSettingsSync {
         // and knows how to pace twelve writes. Two answers to one request would be two runs of commands.
         case .faceColoursRequired, .taskParametersRequired, .ok, .factoryReset, .unknown: return nil
         }
+    }
+
+    /// The settings this app has a write out for right now.
+    ///
+    /// **Not a copy of anything the table holds**, which is what keeps it inside the first design rule: it says
+    /// what the *app is doing*, not what any value is, and a question about a value still goes to the table.
+    ///
+    /// **Cleared by the link going, as well as by each write reporting.** A write whose answer never arrives --
+    /// a cube carried out of range mid-command -- would otherwise leave this app declining to correct that setting
+    /// for the rest of the launch, which is a worse failure than the one being fixed and a silent one.
+    private var isWriting: Set<Setting> = []
+
+    /// Brackets a write, so a status the write's own read-back produces is not read as a disagreement.
+    ///
+    /// **Called by `DeviceSettingRows` and nothing else.** One caller is the whole point: two surfaces setting a
+    /// shared flag two different ways is the hazard this fix exists to avoid, which is why it waited for that
+    /// module to be adoptable on both platforms (`docs/handover-linux.md` items 38 and 39).
+    package func writeBegan(_ setting: Setting) {
+        isWriting.insert(setting)
+    }
+
+    package func writeEnded(_ setting: Setting) {
+        isWriting.remove(setting)
     }
 
     private func queue(_ setting: Setting, because reason: String) {

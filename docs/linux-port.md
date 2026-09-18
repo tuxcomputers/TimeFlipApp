@@ -1336,15 +1336,28 @@ corrects the cube back to it. Its own read-back then starts the next round the o
 **It converges after three corrections**, which is the only reason it is not urgent. What it costs is three extra
 round trips per write and a window in which the hardware holds a value nobody asked for.
 
-**The fix wants item 35 first, and that is the finding rather than a deferral.** The honest version is the sync
-ignoring a status while a write of that setting is in flight, and there is nowhere good to put that flag today:
-`DeviceSettingWrite` is a static enum holding no state, so the bracket belongs to whatever starts the write. On
-Linux that is `DeviceSettingRows` in the core; on the Mac it is still `SettingsWindowController`'s own copy. **Two
-surfaces bracketing a shared flag two different ways is the hazard this would be fixed to avoid**, so adopting
-`DeviceSettingRows` (item 35 of `docs/handover-mac.md`) comes first and then there is one place to change.
+**Fixed 2026-09-18, and the fix is the bracket rather than the comparison.** `DeviceSettingsSync` gained
+`writeBegan(_:)` and `writeEnded(_:)`, and `cubeReported(status:)` leaves a setting alone while a write of it is
+out: what was wrong was asking the question in the middle of a write, not the answer it got. `DeviceSettingRows`
+brackets the auto-pause send, which is why this waited for that module to be adoptable on both platforms -- two
+surfaces bracketing a shared flag two different ways is the hazard the fix exists to avoid, and there is now one
+place that does it.
 
-**Whoever fixes it owes both radios a run**, this being shared code that changes what goes to the hardware. The
-Linux box has offered its half; the Mac's is `55-device-settings` and `65-auto-pause`.
+**The bracket is cleared by the link going as well as by the write reporting**, which matters more than it looks:
+a cube carried out of range mid-command never reports, and without that this app would decline to correct that
+setting for the rest of the launch. Silently, which would be a worse fault than the one being fixed.
+
+**Four tests and both mutations.** A status arriving mid-write is not a correction; once the write ends a real
+disagreement is corrected again; the link going clears a write that never answered; and a bracketed auto-pause
+does not silence the double-tap registers. Removing the guard fails the first, removing the link reset fails the
+third.
+
+**Unverified on hardware, and that is a fact rather than an omission.** Both radios owe it a run, this being
+shared code that changes what goes to the wire. The Linux box could not do its half on 2026-09-18: the cube
+refused both PINs this box knows, including the vendor default, which is the expected consequence of
+[handover-mac.md](handover-mac.md) item 36 -- the Mac was told the cube was back on the factory password and has
+since paired with it, so it owns the PIN. Taking it back means resetting the cube and breaking that pairing, which
+is not worth doing for a check the Mac can run. Its half is `55-device-settings` and `65-auto-pause`.
 
 ---
 

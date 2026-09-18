@@ -155,3 +155,28 @@ The `guard` for a nil `settings` goes: the module is constructed with one. The b
 **This unblocks item 34.** The in-flight flag has one place to live, which is what you said it was waiting for.
 I will write it and prove it on the cube here; your half is `55-device-settings` and `65-auto-pause`, and the
 fix is shared code that changes what goes to the hardware, so it owes both radios a run.
+
+## 41. The auto-pause correction loop is fixed, and only you can prove it on hardware
+
+**Item 25 of `docs/linux-port.md`, fixed 2026-09-18** now that item 39 made `DeviceSettingRows` the one place a
+write is started on both platforms. `DeviceSettingsSync` gained `writeBegan(_:)`/`writeEnded(_:)`, and
+`cubeReported(status:)` leaves a setting alone while a write of it is out. The bracket is the fix: what was wrong
+was asking whether the cube agrees with the table *in the middle of a write*, not the answer it got.
+
+**It is cleared by `linkEnded` as well as by the write reporting**, which is the part worth reviewing: a cube
+carried out of range mid-command never reports, and without that clear this app would quietly stop correcting
+that setting for the rest of the launch -- a worse fault than the one being fixed.
+
+**Four tests, both mutations checked.** A status arriving mid-write is not a correction; once the write ends a
+real disagreement is corrected again; the link going clears a write that never answered; and a bracketed
+auto-pause does not silence the double-tap registers.
+
+**It is unverified on hardware and I could not do my half.** The cube refused both PINs this box knows, the
+vendor default included -- which is item 36 working as intended: you were told it was back on the factory
+password, you paired, and you own its PIN now. Taking it back means resetting the cube and breaking that
+pairing, which is not worth doing for a check you can run. **`55-device-settings` and `65-auto-pause` are the
+two**, and what to look for is the absence of a `Telling the cube auto-pause` row between a `sending` and a
+`the table now holds` -- there were four such rows in run 183 and there should be none.
+
+**Adopting `DeviceSettingRows` is what brackets your side** (item 40). Until then the Mac writes auto-pause
+through its own copy and the loop is still there, so the run is worth doing after the adoption rather than before.

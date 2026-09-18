@@ -440,6 +440,9 @@ let reportReadout = ReportReadout(entries: entries, settings: settings)
 let deviceRows = DeviceSettingRows(settings: settings, dialogues: dialogues, debugLog: debugLog)
 deviceRows.send = radio.map { radio in { payload, reported in radio.send(payload, reported) } }
 deviceRows.lowBattery = lowBattery
+// **The bracket around a write that reaches the cube**, which is what stops the confirmation read being mistaken
+// for the cube disagreeing with the table -- item 25 of `docs/linux-port.md`, measured on both platforms.
+deviceRows.settingsSync = deviceSettings
 
 // **The Settings window, built here and put on screen by nothing until somebody asks for it.** A window nobody
 // opens should not exist, which is the Mac's reasoning too -- and on this platform it goes further: the window is

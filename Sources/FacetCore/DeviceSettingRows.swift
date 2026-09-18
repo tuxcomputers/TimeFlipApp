@@ -42,6 +42,17 @@ package final class DeviceSettingRows {
     /// overlapping writes would fight over. What to do about a refusal is then the surface's, which is where the
     /// difference between the two panes actually lives.
 
+    /// The settings sync, bracketed around every write that reaches the cube.
+    ///
+    /// **What it is for is the correction loop in item 25 of `docs/linux-port.md`**: the `0x10` that confirms a
+    /// write arrives at the sync like any other status, at the one moment the table still holds the old value, so
+    /// the sync used to correct the cube back to it. Telling it a write is out is what stops the question being
+    /// asked mid-write.
+    ///
+    /// **Only the three that reach the cube are bracketed**, because only they produce a confirmation read. The
+    /// pause-on-lock box and the battery warning send nothing, so nothing comes back to be misread.
+    package var settingsSync: DeviceSettingsSync?
+
     /// The low-battery watch, told to think again when the level changes.
     ///
     /// **Nothing else would ask it.** The warning is worked out when a reading arrives, and a cube whose charge is
@@ -102,6 +113,7 @@ package final class DeviceSettingRows {
         _ minutes: Int,
         then settled: (@MainActor (DeviceSettingWrite.Outcome) -> Void)? = nil
     ) {
+        settingsSync?.writeBegan(.autoPause)
         DeviceSettingWrite.send(
             DeviceCommandRules.autoPause(minutes),
             "Auto-pause",
@@ -118,6 +130,10 @@ package final class DeviceSettingRows {
             },
             debugLog: debugLog
         ) { [weak self] outcome in
+            // **Ended before the outcome is reported**, so the bracket is closed whatever a surface does next: a
+            // caller that reloads its rows from the table inside `settled` would otherwise do it while this app
+            // still claimed to be writing.
+            self?.settingsSync?.writeEnded(.autoPause)
             _ = self?.settle(outcome, setting: "the auto-pause delay", then: settled)
         }
     }

@@ -174,6 +174,65 @@ final class DeviceSettingsSyncTests {
         #expect(wire.sent.count == before)
     }
 
+    @Test func testAStatusArrivingWhileAWriteIsOutIsNotADisagreement() {
+        // **The correction loop, item 25 of `docs/linux-port.md`, measured on both platforms.** Setting auto-pause
+        // sends the command, reads `0x10` back to confirm it, and writes the table only once the cube has
+        // confirmed -- so the confirmation arrives here at the one moment the table still holds the old value. This
+        // used to read that as the cube disagreeing and correct it back to a value nobody had asked for.
+        let wire = Wire()
+        let sync = sync(on: wire)
+        sync.linkSettled()
+        let before = wire.sent.count
+
+        sync.writeBegan(.autoPause)
+        sync.cubeReported(status: status(autoPause: 7))
+
+        #expect(wire.sent.count == before, "the cube is being confirmed, not corrected")
+    }
+
+    @Test func testOnceTheWriteEndsADisagreementIsCorrectedAgain() {
+        // The bracket closes rather than latching: a cube that really has lost the setting is still put right, and
+        // that is the whole reason `cubeReported` exists.
+        let wire = Wire()
+        let sync = sync(on: wire)
+        sync.linkSettled()
+        sync.writeBegan(.autoPause)
+        sync.writeEnded(.autoPause)
+
+        sync.cubeReported(status: status(autoPause: 0))
+
+        #expect(wire.sent.last == DeviceCommandRules.autoPause(15))
+    }
+
+    @Test func testTheLinkGoingClearsAWriteThatNeverAnswered() {
+        // **Otherwise the fix is worse than the fault**: a cube carried out of range mid-command never reports, and
+        // this app would decline to correct that setting for the rest of the launch -- silently.
+        let wire = Wire()
+        let sync = sync(on: wire)
+        sync.linkSettled()
+        sync.writeBegan(.autoPause)
+
+        sync.linkEnded()
+        sync.linkSettled()
+        sync.cubeReported(status: status(autoPause: 0))
+
+        #expect(wire.sent.last == DeviceCommandRules.autoPause(15))
+    }
+
+    @Test func testABracketedAutoPauseDoesNotSilenceTheRegisters() {
+        // One setting at a time: the bracket names which write is out, so a double-tap disagreement arriving during
+        // an auto-pause write is still answered.
+        let wire = Wire()
+        let sync = sync(on: wire)
+        sync.linkSettled()
+        sync.writeBegan(.autoPause)
+        let before = wire.sent.count
+
+        sync.cubeReported(doubleTap: DoubleTapParameters(threshold: 0, limit: 0, latency: 0, window: 0))
+
+        #expect(wire.sent.count > before)
+    }
+
     @Test func testRegistersTheCubeDisagreesWithAreSent() {
         let wire = Wire()
         let sync = sync(on: wire)
