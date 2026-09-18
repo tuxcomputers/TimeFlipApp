@@ -209,3 +209,29 @@ the module, so nothing a person has read changes.
 **It has never met Google from Linux** and cannot until this build has a client in it -- `resolve()` answers `nil`
 here, so `Connect` is drawn dead with a tooltip saying why. Your side is the only one that has ever done a real
 sign-in, so if the adoption changes anything about how that behaves, yours is the only run that can say so.
+
+## 43. `GoogleCalendar` is the calendar half in the core, and it has been run against a real account
+
+**The companion to `GoogleConnection` from item 42**, and the last of the Google work that was macOS-only: settle,
+create, rename, delete, and the check on a saved sign-in. Your six private methods, with their wording and their
+orderings intact, and eleven tests where there were none.
+
+**What ran against the real account from Linux on 2026-09-19**, which is the part worth knowing before you adopt
+it: a calendar created, the sweep that follows putting **22 of 22** entries into it, a rename there and back, and
+the check answering *works* on a fresh launch. Delete was deliberately not run -- it would have destroyed the
+calendar and the events just written to it -- so its confirmation, its ordering and its failure path are covered
+by tests alone.
+
+**Two orderings are worth re-reading in the adoption**, because they are the ones that cost you comments:
+
+- **Google is asked first and the row follows**, in rename and delete both. The calendar lives in the user's
+  account, so what is there is the real answer.
+- **The id is cleared in one place only**, once Google has said the calendar is gone. Clearing it on a failed
+  request is how somebody ends up with a second *Facet* and a third.
+
+**`settle` still returns `.none` for no stored id**, which is your decision kept: signing in connects an account
+and is not somebody asking for a calendar, and the entries recorded meanwhile sweep in whenever Create is pressed.
+
+**One difference from your version, and it is the reason this one could be tested at all**: nothing here touches a
+pane. Every method answers with `Settled` -- a calendar, none, or a `Dialogue` to show -- and what a surface does
+about it is the surface's. That is the same split item 39 settled for `DeviceSettingRows`.

@@ -1164,9 +1164,23 @@ in the order item 40 of `docs/handover-linux.md` asked for:
 | The token is saved before the identity rows | **Yes.** `secret-tool` holds `au.com.tux.facet.google` / `refresh-token`, and `google_account` holds the name and the email. The section then read them back and said *Connected*, which is the reading rather than what Google answered with |
 | `CalendarSync` sweeps | **Yes, and it said the honest thing**: `22 entries waiting to sync, but no calendar is connected` |
 
-**That last row is the state of this platform in one sentence.** The account is connected and there is nothing to
-sync *to*, because the calendar half is not built here: no `Facet` calendar has ever been created from Linux, and
-`settleGoogleCalendar` -- the thing that checks or makes one -- is still macOS-only.
+**The calendar half landed the same day**, and with it that last row stopped being true. `GoogleCalendar` is the
+core module -- settle, create, rename, delete, and the check on the saved sign-in -- and the App tab's Google
+section grew a Calendar row: its name renamed in place, a Create button where there is none, and Delete.
+
+**Then it was run against the real account**, which is the first time any of this has happened from Linux:
+
+| What | What happened |
+|---|---|
+| Create | `Google calendar created, Facet`, and the id came back into `google_account` |
+| The sweep that follows | `Calendar sync started (a calendar was connected), 22 waiting` then `Calendar sync finished, 22 events into Facet`. `time_entry` reads **22 of 22 synced** |
+| Rename | Renamed at Google to *Facet time*, read back, and named back to *Facet* -- Google asked first and the row following, both ways |
+| The check on open | `Google sign-in checked and works`, against the real token on a fresh launch |
+| Delete | **Not run, deliberately**: it would destroy the calendar and the 22 events just written to it. The confirmation, the ordering and the failure path have tests |
+
+**`settle`'s confirm path has not been run against Google from here.** It is reached after a *sign-in* rather than
+on an open -- which is the Mac's arrangement too -- so proving it needs a second consent, and the one thing in the
+way is the browser situation above rather than the code.
 
 **What the sweep proves is worth more than the sign-in**, though: it ran at all. It is a `Task { @MainActor }`, so
 before the concurrency fault above was closed it was one of the two things in this app that silently never

@@ -446,6 +446,16 @@ let reportReadout = ReportReadout(entries: entries, settings: settings)
 let googleTokens = GoogleTokenStore(secrets: secrets)
 let googleConnection = GoogleConnection(settings: settings, tokens: googleTokens, debugLog: debugLog)
 
+// **The calendar in that account**, which is a second subject: an account is who is signed in, and this is the
+// thing in it the sweep writes to. Signing out keeps it deliberately, so the same person signing back in keeps
+// their history rather than starting a second Facet beside the first.
+let googleCalendar = GoogleCalendar(
+    settings: settings,
+    tokens: googleTokens,
+    dialogues: dialogues,
+    debugLog: debugLog
+)
+
 // **Recorded time on its way to Google**, wired as a closure rather than handed to the recorder: writing a
 // `time_entry` row does not depend on there being an account at all, so with nothing connected this sweeps, finds
 // it has nowhere to put anything, says so once and stops. The same shape the Mac's root has.
@@ -481,6 +491,7 @@ let settingsWindow = SettingsWindow(
     report: reportReadout,
     dialogues: dialogues,
     google: googleConnection,
+    calendar: googleCalendar,
     deviceRows: deviceRows,
     // What the Device tab needs from the radio, handed over as four closures: the window knows nothing about BlueZ,
     // and this is the only file that knows both halves.

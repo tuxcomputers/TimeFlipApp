@@ -37,6 +37,21 @@ final class AppSettingsPane {
     /// afterwards -- is `GoogleConnection`'s, and the same module the Mac is asked to adopt.
     private let google: GoogleConnection
 
+    /// The calendar Facet owns in that account, which is a second subject rather than more of the first: an account
+    /// is who is signed in, and a calendar is a thing in it that this app writes to. Signing out keeps the calendar
+    /// deliberately, so the two have different lifetimes.
+    private let calendar: GoogleCalendar
+
+    /// What Google last said about the saved sign-in, and what the calendar is. **Held for as long as the window is
+    /// open and never written down**, which is the point: both are true of the moment they were asked, and a
+    /// `setting` row holding either would be the stale copy the check exists to prevent.
+    private var signInCheck: GoogleCalendar.SignInCheck?
+    private var storedCalendar = GoogleCalendarRules.Calendar.none
+
+    /// Whether a request is out right now -- a sign-in, a create, a rename, a delete. Not a row: it is what the app
+    /// is doing, and the controls say so rather than looking pressable twice.
+    private var isWorking = false
+
     /// Told when an account is connected, so a sweep can happen: somebody who signs in after a week of recorded
     /// time has a week to send, and nothing else would ask.
     private let googleConnected: () -> Void
@@ -90,6 +105,7 @@ final class AppSettingsPane {
         settings: SettingStore,
         dialogues: DialoguePresenter,
         google: GoogleConnection,
+        calendar: GoogleCalendar,
         googleConnected: @escaping () -> Void,
         debugLog: DebugLog?,
         timingChanged: @escaping () -> Void
@@ -97,6 +113,7 @@ final class AppSettingsPane {
         self.settings = settings
         self.dialogues = dialogues
         self.google = google
+        self.calendar = calendar
         self.googleConnected = googleConnected
         self.debugLog = debugLog
         self.timingChanged = timingChanged
@@ -151,6 +168,9 @@ final class AppSettingsPane {
     /// around them.
     private var sections: [PanelSection] = []
 
+    /// The calendar's name cell, held because it owns its own handlers.
+    private var calendarNameCell: EditableNameCell?
+
     /// Reads every value this tab shows, in one go, and draws them.
     ///
     /// **One pass rather than a read per control**, which is the rule's first condition for a window that may hold
@@ -174,7 +194,25 @@ final class AppSettingsPane {
                     ?? seeded.debugDirectory
             ).exists
         )
+        storedCalendar = calendar.stored()
         redraw()
+        checkTheSignIn()
+    }
+
+    /// Asks Google whether the saved sign-in still works, and draws what came back.
+    ///
+    /// **It never puts anything on screen but a row.** No alert, no failure dialogue: opening a tab is not somebody
+    /// asking for a calendar, and a check that could interrupt would make this tab a thing you brace for.
+    ///
+    /// **Nothing to verify without an identity**, which is not a skipped step: asking Google about an account nobody
+    /// named is a request that cannot have an answer, and the section already says *Not connected*.
+    private func checkTheSignIn() {
+        guard google.stored().hasGoogleIdentity else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            signInCheck = await calendar.check()
+            redraw()
+        }
     }
 
     private func redraw() {
@@ -204,15 +242,16 @@ final class AppSettingsPane {
         let account = google.stored()
         let state = GoogleAccountRules.state(
             for: account,
-            credential: google.credential(),
-            // **Not asked, and this platform does not ask.** Verifying a stored sign-in is a network round trip the
-            // Mac makes on every open; there is nothing here yet to draw its answer, so the honest state is the one
-            // that says nobody has asked.
-            verification: .notAsked
+            credential: credential(),
+            verification: verification()
         )
         let status = GoogleAccountRules.status(for: state)
         facet_box_pack_start(googleRows, reading("Account", account.email ?? status, "app-google-account"), 0, 1, 0)
         facet_box_pack_start(googleRows, reading("Status", status, "app-google-status"), 0, 1, 0)
+
+        if account.hasGoogleIdentity {
+            facet_box_pack_start(googleRows, calendarRow(), 0, 1, 0)
+        }
 
         let hasCredentials = GoogleCredentials.resolve() != nil
         let button = gtk_button_new_with_label(
@@ -234,6 +273,110 @@ final class AppSettingsPane {
         facet_box_pack_start(googleRows, row("", control: button), 0, 1, 0)
     }
 
+    /// The calendar row: its name, and the one control that fits what there is.
+    ///
+    /// **Create when there is none, and that is a state rather than a gap.** Signing in connects an account; it is
+    /// not somebody asking for a calendar in it. Pressing Create late costs nothing -- every entry recorded since is
+    /// swept into the new calendar, oldest first.
+    private func calendarRow() -> UnsafeMutablePointer<GtkWidget> {
+        let line = SettingsWidgets.row()
+        gtk_widget_set_size_request(line, -1, Int32(SettingsMetrics.rowHeight))
+        facet_box_pack_start(line, SettingsWidgets.label("Calendar"), 0, 1, 0)
+
+        guard let id = storedCalendar.id, !id.isEmpty else {
+            let create = gtk_button_new_with_label(isWorking ? "Working…" : "Create calendar")!
+            SettingsWidgets.identify(create, "app-google-calendar-create")
+            gtk_widget_set_sensitive(create, isWorking ? 0 : 1)
+            signals.connect(create, "clicked") { [weak self] in self?.createCalendar() }
+            facet_box_pack_end(line, create, 0, 0, 0)
+            return line
+        }
+
+        let delete = gtk_button_new_with_label("Delete")!
+        SettingsWidgets.identify(delete, "app-google-calendar-delete")
+        gtk_widget_set_sensitive(delete, isWorking ? 0 : 1)
+        signals.connect(delete, "clicked") { [weak self] in self?.deleteCalendar() }
+        facet_box_pack_end(line, delete, 0, 0, 0)
+
+        // The name, renamed in place: the same cell the Categories tab and the Device tab use, so a name edited
+        // anywhere in this app behaves the same way.
+        let cell = EditableNameCell(
+            name: storedCalendar.name ?? GoogleCalendarRules.defaultName,
+            identifier: "app-google-calendar-name",
+            isEnabled: !isWorking
+        )
+        cell.onCommit = { [weak self] typed in self?.renameCalendar(to: typed) }
+        calendarNameCell = cell
+        facet_box_pack_end(line, cell.widget, 0, 0, 0)
+        return line
+    }
+
+    /// What the store says about the token, which the row cannot say.
+    private func credential() -> GoogleAccountRules.Credential {
+        switch signInCheck {
+        case .notSignedIn: return .missing
+        case .storeUnavailable: return .unavailable
+        case nil, .working, .unreachable, .refused: return google.credential()
+        }
+    }
+
+    /// What Google last said, which is `notAsked` until it has been asked -- and stays that way for an account with
+    /// no identity, because there is nothing to ask about.
+    private func verification() -> GoogleAccountRules.Verification {
+        switch signInCheck {
+        case .working: return .working
+        case let .unreachable(reason): return .unreachable(reason)
+        case let .refused(reason): return .refused(reason)
+        case nil, .notSignedIn, .storeUnavailable: return .notAsked
+        }
+    }
+
+    private func createCalendar() {
+        debugLog?.record(.click, "Button clicked: Create calendar")
+        work { await self.calendar.create() }
+    }
+
+    private func renameCalendar(to typed: String) {
+        work { await self.calendar.rename(to: typed) }
+    }
+
+    private func deleteCalendar() {
+        debugLog?.record(.click, "Button clicked: Delete calendar")
+        // **Asked before it is done, and the asking is the core's.** It is the only thing this app destroys.
+        calendar.delete { [weak self] settled in self?.adopt(settled) }
+    }
+
+    /// Runs one calendar request, with the controls dead while it is out.
+    private func work(_ request: @escaping () async -> GoogleCalendar.Settled) {
+        isWorking = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            redraw()
+            let settled = await request()
+            isWorking = false
+            adopt(settled)
+        }
+    }
+
+    /// Takes what a calendar request came to: the row follows the table, and a failure says so.
+    private func adopt(_ settled: GoogleCalendar.Settled) {
+        isWorking = false
+        switch settled {
+        case let .calendar(calendar):
+            storedCalendar = calendar
+            // **A calendar becoming available is a sweep's moment**, and nothing else would ask: every entry
+            // recorded before it existed is waiting.
+            googleConnected()
+        case .none:
+            storedCalendar = .none
+        case let .failed(notice):
+            // Read back rather than assumed: a failed rename leaves the row showing what the table holds.
+            storedCalendar = calendar.stored()
+            dialogues.tell(notice)
+        }
+        redraw()
+    }
+
     /// Opens a browser and waits for the redirect.
     ///
     /// **The browser is the one line this platform owns**, which is what `GoogleSignIn.run` says by refusing a
@@ -250,10 +393,15 @@ final class AppSettingsPane {
             )
             isSigningIn = false
             switch answer {
-            case .connected:
+            case let .connected(_, accessToken):
+                // **Settling a calendar is checking the stored one, never making a new one**: signing in is an
+                // account being connected, not a calendar being asked for. The access token is already in hand, so
+                // this costs no refresh.
+                adopt(await calendar.settle(accessToken: accessToken))
                 // **A week of recorded time may be waiting**, and nothing else would ask: a sweep happens when an
                 // entry is recorded, and somebody who signs in afterwards has already missed all of them.
                 googleConnected()
+                checkTheSignIn()
             case let .failed(notice):
                 dialogues.tell(notice)
             }

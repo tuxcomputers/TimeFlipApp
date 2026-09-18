@@ -38,6 +38,7 @@ final class SettingsWindow {
     private let report: ReportReadout
     private let dialogues: DialoguePresenter
     private let google: GoogleConnection
+    private let calendar: GoogleCalendar
     private let deviceRows: DeviceSettingRows
     private let deviceReadings: DeviceReadings
 
@@ -146,6 +147,7 @@ final class SettingsWindow {
         report: ReportReadout,
         dialogues: DialoguePresenter,
         google: GoogleConnection,
+        calendar: GoogleCalendar,
         deviceRows: DeviceSettingRows,
         deviceReadings: DeviceReadings,
         categoryEdits: CategoryEdits,
@@ -164,6 +166,7 @@ final class SettingsWindow {
         self.report = report
         self.dialogues = dialogues
         self.google = google
+        self.calendar = calendar
         self.deviceRows = deviceRows
         self.deviceReadings = deviceReadings
         self.categoryEdits = categoryEdits
@@ -237,6 +240,7 @@ final class SettingsWindow {
             settings: settings,
             dialogues: dialogues,
             google: google,
+            calendar: calendar,
             googleConnected: { [weak self] in self?.onGoogleConnected?() },
             debugLog: debugLog,
             timingChanged: { [weak self] in self?.onTimingChanged?() }
