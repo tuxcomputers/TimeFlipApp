@@ -869,35 +869,59 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// **A refusal at any point leaves the row reading what the table holds**, re-read rather than remembered: a
     /// window still showing a name that reached neither the cube nor the table is the two-answers problem with a
     /// scan filter downstream of it.
+    ///
+    /// **On `DeviceSettingWrite` since 2026-09-18**, which is item 17 of `docs/linux-port.md` and the last row of
+    /// `architecture-ports-plan.md` item 6. The ordering it already followed is now the shared one rather than an
+    /// eighth hand-spelled copy of it. What stays its own is wording, in two places and for two reasons: the
+    /// sending row, because `Tests/Scripted/66-device-rename.sh` matches it exactly and needs a cube to re-run,
+    /// and all the notices, because a rename is the one setting that says something on **success** and the one
+    /// that speaks where `nothingToSendTo` is silent everywhere else.
     private func sendRename(to name: String, replacing previous: String?, on pane: DevicePane) {
-        guard let radio, let command = DeviceCommandRules.setName(name) else {
-            // **No radio and a name the command cannot carry are one branch on purpose**: both mean nothing went to
-            // the cube, and `writeFailed` is the alert worded for exactly that -- it does not quote the character
-            // rules, which would send somebody looking in the wrong place. `renameDecision` has already refused the
-            // names that are unsendable for a reason worth naming.
+        guard let command = DeviceCommandRules.setName(name) else {
+            // A name the command itself cannot carry. `renameDecision` has already refused the names that are
+            // unsendable for a reason worth naming, so this is the residue, and `writeFailed` is the alert worded
+            // for it: it does not quote the character rules, which would send somebody looking in the wrong place.
+            //
+            // **Its own guard rather than one branch with the missing radio**, which is what it was until this
+            // moved onto the shared writer. The two still say one thing on screen, below; they now say different
+            // things in the log, which is the gain -- a row reading that there was no radio is a different
+            // diagnosis from one reading that the name would not fit in a command.
             debugLog?.record(.field, "The name \(name) could not be sent to the cube")
             pane.show(deviceSettings())
             showNameProblem(.writeFailed)
             return
         }
-        debugLog?.record(.field, "Renaming the cube to \(name)")
-        radio.send(command) { [weak self, weak pane] wrote in
+        DeviceSettingWrite.send(
+            command,
+            "The device name",
+            value: name,
+            through: radio.map { radio in { payload, reported in radio.send(payload, reported) } },
+            announcing: "Renaming the cube to \(name)",
+            recording: { [weak self] in
+                self?.recordDeviceName(name, because: "renamed from the Device tab") ?? false
+            },
+            debugLog: debugLog
+        ) { [weak self, weak pane] outcome in
             guard let self else { return }
-            guard wrote else {
-                self.debugLog?.record(.field, "The cube did not take the name \(name), so the row goes back")
-                pane?.show(self.deviceSettings())
+            // **The row is re-read on every outcome, success included**, which is where this departs from
+            // `putsTheRowBack`. That exists so a field holding a newer number is not taken out from under somebody
+            // mid-edit; the Name field has committed and closed itself by the time this returns, and on success the
+            // new name is the thing the row is supposed to start showing.
+            pane?.show(self.deviceSettings())
+            switch outcome {
+            case .settled:
+                self.showRenameLag(newName: name, previousName: previous)
+            case .nothingToSendTo, .refusedByTheCube:
+                // **One alert for both on purpose**: each means nothing reached the cube, which is exactly what
+                // `writeFailed` is worded for. `nothingToSendTo` is silent on every other row of this tab, and it
+                // is not here, because a name that reached neither the cube nor the table has a filtered scan
+                // downstream of it (`DeviceScanRules.isEligible`) and is worth more than a row quietly reverting.
                 self.showNameProblem(.writeFailed)
-                return
-            }
-            guard self.recordDeviceName(name, because: "renamed from the Device tab") else {
+            case .notRecorded, .nowhereToRecord:
                 // The cube took it and the table did not, which is what `showNotRecorded` is worded for: the window
                 // follows the table, that being what the next open reads.
-                pane?.show(self.deviceSettings())
                 self.showNotRecorded("the new name")
-                return
             }
-            pane?.show(self.deviceSettings())
-            self.showRenameLag(newName: name, previousName: previous)
         }
     }
 

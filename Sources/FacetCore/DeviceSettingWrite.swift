@@ -103,6 +103,12 @@ package enum DeviceSettingWrite {
     /// - Parameter send: the radio, or `nil` where there is none. Answers whether the cube took the command,
     ///   which for a command with a read-back means confirmed and for one without means acknowledged. Which of
     ///   those it is belongs to whoever built the command, and `docs/timeflip.md` carries the matrix.
+    /// - Parameter announcing: the row written **in place of** the default `label: sending value`, for a caller
+    ///   whose wording predates that scheme. **One caller passes it**, the rename: its `Renaming the cube to
+    ///   <name>` is matched exactly by `Tests/Scripted/66-device-rename.sh`, which also reads that row's id to
+    ///   prove the table was written after the cube rather than beside it. That check needs a cube, so it cannot
+    ///   be re-run to suit a tidier string, and this is the paragraph above applied to the one row that does not
+    ///   fit `label: verb value`.
     /// - Parameter noting: an extra row written immediately after the `sending` row, for a caller with
     ///   something to explain about what is going out. **Written only when there is a radio**, since it
     ///   describes a send: the double-tap registers use it to say that the gesture being off is why the
@@ -118,6 +124,7 @@ package enum DeviceSettingWrite {
         _ label: String,
         value: String,
         through send: ((Data, @escaping (Bool) -> Void) -> Void)?,
+        announcing: String? = nil,
         noting: String? = nil,
         tookIt: String? = nil,
         recording record: @escaping () -> Bool,
@@ -129,7 +136,7 @@ package enum DeviceSettingWrite {
             settled(.nothingToSendTo)
             return
         }
-        debugLog?.record(.field, "\(label): sending \(value)")
+        debugLog?.record(.field, announcing ?? "\(label): sending \(value)")
         if let noting { debugLog?.record(.field, noting) }
         send(command) { took in
             guard took else {

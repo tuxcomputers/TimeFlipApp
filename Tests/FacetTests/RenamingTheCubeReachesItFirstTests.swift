@@ -172,7 +172,12 @@ final class RenamingTheCubeReachesItFirstTests: XCTestCase, @unchecked Sendable 
 
         try rename(to: "Plopper", in: window)
 
-        waitUntil("the attempt is made and refused") { self.rows(matching: "The cube did not take the name Plopper%") == 1 }
+        // **`The device name:` since 2026-09-18**, when this moved onto `DeviceSettingWrite` (item 17): the
+        // refusal row is the shared writer's now and so carries the setting's name in front of it. The row above
+        // it kept its own wording, because a scripted check matches that one exactly and needs a cube to re-run.
+        waitUntil("the attempt is made and refused") {
+            self.rows(matching: "The device name: the cube did not take Plopper%") == 1
+        }
         XCTAssertEqual(rows(matching: "Renaming the cube to Plopper"), 1, "the attempt was real")
         XCTAssertEqual(storedName(), "Dibby", "and the table still holds what it held")
         XCTAssertEqual(rows(matching: "The cube is called Plopper%"), 0, "and nothing claims otherwise")
@@ -195,7 +200,7 @@ final class RenamingTheCubeReachesItFirstTests: XCTestCase, @unchecked Sendable 
 
         try rename(to: "Plopper", in: window)
 
-        waitUntil("the refusal has landed") { self.rows(matching: "The cube did not take the name%") == 1 }
+        waitUntil("the refusal has landed") { self.rows(matching: "The device name: the cube did not take%") == 1 }
         XCTAssertEqual(rows(matching: "The cube is now called%"), 0)
     }
 

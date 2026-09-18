@@ -103,7 +103,9 @@ order; [what each machine owes](#what-each-machine-owes) is the same list split 
       its own platform target, both composition roots hand one over, and
       `PlatformBlindCoreTests.adaptersStillInTheCore` is empty.
 - [ ] **[17](#17---macos---renamedevice-onto-devicesettingwrite)** - macOS - `renameDevice` onto
-      `DeviceSettingWrite`. The last unticked row of the ports plan's window arm.
+      `DeviceSettingWrite`. **Built 2026-09-18 and owes a cube.** The ports plan's window arm is fully ticked and
+      the hermetic suite is green, but the only check that proves a rename still reaches the hardware is
+      `66-device-rename.sh`, which needs the device. Unticked until it has had one.
 - [x] **[18](#18---macos---confirm-the-read-back-window-on-corebluetooth)** - macOS - Confirm the read-back
       window on CoreBluetooth. **Answered 2026-09-16 from the trace: it never delivered into it**, 133
       opportunities and zero occurrences, so the two faults were BlueZ's alone.
@@ -726,7 +728,7 @@ only the low-priority 12.
 
 | # | What | Does it block Linux? |
 |---|---|---|
-| [17](#17---macos---renamedevice-onto-devicesettingwrite) | `renameDevice` onto `DeviceSettingWrite` | Only when a Linux Settings window wants a rename control |
+| [17](#17---macos---renamedevice-onto-devicesettingwrite) | `renameDevice` onto `DeviceSettingWrite` | **Built 2026-09-18, owes a cube run.** Unblocks a Linux rename control |
 | [18](#18---macos---confirm-the-read-back-window-on-corebluetooth) | Confirm the read-back window on CoreBluetooth | **No, but the port raised it** and it may be a live fault on the Mac |
 | [19](#19---macos---the-history-timer-never-restarts-when-a-cube-arrives-late) | The history timer never restarts when a cube arrives late | **No.** A Mac bug the Linux side does not have |
 | [20](#20---macos---remove-the-twelve-compiler-artefacts-at-the-repository-root) | Remove twelve compiler artefacts from the root | No |
@@ -1230,6 +1232,37 @@ arriving a second or two into the next connection.
 It is Mac work, and it matters to the port only when a Linux Settings window wants a rename control. **It is
 also entangled with an open question**: whether a `0x15` rename moves BlueZ's `Name` the way it moves
 CoreBluetooth's has never been measured.
+
+#### What landed, 2026-09-18
+
+**The functional read-back was not the obstacle.** `DeviceSettingWrite.send` already documents that `took` means
+confirmed where there is a read-back and acknowledged where there is not, which is what the LED pair rely on. So
+`0x15` having no answer of its own needed saying rather than accommodating, and `sendRename`'s doc comment still
+says it.
+
+**One row of wording was the obstacle.** `Renaming the cube to <name>` predates the `label: verb value` scheme,
+and `66-device-rename.sh` matches it exactly *and* reads its row id, to prove the table was written after the cube
+rather than beside it. A check that needs a cube cannot be re-run to suit a tidier string, so `send` gained
+`announcing`, which replaces the default sending row. Same shape as the `noting` the double-tap fold cost, and for
+the same reason: the log wording is part of the interface.
+
+**What stayed on the Mac, and why it is not debt.** All four notices: a rename is the only setting that says
+something on **success** (`showRenameLag`), and the only one that speaks where `nothingToSendTo` is silent
+everywhere else, because a name that reached neither the cube nor the table has a filtered scan downstream of it
+(`DeviceScanRules.isEligible`). The nil-command guard stayed too, split from the missing-radio case it used to
+share a branch with: they still say one thing on screen and now say different things in the log, which is the
+better diagnosis.
+
+**Two hermetic tests changed their pattern**, both in `RenamingTheCubeReachesItFirstTests`: the refusal row is the
+shared writer's now and reads `The device name: the cube did not take <name>, so the window goes back`. Nothing in
+`Tests/Scripted` reads that row.
+
+**Measured on the Mac**: 1,225 XCTest and 740 swift-testing, zero failures. **Not confirmed on hardware**, which
+is why the item is still unticked. `CLAUDE.md` is explicit that a green hermetic suite says nothing about a radio,
+and the device rename is the example it gives.
+
+**The Linux rename control is unblocked.** `DeviceNameRules`, `DeviceCommandRules`, `DevicePairingRecorder` and
+now the write sequence are all core, so what a Linux Device tab still owes is a pane and its alerts.
 
 ### 18 - macOS - Confirm the read-back window on CoreBluetooth
 

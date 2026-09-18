@@ -424,10 +424,21 @@ the reason the Mac's file keeps shrinking.
       row and only when there is a radio, which is where the `gesture is off, so Window goes as 0` row had
       to keep sitting; and the two failure paths, which named the setting two different ways, now name it
       once. The third was free, nothing reading the no-radio row.
-- [ ] `renameDevice` / `sendRename` is the eighth, and the odd one: its read-back is functional rather than
-      a command, so it does not fit `send` as it stands. **Wanted now rather than eventually**: the Linux Device
-      tab is built and has no rename control, because the decision is in `SettingsWindowController` and that box
-      cannot compile it (`docs/linux-port.md` item 17, `docs/handover-mac.md`).
+- [x] `renameDevice` / `sendRename` is folded, 2026-09-18, and it was the eighth and the odd one: its read-back
+      is functional rather than a command. **That turned out not to be the obstacle.** `send` already documents
+      that `took` means confirmed where there is a read-back and acknowledged where there is not, which is what
+      the LED pair rely on, so the honest weakness of `0x15` needed saying rather than accommodating.
+      What did not fit was one row of wording. `Renaming the cube to <name>` predates `label: verb value`, and
+      `66-device-rename.sh` matches it exactly **and reads its row id** to prove the table was written after the
+      cube rather than beside it. A check that needs a cube cannot be re-run to suit a tidier string, so `send`
+      gained `announcing`, which replaces the default sending row. That is the same shape as the `noting` the
+      double-tap fold cost, and for the same reason: the log wording is part of the interface.
+      The notices stay on the Mac and stay rename's own, because a rename is the only setting that says something
+      on **success**, and the only one that speaks where `nothingToSendTo` is silent everywhere else -- a name
+      that reached neither the cube nor the table has a filtered scan downstream of it.
+      **The Linux rename control is unblocked**: `DeviceNameRules`, `DeviceCommandRules`, `DevicePairingRecorder`
+      and now the sequence are all core, so what a Linux Device tab still owes is a pane and its alerts, which is
+      what every other tab owed.
 - [x] ~~The rest of the window is view construction and tab wiring.~~ **Struck: it is not work.** That is
       what an adapter is *for*, so the sentence was saying the code is already where it belongs while
       wearing an unticked box. Moving any of it would be making the number smaller rather than making
