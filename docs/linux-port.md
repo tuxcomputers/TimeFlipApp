@@ -1457,6 +1457,23 @@ bracket rather than across the step, because a correction outside it is the sync
 of them; there should be none. Without it the run would have proved the write works and said nothing about the
 loop it is for.
 
+**Run 187 failed on the adoption and found a fault nothing hermetic could.** `63-led-settings` check 6, *and only
+then is the row written*: the cube acknowledged the command and the table row never arrived, so the run stopped
+and `64`, `65`, `66` and `99` did not go. The cause was the Mac building `DeviceSettingRows` **at the point of
+use without retaining it**. The module takes `[weak self]` in the closure that writes the table, so one nobody
+holds is deallocated while the command is in flight; `record()` then finds `self` gone, returns false **with no
+row**, and the outcome never reaches the surface. No table write, no notice, no put-back, and nothing in the log
+saying why.
+
+**The reasoning that produced it was that the module holds no state between writes.** That is true and it is the
+wrong question: what matters is that it has to survive *during* one, and a write that reaches the cube outlives
+the statement that started it by as long as the radio takes. The Mac holds one now, with its three references
+refreshed at each use rather than set once.
+
+**The silent half is fixed too**, because that is what cost the run rather than the bug itself: both `recording`
+closures capture `debugLog` alongside `self` and write a row saying the rows were released mid-write. 1,225
+hermetic tests were green through all of it, which is the distinction this file keeps making.
+
 **The bracket is cleared by the link going as well as by the write reporting**, which matters more than it looks:
 a cube carried out of range mid-command never reports, and without that this app would decline to correct that
 setting for the rest of the launch. Silently, which would be a worse fault than the one being fixed.

@@ -119,8 +119,18 @@ package final class DeviceSettingRows {
             "Auto-pause",
             value: "\(minutes)m",
             through: send,
-            recording: { [weak self] in
-                guard let self else { return false }
+            recording: { [weak self, debugLog] in
+                // **Gone means say so.** A module nobody retained is deallocated while the command is in flight,
+                // and returning false here without a row is a write that reports nothing at all: no table row,
+                // no notice, and no put-back. Scripted run 187 spent nineteen minutes finding that shape on the
+                // LED row, where it read as the table write simply never happening.
+                guard let self else {
+                    debugLog?.record(
+                        .field,
+                        "Auto-pause: the settings rows were released mid-write, so \(minutes)m is not recorded"
+                    )
+                    return false
+                }
                 let stored = settings.write("auto_pause_minutes", field: "minutes", minutes)
                 debugLog?.record(
                     .field,
@@ -181,8 +191,15 @@ package final class DeviceSettingRows {
             // find out. The clause this replaced, *which is all this command can be asked*, said the same thing and
             // would have failed that check the first time anybody ran it.
             tookIt: "LED: the cube acknowledged \(what) \(value) \(unit), and there is no read-back to confirm it with",
-            recording: { [weak self] in
-                guard let self else { return false }
+            recording: { [weak self, debugLog] in
+                // Gone means say so, for the reason `autoPause` gives: this is the row run 187 failed on.
+                guard let self else {
+                    debugLog?.record(
+                        .field,
+                        "LED: the settings rows were released mid-write, so \(what) \(value) \(unit) is not recorded"
+                    )
+                    return false
+                }
                 let stored = settings.write("led_settings", field: field, value)
                 debugLog?.record(
                     .field,

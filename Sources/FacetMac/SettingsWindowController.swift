@@ -283,18 +283,34 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTabViewDeleg
     /// guards on it: a launch that forgot to set it should misbehave the way it did before, not silently differently.
     var deviceSettingsSync: DeviceSettingsSync?
 
-    /// The five Settings rows of the Device tab, which is where the writing sequence lives for both platforms.
+    /// The five Settings rows of the Device tab, held for the life of this controller.
     ///
-    /// **Built at the point of use rather than stored**, which costs nothing and is the only way every reference is
-    /// current: the radio is adopted after `init`, and `deviceSettingsSync` is set after that again. The module holds
-    /// no state between writes -- the in-flight bracket lives in `DeviceSettingsSync`, which is shared and outlives
-    /// this -- so there is nothing a second instance could lose.
+    /// **Held rather than built per write, and that is not a preference: a fresh one per call is a real fault.**
+    /// It was written that way on 2026-09-18 and scripted run 187 found it in nineteen minutes.
+    /// `DeviceSettingRows` takes `[weak self]` in the closure that writes the table, so a module nobody retains is
+    /// deallocated while the command is in flight -- and then the write reports, `record()` finds `self` gone,
+    /// returns false **without a row**, and the outcome never reaches the surface. `63-led-settings` check 6 saw
+    /// it as the table row simply never arriving after the cube acknowledged the command.
+    ///
+    /// **The reasoning that produced the fault was that the module holds no state between writes**, which is true
+    /// and is the wrong question. What matters is that it has to survive *during* one, and a write that reaches
+    /// the cube outlives the statement that started it by as long as the radio takes.
+    private var deviceSettingRows: DeviceSettingRows?
+
+    /// The rows, with every reference brought up to date first.
+    ///
+    /// **The wiring is refreshed rather than set once**, because none of it is known when this controller is made:
+    /// the radio is adopted after `init` and can be replaced, and `deviceSettingsSync` is set by `main.swift`
+    /// afterwards. Reading them here is the same rule the database follows, applied to three references.
     ///
     /// `nil` only where there is no settings store, which is a launch with no database. The module is constructed
     /// with one, so that case is answered at the call sites instead, as `.nowhereToRecord`.
     private func deviceRows() -> DeviceSettingRows? {
         guard let settings else { return nil }
-        let rows = DeviceSettingRows(settings: settings, dialogues: dialogues, debugLog: debugLog)
+        let rows = deviceSettingRows ?? DeviceSettingRows(
+            settings: settings, dialogues: dialogues, debugLog: debugLog
+        )
+        deviceSettingRows = rows
         rows.send = radio.map { radio in { payload, reported in radio.send(payload, reported) } }
         rows.settingsSync = deviceSettingsSync
         rows.lowBattery = lowBattery
