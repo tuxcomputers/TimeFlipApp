@@ -10,6 +10,7 @@
    one is a dependency nobody can see. */
 #include <gtk/gtk.h>
 #include <glib-unix.h>
+#include <unistd.h>
 #include <libayatana-appindicator/app-indicator.h>
 
 /* **The three things below are macros in GTK, and Swift cannot see a macro.**
@@ -439,9 +440,19 @@ extern int _dispatch_get_main_queue_handle_4CF(void);
 extern void _dispatch_main_queue_callback_4CF(void *context);
 
 static gboolean facet_dispatch_main_queue_ready(gint fd, GIOCondition condition, gpointer data) {
-    (void)fd;
     (void)condition;
     (void)data;
+    /* **The token has to be consumed or this spins**, which is measured rather than defensive: the handle is an
+       eventfd that libdispatch writes once per enqueue, `g_unix_fd_add` watches it level-triggered, and
+       `_dispatch_main_queue_callback_4CF` does not read it. Left unread it stays readable for ever, GLib calls
+       this as fast as it can, and the app sits at 40% of a core doing nothing -- which is exactly what happened
+       on 2026-09-19 before this read was here.
+
+       **Foundation does the same thing on this platform**, which is the check that this is right rather than a
+       patch: CFRunLoop reads the dispatch port before calling the callback. */
+    uint64_t token = 0;
+    ssize_t got = read(fd, &token, sizeof(token));
+    (void)got;
     _dispatch_main_queue_callback_4CF(NULL);
     return G_SOURCE_CONTINUE;
 }

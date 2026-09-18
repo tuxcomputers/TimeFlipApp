@@ -1531,6 +1531,14 @@ differs is the blast radius: a clock that does not tick is visible, and this sho
 `async` -- which on this platform is the Google half and nothing else. Neither sign-in nor `CalendarSync.sweep` is
 reachable without an account, so the app ran for eight days with the whole of its concurrency inert.
 
+**The fix cost one line more than it looked, and that line is the whole of it.** `g_unix_fd_add` watches level
+triggered, libdispatch writes the eventfd once per enqueue, and `_dispatch_main_queue_callback_4CF` does not read
+it -- so a watch that only drains leaves the fd readable for ever and GLib calls it as fast as it can. Measured
+the same day: **the app sat at 43% of a core**, the GLib loop was saturated, and the Settings window stopped
+repainting, which showed up as an account that had signed in and a section still reading *Not connected*. Two
+symptoms, one busy loop. The callback reads the token before draining, which is what Foundation's own CFRunLoop
+does on this platform, and the app sits at 1%.
+
 **The fix is nine lines in `FacetLinux` and nothing in the core**, which is what an adapter is for:
 `DispatchOnTheMainLoop.start` attaches the dispatch main queue's eventfd to GLib's default context with
 `g_unix_fd_add`, and drains it with `_dispatch_main_queue_callback_4CF`. Those two symbols are libdispatch's own
