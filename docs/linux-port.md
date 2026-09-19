@@ -1178,9 +1178,20 @@ section grew a Calendar row: its name renamed in place, a Create button where th
 | The check on open | `Google sign-in checked and works`, against the real token on a fresh launch |
 | Delete | **Not run, deliberately**: it would destroy the calendar and the 22 events just written to it. The confirmation, the ordering and the failure path have tests |
 
-**`settle`'s confirm path has not been run against Google from here.** It is reached after a *sign-in* rather than
-on an open -- which is the Mac's arrangement too -- so proving it needs a second consent, and the one thing in the
-way is the browser situation above rather than the code.
+**`settle`'s confirm path was run too, by signing out and back in**, which proves the pair of decisions that
+branch exists for:
+
+- **The sign-out kept the calendar and took everything else.** `email` and `name` went to empty, the refresh token
+  left the keyring, and `calendar_id` stayed -- which is the decision `GoogleConnection.disconnect` is written
+  around: the same person signing back in keeps their history rather than starting a second *Facet* beside the
+  first.
+- **The sign-in confirmed that calendar rather than making another.** `Google calendar confirmed, Facet`, the id
+  byte-for-byte the one stored before the sign-out, and `time_entry` still 22 of 22. A `created` row there would
+  have been the duplicate this branch exists to prevent.
+
+**So every path in the Google half has now run against a real account from Linux except the delete**, which was
+left alone deliberately: it would destroy the calendar and the 22 events in it, and what it has to get right is
+covered by tests.
 
 **What the sweep proves is worth more than the sign-in**, though: it ran at all. It is a `Task { @MainActor }`, so
 before the concurrency fault above was closed it was one of the two things in this app that silently never

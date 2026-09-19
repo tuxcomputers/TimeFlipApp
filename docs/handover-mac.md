@@ -222,6 +222,12 @@ the check answering *works* on a fresh launch. Delete was deliberately not run -
 calendar and the events just written to it -- so its confirmation, its ordering and its failure path are covered
 by tests alone.
 
+**The settle-on-sign-in path was proven the same day too**, by signing out and back in on the real account: the
+sign-out cleared the identity and the token and **kept** `calendar_id`, and the sign-in then answered
+`Google calendar confirmed, Facet` against that same id rather than creating a second one. That is the pair of
+decisions the branch exists for, end to end, and it is the one thing about this module I could not check when the
+note above was written.
+
 **Two orderings are worth re-reading in the adoption**, because they are the ones that cost you comments:
 
 - **Google is asked first and the row follows**, in rename and delete both. The calendar lives in the user's
