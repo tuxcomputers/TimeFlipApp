@@ -557,12 +557,29 @@ that collides case-wise with one already in the tree.
 
 | | |
 |---|---|
-| Repository | `/home/harry/git/TimeFlipApp` |
+| Repository | `/home/harry/harry.git/TimeFlipApp` (**moved from `/home/harry/git/TimeFlipApp`**, which this table said until 2026-09-16; a stale `.build` module cache naming the old path is what noticed, and `rm -rf .build/*/debug/ModuleCache` is the fix) |
 | Remote | `https://github.com/tuxcomputers/TimeFlipApp.git` (**HTTPS**, matching the Mac) |
 | Git identity | Harry Phillips `<harry@tux.com.au>`, the same identity as the Mac |
-| App data directory | resolves to `/home/harry/.local/share/Facet`, and **does not exist yet** |
-| Databases | **none on this box.** Nothing has run the app here |
+| App data directory | `/home/harry/.local/share/Facet`, and it **exists** as of 2026-09-13 |
+| Databases | `appdata.sqlite` and `debug.sqlite`, and **`appdata.sqlite` is a plain file rather than a symlink** |
 | Schema | `database/` at the root is the real directory; `Sources/FacetCore/Resources/Database` is a symlink to `../../../database` and resolves correctly here |
+
+**There is no production database on this box, and no test one** (owner, 2026-09-20). The Mac keeps
+`appdata.sqlite` as a *symlink* pointing at either `production.sqlite` or `test.sqlite`, and
+`scripts/switch-database.sh` is what moves it; this host has never had that split. What is here is one plain
+`appdata.sqlite` holding the real data -- the paired cube, the Google account, the recorded time.
+
+**It is what stops `Tests/Scripted/run.sh` starting here**, which is worth knowing before reading item 12 as
+merely unfinished. The switcher refuses a plain file outright, deliberately:
+
+    error: appdata.sqlite exists but is not a symlink -- refusing to touch it.
+
+and its advice (*launch the app once with Developer Mode on so it can migrate this*) describes something that
+does not exist in either target: nothing in `FacetCore`, `FacetMac` or `FacetLinux` migrates a plain file into
+`production.sqlite` plus a link. On the Mac the split predates the check and was made by hand.
+
+**So making this host runnable is `mv appdata.sqlite production.sqlite` and a symlink beside it**, which is what
+the app would have done, and it is the one thing standing between this box and a scripted run.
 
 **No XDG variable is set**, measured 2026-09-07: `XDG_DATA_HOME`, `XDG_CONFIG_HOME`, `XDG_STATE_HOME`
 and `XDG_CACHE_HOME` are all unset. So corelibs' `applicationSupportDirectory` falls back to
