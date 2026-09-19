@@ -45,10 +45,14 @@ package final class GoogleCalendar {
 
     /// What asking Google about the saved sign-in came back with.
     ///
+    /// **`<name>State` because it has five answers**, which is `docs/state-reference.md`'s convention, and it is
+    /// registered there as `googleSignInState`. It is not `GoogleAccountRules.Verification`: that one is what the
+    /// *account* is, worked out from this plus whether there is a token at all.
+    ///
     /// **Offline is not signed out**, which is the distinction the whole thing turns on: a `URLError` means the
     /// question could not be put, and answering it as "you are signed out" would push somebody through a browser
     /// consent to fix a connection that was never broken.
-    package enum SignInCheck: Equatable {
+    package enum SignInState: Equatable {
         case working
         /// Nothing stored to check. The store answered, and it has nothing.
         case notSignedIn
@@ -68,7 +72,7 @@ package final class GoogleCalendar {
     /// **Nothing is stored.** The answer is true of the moment it was given, so it lives in the surface until the
     /// window closes and is asked again next time. Writing it to a row would recreate exactly the stale-copy fault
     /// this is about.
-    package func check() async -> SignInCheck {
+    package func check() async -> SignInState {
         do {
             _ = try await GoogleCalendarClient.currentAccessToken(tokens: tokens)
             debugLog?.record(.field, "Google sign-in checked and works")

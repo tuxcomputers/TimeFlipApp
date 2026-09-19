@@ -45,12 +45,16 @@ final class AppSettingsPane {
     /// What Google last said about the saved sign-in, and what the calendar is. **Held for as long as the window is
     /// open and never written down**, which is the point: both are true of the moment they were asked, and a
     /// `setting` row holding either would be the stale copy the check exists to prevent.
-    private var signInCheck: GoogleCalendar.SignInCheck?
+    private var googleSignInState: GoogleCalendar.SignInState?
     private var storedCalendar = GoogleCalendarRules.Calendar.none
 
-    /// Whether a request is out right now -- a sign-in, a create, a rename, a delete. Not a row: it is what the app
+    /// Whether a calendar request is out right now -- a create, a rename, a delete. Not a row: it is what the app
     /// is doing, and the controls say so rather than looking pressable twice.
-    private var isWorking = false
+    ///
+    /// **Named for its subject**, which `docs/state-reference.md` requires of every state: `isCalendarChanging` said nothing
+    /// about what was working, and this pane has two things that can be in flight at once -- a sign-in and a
+    /// calendar request.
+    private var isCalendarChanging = false
 
     /// Told when an account is connected, so a sweep can happen: somebody who signs in after a week of recorded
     /// time has a week to send, and nothing else would ask.
@@ -210,7 +214,7 @@ final class AppSettingsPane {
         guard google.stored().hasGoogleIdentity else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
-            signInCheck = await calendar.check()
+            googleSignInState = await calendar.check()
             redraw()
         }
     }
@@ -284,9 +288,9 @@ final class AppSettingsPane {
         facet_box_pack_start(line, SettingsWidgets.label("Calendar"), 0, 1, 0)
 
         guard let id = storedCalendar.id, !id.isEmpty else {
-            let create = gtk_button_new_with_label(isWorking ? "Working…" : "Create calendar")!
+            let create = gtk_button_new_with_label(isCalendarChanging ? "Working…" : "Create calendar")!
             SettingsWidgets.identify(create, "app-google-calendar-create")
-            gtk_widget_set_sensitive(create, isWorking ? 0 : 1)
+            gtk_widget_set_sensitive(create, isCalendarChanging ? 0 : 1)
             signals.connect(create, "clicked") { [weak self] in self?.createCalendar() }
             facet_box_pack_end(line, create, 0, 0, 0)
             return line
@@ -294,7 +298,7 @@ final class AppSettingsPane {
 
         let delete = gtk_button_new_with_label("Delete")!
         SettingsWidgets.identify(delete, "app-google-calendar-delete")
-        gtk_widget_set_sensitive(delete, isWorking ? 0 : 1)
+        gtk_widget_set_sensitive(delete, isCalendarChanging ? 0 : 1)
         signals.connect(delete, "clicked") { [weak self] in self?.deleteCalendar() }
         facet_box_pack_end(line, delete, 0, 0, 0)
 
@@ -303,7 +307,7 @@ final class AppSettingsPane {
         let cell = EditableNameCell(
             name: storedCalendar.name ?? GoogleCalendarRules.defaultName,
             identifier: "app-google-calendar-name",
-            isEnabled: !isWorking
+            isEnabled: !isCalendarChanging
         )
         cell.onCommit = { [weak self] typed in self?.renameCalendar(to: typed) }
         calendarNameCell = cell
@@ -313,7 +317,7 @@ final class AppSettingsPane {
 
     /// What the store says about the token, which the row cannot say.
     private func credential() -> GoogleAccountRules.Credential {
-        switch signInCheck {
+        switch googleSignInState {
         case .notSignedIn: return .missing
         case .storeUnavailable: return .unavailable
         case nil, .working, .unreachable, .refused: return google.credential()
@@ -323,7 +327,7 @@ final class AppSettingsPane {
     /// What Google last said, which is `notAsked` until it has been asked -- and stays that way for an account with
     /// no identity, because there is nothing to ask about.
     private func verification() -> GoogleAccountRules.Verification {
-        switch signInCheck {
+        switch googleSignInState {
         case .working: return .working
         case let .unreachable(reason): return .unreachable(reason)
         case let .refused(reason): return .refused(reason)
@@ -348,19 +352,19 @@ final class AppSettingsPane {
 
     /// Runs one calendar request, with the controls dead while it is out.
     private func work(_ request: @escaping () async -> GoogleCalendar.Settled) {
-        isWorking = true
+        isCalendarChanging = true
         Task { @MainActor [weak self] in
             guard let self else { return }
             redraw()
             let settled = await request()
-            isWorking = false
+            isCalendarChanging = false
             adopt(settled)
         }
     }
 
     /// Takes what a calendar request came to: the row follows the table, and a failure says so.
     private func adopt(_ settled: GoogleCalendar.Settled) {
-        isWorking = false
+        isCalendarChanging = false
         switch settled {
         case let .calendar(calendar):
             storedCalendar = calendar
@@ -411,22 +415,24 @@ final class AppSettingsPane {
 
     /// Hands the sign-in URL to the desktop's browser, and says what became of that.
     ///
-    /// **The URL is written to the trace every time, not only on failure**, and that is a decision rather than
-    /// debugging left in. A desktop can report success and show nobody anything -- measured on this box
-    /// 2026-09-19, where `xdg-open` exits 0 and the Firefox it hands the URL to has no visible window -- and at
-    /// that point the sign-in is live, the loopback listener is up, and the only thing missing is a person seeing
-    /// the page. The URL in the trace is what lets them finish it by pasting it somewhere they can see.
-    ///
-    /// **It carries no secret.** The client id is public by design for an installed app, the redirect is
-    /// `127.0.0.1`, and what stands in for the secret is the PKCE *challenge* -- a hash whose verifier never
-    /// leaves this process (`GoogleOAuthRules.pkce`).
+    /// **`xdg-open` opens a browser here, which is measured** (2026-09-19, on this box): the owner pressed Connect,
+    /// a browser appeared, and the sign-in completed. That is worth writing down because this comment said the
+    /// opposite for an afternoon -- a first attempt timed out while nobody was at the machine, `xwininfo` showed
+    /// no Firefox window at that moment, and the two together were read as a desktop that swallows the open. It
+    /// was not; the conclusion was wrong and the owner said so.
     ///
     /// **Waited for, rather than launched and forgotten.** `xdg-open` returns as soon as it has handed off, so the
     /// wait is short, and its exit status is the only thing that distinguishes a desktop that took the URL from
     /// one with no handler for `https` at all. A status nobody reads is the swallowed failure `CLAUDE.md` names
-    /// twice.
+    /// twice, and that half of this was worth keeping whatever the diagnosis turned out to be.
+    ///
+    /// **The URL is written to the trace only when the open fails**, which is where it started. It went in on
+    /// every attempt while the wrong diagnosis stood -- so that a page nobody could see could still be reached by
+    /// pasting it -- and a reason that has evaporated is not a reason to go on writing an authorisation URL into a
+    /// file on every sign-in. It carries no secret (the client id is public for an installed app and the PKCE
+    /// *challenge* is a hash whose verifier never leaves this process), which is why it is still the right thing
+    /// to log in the case where somebody is stuck.
     private func openInABrowser(_ url: URL) {
-        debugLog?.record(.field, "The sign-in URL is \(url.absoluteString)")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xdg-open")
         process.arguments = [url.absoluteString]
@@ -444,6 +450,8 @@ final class AppSettingsPane {
         } catch {
             debugLog?.record(.field, "A browser could not be opened: \(error.localizedDescription)")
         }
+        // Only here: the sign-in is live and nobody can see the page, so the address is the one thing that helps.
+        debugLog?.record(.field, "The sign-in URL is \(url.absoluteString)")
         dialogues.tell(Dialogue(
             title: "Facet could not open a browser",
             message: """

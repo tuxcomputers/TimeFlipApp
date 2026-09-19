@@ -1159,7 +1159,7 @@ in the order item 40 of `docs/handover-linux.md` asked for:
 
 | Step | What happened |
 |---|---|
-| The browser opens | **The URL was handed over and `xdg-open` exited 0 -- and nothing appeared.** Firefox runs on this desktop with no visible window, so the first attempt timed out after five minutes with nobody able to see the consent page. The URL is written to the trace on every attempt for exactly this case, and pasting it into a browser that *does* show a window is what got past it |
+| The browser opens | **Yes.** `xdg-open` takes the URL and a browser appears -- confirmed by the owner, who pressed Connect and signed in. A first attempt did time out with nothing on screen, which was read here as a desktop that swallows the open; that was wrong, and the correction is below |
 | The loopback listener answers | **Yes.** `SocketLoopbackListener` bound port 0 and held `127.0.0.1:43485` through the wait, took the redirect, and answered the browser -- the first time that adapter has had a real one pointed at it |
 | The token is saved before the identity rows | **Yes.** `secret-tool` holds `au.com.tux.facet.google` / `refresh-token`, and `google_account` holds the name and the email. The section then read them back and said *Connected*, which is the reading rather than what Google answered with |
 | `CalendarSync` sweeps | **Yes, and it said the honest thing**: `22 entries waiting to sync, but no calendar is connected` |
@@ -1176,7 +1176,15 @@ section grew a Calendar row: its name renamed in place, a Create button where th
 | The sweep that follows | `Calendar sync started (a calendar was connected), 22 waiting` then `Calendar sync finished, 22 events into Facet`. `time_entry` reads **22 of 22 synced** |
 | Rename | Renamed at Google to *Facet time*, read back, and named back to *Facet* -- Google asked first and the row following, both ways |
 | The check on open | `Google sign-in checked and works`, against the real token on a fresh launch |
-| Delete | **Not run, deliberately**: it would destroy the calendar and the 22 events just written to it. The confirmation, the ordering and the failure path have tests |
+| Delete | **Run by the owner on 2026-09-19**, which is the one path nobody here was willing to try: `Google calendar deleted, Facet`, then a fresh one created and renamed to `Facet-linux`, and a later sign-in answered `Google calendar confirmed, Facet-linux` against it |
+
+**The first attempt's diagnosis was wrong, and it is corrected here rather than quietly dropped.** It timed out,
+`xwininfo` showed no Firefox window at that moment, and the two were read together as *this desktop opens no
+browser* -- which went into this file, into a handover item and into a source comment. The owner then pressed
+Connect, watched a browser open, signed in and renamed the calendar. What actually happened the first time is
+that nobody was at the machine for those five minutes. **The lesson is the one this file exists for**: two
+observations and an inference are not a measurement, and the inference is the part that should have been labelled
+as one.
 
 **`settle`'s confirm path was run too, by signing out and back in**, which proves the pair of decisions that
 branch exists for:
@@ -1189,9 +1197,8 @@ branch exists for:
   byte-for-byte the one stored before the sign-out, and `time_entry` still 22 of 22. A `created` row there would
   have been the duplicate this branch exists to prevent.
 
-**So every path in the Google half has now run against a real account from Linux except the delete**, which was
-left alone deliberately: it would destroy the calendar and the 22 events in it, and what it has to get right is
-covered by tests.
+**So every path in the Google half has now run against a real account from Linux**, delete included -- that last
+one by the owner rather than by this box, which had declined to destroy a calendar it had just filled.
 
 **What the sweep proves is worth more than the sign-in**, though: it ran at all. It is a `Task { @MainActor }`, so
 before the concurrency fault above was closed it was one of the two things in this app that silently never

@@ -216,11 +216,12 @@ sign-in, so if the adoption changes anything about how that behaves, yours is th
 create, rename, delete, and the check on a saved sign-in. Your six private methods, with their wording and their
 orderings intact, and eleven tests where there were none.
 
-**What ran against the real account from Linux on 2026-09-19**, which is the part worth knowing before you adopt
-it: a calendar created, the sweep that follows putting **22 of 22** entries into it, a rename there and back, and
-the check answering *works* on a fresh launch. Delete was deliberately not run -- it would have destroyed the
-calendar and the events just written to it -- so its confirmation, its ordering and its failure path are covered
-by tests alone.
+**Every path ran against the real account from Linux on 2026-09-19**, which is the part worth knowing before you
+adopt it: a calendar created, the sweep that follows putting **22 of 22** entries into it, a rename there and
+back, the check answering *works* on a fresh launch, a sign-out that kept the calendar and a sign-in that
+confirmed it rather than making a second. **Delete too**, by the owner rather than by me -- I had declined to
+destroy a calendar I had just filled -- followed by a fresh create, a rename to `Facet-linux`, and a later
+sign-in confirming that one.
 
 **The settle-on-sign-in path was proven the same day too**, by signing out and back in on the real account: the
 sign-out cleared the identity and the token and **kept** `calendar_id`, and the sign-in then answered

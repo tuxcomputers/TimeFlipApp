@@ -121,7 +121,9 @@ state, and had a quit report a command refused that the cube had taken.
 | `isReadingDeviceInfo` | `DeviceLogin.isReadingInfo` |
 | `isReadingDoubleTap` | `DeviceLogin.isAskingAboutTaps` |
 | `isFollowingBattery` | `DeviceLogin.isFollowingBattery` |
-| `isSigningIn` | `AppSettingsPane.isSigningIn` |
+| `isSigningIn` | `AppSettingsPane.isSigningIn`, both platforms |
+| `isCalendarChanging` | `AppSettingsPane.isCalendarChanging` -- a create, rename or delete is out |
+| `isWriteInFlight` | `DeviceSettingsSync.isWriteInFlight(_:)`, per setting |
 
 ## 4. The cube's own condition
 
@@ -205,6 +207,7 @@ frame.
 | Name | Values | Truth |
 | --- | --- | --- |
 | `googleAccountState` | `notConnected`, `signedOut`, `unverified`, `connected`, `expired`, `unreachable`, `unreadable` | `GoogleAccountRules.State` |
+| `googleSignInState` | `working`, `notSignedIn`, `storeUnavailable`, `unreachable`, `refused` | `GoogleCalendar.SignInState` -- what asking Google came back with, which `googleAccountState` is then worked out from |
 | `hasGoogleCredentials` | true / false | client credentials present |
 | `hasGoogleIdentity` | true / false | `GoogleAccountRules.Account` |
 | `calendarSettlementState` | `check(id)` / `leaveToTheUser` | `GoogleCalendarRules.Settlement` |
@@ -219,14 +222,15 @@ View state. Listed because it appears in branches, not because anything outside 
 
 | Name | Values | Truth |
 | --- | --- | --- |
-| `settingsTabState` | `faces`, `categories`, `report`, `app`, `device` | AppKit's `selectedTabViewItem`; the cases are `SettingsTab` |
-| `isExpanded` | true / false | `PanelSection` / `DisclosureRow` |
-| `isEditing` | true / false | `CategoryCreateControl` |
+| `settingsTabState` | `faces`, `categories`, `report`, `app`, `device` | AppKit's `selectedTabViewItem` and GTK's `GtkNotebook` page; the cases are `SettingsTab` |
+| `isExpanded` | true / false | `PanelSection` / `DisclosureRow`, both platforms |
+| `isEditing` | true / false | `CategoryCreateControl`, `EditableNameCell` |
 | `isSelected` | true / false | per list |
 | `isHidden` | true / false | AppKit |
 | `isEnabled` | true / false | AppKit |
 
-`isEnabled` and `isHidden` belong to `NSControl` and `NSView` and are not ours to rename. Our own answers to
+`isEnabled` and `isHidden` belong to `NSControl` and `NSView`, and to `gtk_widget_set_sensitive` and
+`gtk_widget_hide` on the other side, and are not ours to rename. Our own answers to
 "may this be pressed" (`isClickable`, `isButtonEnabled`, `isSelectable`) are **not** states and are not renamed
 to `isEnabled`: they are decisions computed from state, and the last section says why that matters.
 
@@ -278,6 +282,17 @@ Naming everything `is` or `State` would take in things that are not state.
 What each of these is called in the code today, and the mapping from that to the name above, is the sweep
 list in `docs/state-audit.md`. It belongs there because it is a record of this codebase at this moment,
 while this file is the naming itself.
+
+## The second platform has added no state of its own
+
+**Worth saying because it was not obvious it would be true.** `FacetLinux` grew a menu bar, five Settings tabs, a
+radio and the Google half, and every fact any of it branches on is already in this register -- the same names, the
+same values, mostly the same owning types, because the decisions are in `FacetCore` and only the drawing is not.
+
+**The three it did add are all "what is this app doing right now"**: `isCalendarChanging`, `isWriteInFlight` and
+`googleSignInState`, and none is a second answer to anything already here. Two of them were caught by this file
+rather than by review -- they were written as `isWorking` and `signInCheck`, which carry no subject and hide five
+values behind a name that reads as two.
 
 ## Adding a state
 

@@ -162,7 +162,7 @@ package final class DeviceSettingsSync {
         // **The bracket is the fix, not the comparison.** What is wrong is asking the question in the middle of a
         // write, so a setting with a write out is left alone until the write reports. `DeviceSettingRows` is what
         // brackets it, being what starts every such write on both platforms.
-        guard !isWriting.contains(.autoPause) else {
+        guard !isWriteInFlight(.autoPause) else {
             debugLog?.record(
                 .command,
                 "The cube says its auto-pause is \(status.autoPauseMinutes)m while a write of it is out, so this "
@@ -248,8 +248,8 @@ package final class DeviceSettingsSync {
         isLinkSettled = false
         wasCubeConnected = false
         isSending = false
-        // See `isWriting`: a write whose answer never came must not leave a setting permanently uncorrectable.
-        isWriting.removeAll()
+        // See `writesInFlight`: a write whose answer never came must not leave a setting permanently uncorrectable.
+        writesInFlight.removeAll()
     }
 
     /// Which setting a request is about, or `nil` for one nothing here can answer.
@@ -265,7 +265,7 @@ package final class DeviceSettingsSync {
         }
     }
 
-    /// The settings this app has a write out for right now.
+    /// The settings this app has a write out for right now, which `isWriteInFlight` answers about.
     ///
     /// **Not a copy of anything the table holds**, which is what keeps it inside the first design rule: it says
     /// what the *app is doing*, not what any value is, and a question about a value still goes to the table.
@@ -273,7 +273,7 @@ package final class DeviceSettingsSync {
     /// **Cleared by the link going, as well as by each write reporting.** A write whose answer never arrives --
     /// a cube carried out of range mid-command -- would otherwise leave this app declining to correct that setting
     /// for the rest of the launch, which is a worse failure than the one being fixed and a silent one.
-    private var isWriting: Set<Setting> = []
+    private var writesInFlight: Set<Setting> = []
 
     /// Brackets a write, so a status the write's own read-back produces is not read as a disagreement.
     ///
@@ -281,11 +281,17 @@ package final class DeviceSettingsSync {
     /// shared flag two different ways is the hazard this fix exists to avoid, which is why it waited for that
     /// module to be adoptable on both platforms (`docs/handover-linux.md` items 38 and 39).
     package func writeBegan(_ setting: Setting) {
-        isWriting.insert(setting)
+        writesInFlight.insert(setting)
     }
 
     package func writeEnded(_ setting: Setting) {
-        isWriting.remove(setting)
+        writesInFlight.remove(setting)
+    }
+
+    /// Whether a write of this setting is out right now. **Named as `docs/state-reference.md` asks**, beside
+    /// `isCommandInFlight` and for the same reason: the fact is about one setting, so the question reads as one.
+    package func isWriteInFlight(_ setting: Setting) -> Bool {
+        writesInFlight.contains(setting)
     }
 
     private func queue(_ setting: Setting, because reason: String) {
