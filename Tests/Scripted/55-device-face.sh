@@ -193,7 +193,7 @@ if [ "$(sql "SELECT json_extract(setting_value, '\$.enabled') FROM setting WHERE
     sleep 0.8
     # One item saying two things rather than two items, so what it currently offers is worth reading before pressing it.
     check_contains "and the dropdown offers to unlock it" "$(python3 scripts/ax-dump.py --menu-bar 2>/dev/null)" "Unlock"
-    press toggle-cube-lock
+    menu_press toggle-cube-lock
     sleep 1.5
 
     expect_log "pressing it unlocks the cube" "$unlocking" "The cube is unlocked" 20

@@ -234,7 +234,7 @@ check_contains "and it is greyed" "$resume" "disabled"
 
 # Dismissed by choosing Settings, which is what `02` does: a menu left open is modal and every press below it would
 # land on nothing.
-press open-settings
+menu_press open-settings
 sleep 1.5
 
 # **The right half, not the menu item.** The item is disabled, so a click on it proves nothing; this is a real click

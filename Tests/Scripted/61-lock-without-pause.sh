@@ -198,7 +198,7 @@ esac
 # choosing something, so the check above is placed where the choice it needs to make anyway is the right one.
 
 since=$(mark)
-press toggle-cube-lock
+menu_press toggle-cube-lock
 
 expect_log "the dropdown Lock item unlocks it" "$since" "The cube is unlocked" 20
 
@@ -262,7 +262,7 @@ expect_log "and it is started again, stopped or not" "$since" "The cube is runni
 # **Settings is opened from the menu still standing open above**, which is what dismisses it: choosing an item is the
 # only way to close a dropdown here, and this is the one choice that leads where the script was going anyway.
 
-press open-settings
+menu_press open-settings
 sleep 1
 select_tab Device
 press device-pause-on-lock

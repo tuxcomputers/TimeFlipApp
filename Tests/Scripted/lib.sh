@@ -1283,21 +1283,57 @@ click_status_item() {
 # byte-identical in four of them and a fifth was about to be written, which is the point at which a copy stops being
 # cheaper than a shared line.
 status_item() {
-    python3 scripts/ax-dump.py --menu-bar 2>/dev/null | grep -m1 "id=status-item" || true
+    platform_status_item
 }
 
-click_left()         { click_status_item; }
-click_right()        { click_status_item --right; }
-double_click_left()  { click_status_item --double; }
-double_click_right() { click_status_item --right --double; }
+# **The four gestures, and only the first has a counterpart on both platforms.**
+#
+# A macOS status item exposes no accessible action at all, so its menu has to be opened with a real
+# mouse event and the two halves of it do different things. An `AppIndicator` publishes one activation
+# and the panel owns everything else, so there is no right half here for the app to distinguish and
+# nothing it could listen for.
+#
+# `click_left` is a no-op on Linux rather than a refusal, and that is the honest answer instead of a
+# convenient one: what it exists to establish is that the menu is reachable, and the tray menu is a
+# D-Bus object whose items can be read and chosen without it ever being shown. `menu_press` works
+# whether or not this was called. The other three refuse loudly -- a gesture that silently did nothing
+# would make the wait after it time out and blame the cube, which `CLAUDE.md` records costing a run
+# twenty seconds and a wrong diagnosis.
+click_left() {
+    case "$PLATFORM" in
+        mac)   click_status_item ;;
+        linux) return 0 ;;
+    esac
+}
+click_right()        { platform_click_right; }
+double_click_left()  { case "$PLATFORM" in mac) click_status_item --double ;; *) platform_click_right --double ;; esac; }
+double_click_right() { case "$PLATFORM" in mac) click_status_item --right --double ;; *) platform_click_right --double ;; esac; }
+
+# `menu_press <identifier>` -- choose an item of the status item's menu, by the identifier
+# `StatusItemMenu.Identifier` gives it. Named that way on both platforms even though only one of them
+# carries the identifier to the menu; `platform_menu_press` is where that difference lives.
+menu_press() {
+    local output status
+    output=$(platform_menu_press "$1")
+    status=$?
+    [ "$status" -ne 0 ] && red "  choosing the menu item $1 failed (exit $status)${output:+: $output}"
+    return $status
+}
 
 # Quits through the menu, which is the app's own way out and the only one that runs the quit sequence.
 quit_app() {
     is_running || return 0
     close_settings
-    click_left || red "  could not click the status item to quit; falling back to a kill below"
-    sleep 0.5
-    python3 scripts/ax-press.py quit-app >/dev/null 2>&1
+    # **Through the port, which is what item 24 of `docs/linux-port.md` was.** This used to click the
+    # status item and press `quit-app` itself, both macOS-only and the second of them with
+    # `>/dev/null 2>&1` -- the swallowed failure `CLAUDE.md` names twice. So `run.sh` quit through the
+    # port and every check script quit through this older copy, and on Linux the older copy could not
+    # work at all.
+    local output status
+    output=$(platform_quit_app)
+    status=$?
+    [ -n "$output" ] && printf '%s\n' "$output" | sed 's/^/  /'
+    [ "$status" -ne 0 ] && red "  the menu quit failed (exit $status); falling back to a kill below"
     local waited=0
     while [ "$waited" -lt 100 ]; do
         is_running || return 0
@@ -1326,7 +1362,7 @@ quit_app() {
 # the log where their fault actually happened rather than thirty seconds later somewhere else.
 press() {
     local output status
-    output=$(python3 scripts/ax-press.py "$1" 2>&1)
+    output=$(platform_press "$1")
     status=$?
     [ "$status" -ne 0 ] && red "  the press of $1 failed (exit $status)${output:+: $output}"
     return $status
@@ -1334,7 +1370,7 @@ press() {
 
 press_title() {
     local output status
-    output=$(python3 scripts/ax-press.py --title "$1" 2>&1)
+    output=$(platform_press_title "$1")
     status=$?
     [ "$status" -ne 0 ] && red "  the press of the button titled $1 failed (exit $status)${output:+: $output}"
     return $status
@@ -1361,18 +1397,17 @@ press_title() {
 # looking exactly like an app that ignored it. `ax-key.py` no longer leaves a modifier held; this makes it
 # so that nothing else can either.
 press_return() {
-    osascript -e 'tell application "Facet" to activate' >/dev/null 2>&1
-    sleep 0.3
-    python3 - <<'PYTHON'
-import Quartz, time
-for down in (True, False):
-    event = Quartz.CGEventCreateKeyboardEvent(None, 36, down)
-    Quartz.CGEventSetFlags(event, 0)
-    Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
-    time.sleep(0.05)
-PYTHON
+    # **Through the port, rather than the inline AppleScript-and-Quartz this used to be.** What that
+    # spelled out is exactly what `ax-key.py` and `at-key.py` each already do for their own platform:
+    # bring the app to the front, clear any modifier the session left held, and post the key. Keeping a
+    # second copy of it here is what let the two drift on run 145.
+    local output status
+    output=$(platform_key return)
+    status=$?
+    [ "$status" -ne 0 ] && red "  posting Return failed (exit $status)${output:+: $output}"
+    return $status
 }
-press_desc() { python3 scripts/ax-press.py --desc "$1" >/dev/null 2>&1; }
+press_desc() { platform_press_desc "$1" >/dev/null 2>&1; }
 
 # `post_key v --command` -- a real keystroke with modifiers, to whatever holds focus.
 #
@@ -1386,7 +1421,7 @@ press_desc() { python3 scripts/ax-press.py --desc "$1" >/dev/null 2>&1; }
 # app is brought to the front by `ax-key.py` itself and the caller has to have opened the edit already.
 post_key() {
     local output status
-    output=$(python3 scripts/ax-key.py "$@" 2>&1)
+    output=$(platform_key "$@")
     status=$?
     [ "$status" -ne 0 ] && red "  posting the key $* failed (exit $status)${output:+: $output}"
     return $status
@@ -1395,7 +1430,7 @@ post_key() {
 # above do: a value that never reached the field fails later, somewhere else, as something it is not.
 set_field() {
     local output status
-    output=$(python3 scripts/ax-set.py "$1" "$2" 2>&1)
+    output=$(platform_set_field "$1" "$2")
     status=$?
     [ "$status" -ne 0 ] && red "  writing $2 into $1 failed (exit $status)${output:+: $output}"
     return $status
@@ -1413,12 +1448,12 @@ set_field() {
 # in the tree, or refusing to take focus, which is what a disabled field does -- and both used to be thrown away.
 set_field_focused() {
     local output status
-    output=$(python3 scripts/ax-set.py --focus "$1" "$2" 2>&1)
+    output=$(platform_set_field_focused "$1" "$2")
     status=$?
     [ "$status" -ne 0 ] && red "  writing $2 into $1 failed (exit $status)${output:+: $output}"
     return $status
 }
-tree()       { python3 scripts/ax-dump.py 2>/dev/null; }
+tree()       { platform_tree; }
 
 # `on_tab <identifier>` -- how many elements carry exactly this identifier, 0 or 1 for anything named once.
 #
@@ -1436,11 +1471,11 @@ on_tab() { tree | grep -cE "id=$1(\$|[[:space:]])" || true; }
 # a grep over the tree would count a `Cancel` belonging to something else -- reporting the button as
 # present when the alert never offered it. Empty when no sheet is up, which fails such a check instead
 # of passing it silently.
-alert_buttons() { python3 scripts/ax-alert.py 2>/dev/null | tr '\n' '|' | sed 's/|$//'; }
+alert_buttons() { platform_alert_buttons | tr '\n' '|' | sed 's/|$//'; }
 
 # Whether a sheet is up at all. Worth its own check before opening the next one: an alert nobody
 # dismissed is modal, so every later press lands on nothing and the failures arrive somewhere else.
-alert_is_open() { python3 scripts/ax-alert.py >/dev/null 2>&1; }
+alert_is_open() { platform_alert_buttons >/dev/null 2>&1; }
 
 # Answers the sheet that is up, by the title of one of its buttons.
 #
@@ -1452,7 +1487,7 @@ alert_is_open() { python3 scripts/ax-alert.py >/dev/null 2>&1; }
 # it. `press` searches the whole tree, finds the one underneath first, and presses *that*: the sheet goes
 # unanswered and a second one opens on top of it. Measured 2026-08-17, and it read as a reset that
 # silently did nothing. See Tests/Methods.md Method 12.
-press_sheet() { python3 scripts/ax-press.py --sheet --title "$1" >/dev/null 2>&1; }
+press_sheet() { platform_press_sheet "$1" >/dev/null 2>&1; }
 
 # One element's line from the tree, so a check reads the thing it is about rather than searching the
 # whole window -- and a failure prints that line rather than several hundred.
@@ -1470,7 +1505,7 @@ element() { tree | grep -m1 "id=$1 " || true; }
 # selecting the App tab widened the window by two hundred points, because a wrapping footnote asks for its whole
 # text on one line, and `AppSettingsPane.fittingSize` reported the same number before and after the fix.
 window_width() {
-    python3 scripts/ax-dump.py --frames 2>/dev/null \
+    platform_tree_frames \
         | grep -m1 "id=$1 " \
         | sed -n 's/.*size=w:\([0-9]*\)\.*[0-9]* .*/\1/p'
 }
@@ -1518,7 +1553,7 @@ open_settings() {
     settings_is_open && return 0
     click_left || return 1
     sleep 0.5
-    press open-settings
+    menu_press open-settings
     sleep 1
     settings_is_open
 }
@@ -1529,9 +1564,20 @@ close_settings() {
     sleep 0.5
 }
 
-# The tabs carry no AXIdentifier -- a Settings tab button is matched on its description instead, which
-# is Tests/Methods.md Method 2's finding and still true of this app's window.
+# **Two genuinely different gestures behind one step**, which is why it goes through the port rather
+# than through `press_desc`.
+#
+# On macOS the tabs carry no `AXIdentifier` and a Settings tab button is matched on its description
+# instead -- `Tests/Methods.md` Method 2's finding, still true of this app's window. On Linux a
+# `page tab` implements no Action interface at all, so there is nothing to press: `queryAction()`
+# raises, and the tab is *selected* through the Selection interface of the tab list above it
+# (Method 20). `press_desc` on this side would have found the tab and then failed to do anything with
+# it, which is the shape of failure this suite spends its comments warning about.
 select_tab() {
-    press_desc "$1"
+    local output status
+    output=$(platform_select_tab "$1")
+    status=$?
+    [ "$status" -ne 0 ] && red "  switching to the $1 tab failed (exit $status)${output:+: $output}"
     sleep 0.7
+    return $status
 }

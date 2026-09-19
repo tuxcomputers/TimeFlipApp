@@ -394,6 +394,47 @@ to stdout rather than stderr, which is why it hides in a script that only checks
 a plausible-looking run and an image nobody had seen.
 
 <a id="method-16"></a>
+
+**Two tabs hold the same identifier, so a search has to prune the ones not on show.** `create-category`,
+`category-name-field` and `save-category` are the Categories tab's create control *and* the Faces tab's --
+the same control doing the same job -- and GTK keeps every page of a notebook built and in the tree whether
+or not it is on show. A plain walk finds whichever was built first.
+
+**Showing-state is the obvious fix and it fails quietly** (measured 2026-09-20). With Faces selected its
+`create-category` reads `STATE_SHOWING` and the Categories tab's does not, so far so good; but
+`category-name-field` reads *not* showing on both, because that field is revealed by pressing Create and is
+hidden until then. A rule of "prefer the showing one" therefore falls back to the wrong tab for exactly the
+elements a check is about to type into. `atspi_tree.walk` does not descend into a `page tab` without
+`STATE_SELECTED` instead, which cuts those subtrees and nothing else.
+
+**A control on a page that is not on show has a size but no position**, and the position is `INT_MIN`
+rather than anything obviously absent: every child of the unselected Faces page came back
+`x:-2147483648` while reporting an ordinary `598x550`. A size test alone passes it, so anything posting a
+real pointer event has to check the position too -- otherwise the click goes to the far corner of the
+coordinate space, lands on nothing, and reports a hold that happened.
+
+**The tray's own words are properties on a different object from its menu.** The menu is
+`/org/ayatana/NotificationItem/facet/Menu` on `com.canonical.dbusmenu`; what the status item *displays* is
+`XAyatanaLabel` (and `Title`, and `ToolTip`) on `/org/ayatana/NotificationItem/facet` under
+`org.kde.StatusNotifierItem`, read through `org.freedesktop.DBus.Properties.Get`:
+
+```
+$ python3 scripts/tray-menu.py --label
+XAyatanaLabel: ⏸ Break 0:01:00
+```
+
+**`Get` rather than `GetAll`**: a panel that never asked for a property leaves it unset, and `GetAll` then
+answers a dict missing the key -- which reads as an empty label rather than as a property never published.
+
+**A Linux dump must print the same line shape as `ax-dump.py`, attribute for attribute.** `lib.sh` does not
+read that output as prose: `element` greps `id=X `, `on_tab` counts `id=X` on a word boundary,
+`window_width` pulls the number out of `size=w:N`, and `tree_has` matches whole strings. So `at-dump.py`
+prints `id=` (the accessible name), `title=` (the words drawn), `value=` (**the accessible description,
+because that is where the value is on this platform**), `disabled`, `pos=` and `size=`. There is no `desc=`:
+one attribute is doing both jobs here, and printing it twice under two names would give a check asserting
+*absence* a question with two answers.
+
+
 ## Method 16: Make a paired cube refuse the login, with the cube on the desk
 
 **Both stores have to be wrong, and the cube's own PIN has to be readable before you break either.**

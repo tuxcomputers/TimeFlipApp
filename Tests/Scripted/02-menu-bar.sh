@@ -50,7 +50,7 @@ check "there is exactly one pause item" "1" "$paused"
 # ---------------------------------------------------------------------------- into the window
 
 since=$(mark)
-press open-settings
+menu_press open-settings
 sleep 1.5
 expect_log "choosing Settings is recorded" "$since" "Menu item clicked: Settings"
 check "the Settings window opened" "yes" "$(settings_is_open && echo yes || echo no)"

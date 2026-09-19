@@ -6,6 +6,7 @@
 #   scripts/switch-database.sh test -clean   switch to a brand new (rebuilt) test.sqlite
 #   scripts/switch-database.sh prod          switch back to production.sqlite (no-op if already there)
 #   scripts/switch-database.sh -clean        swap, as above, rebuilding what it lands on
+#   scripts/switch-database.sh -adopt        make the split: appdata.sqlite -> production.sqlite + a link
 #
 # test.sqlite is what the scripted suite (Tests/Scripted/) runs against, so it never touches real data;
 # production.sqlite is the real one. This script is what creates and moves the symlink -- the app just
@@ -14,6 +15,12 @@
 #
 # With no target the current symlink decides: on production it switches to test, on test it
 # switches back to production.
+#
+# **Which directory, asked of `Tests/Scripted/platform.sh` rather than spelled out here.** That file is
+# where the suite decides what every path is, and this script used to hardcode
+# `~/Library/Application Support/Facet` -- so on Linux it did not merely refuse, it resolved every path
+# under a directory that does not exist and reported the absence of a database nobody had asked about
+# (found 2026-09-20, the first time the suite was pointed at the Linux box).
 #
 # **Keeping the database is the default, whatever the target and however that target was chosen.**
 # Switching is repointing a symlink and nothing else, so running this twice, or running it having
@@ -31,10 +38,12 @@ usage() {
   echo "  test         switch to test.sqlite, kept as it is" >&2
   echo "  prod         switch to production.sqlite (does nothing if already there)" >&2
   echo "  -clean       rebuild the database being switched to, from the DDL (test only)" >&2
+  echo "  -adopt       rename a plain appdata.sqlite to production.sqlite and link to it" >&2
 }
 
 TARGET=""
 CLEAN=0   # keeping what is already there is the default, for every target: only -clean rebuilds
+ADOPT=0   # making the split out of a plain appdata.sqlite, which is asked for by name -- see below
 while [ "$#" -gt 0 ]; do
   case "$1" in
     test|prod)
@@ -46,21 +55,57 @@ while [ "$#" -gt 0 ]; do
       TARGET="$1"
       ;;
     -clean|--clean) CLEAN=1 ;;
-    *) echo "error: unknown argument '$1' -- expected 'test', 'prod' or '-clean'." >&2; usage; exit 2 ;;
+    -adopt|--adopt) ADOPT=1 ;;
+    *) echo "error: unknown argument '$1' -- expected 'test', 'prod', '-clean' or '-adopt'." >&2; usage; exit 2 ;;
   esac
   shift
 done
 
-DB_DIR="$HOME/Library/Application Support/Facet"
+# `SUPPORT` and `PROCESS_NAME` come from the suite's own platform file, so that the directory this
+# script writes in and the directory the checks read cannot drift apart. Sourced from the repository
+# root, which is where every caller runs it from.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=../Tests/Scripted/platform.sh
+source "$HERE/Tests/Scripted/platform.sh" || {
+  echo "error: cannot work out which platform this is; see Tests/Scripted/platform.sh." >&2
+  exit 2
+}
+
+DB_DIR="$SUPPORT"
 APPDATA="$DB_DIR/appdata.sqlite"
 PRODUCTION="$DB_DIR/production.sqlite"
 TEST_DB="$DB_DIR/test.sqlite"
 
+# **A plain file is the shape before the split has ever been made**, which is what a machine that has
+# only ever run the app normally has. The Mac's split predates this script and was made by hand; the
+# Linux box had never had one (owner, 2026-09-20).
+#
+# **It used to refuse with advice naming a migration that does not exist.** "Launch the app once with
+# Developer Mode on so it can migrate this into production.sqlite + a symlink" describes nothing in
+# `FacetCore`, `FacetMac` or `FacetLinux` -- checked 2026-09-20, `production.sqlite` appears in the
+# sources only in two comments. So the refusal was unfollowable, and the one machine that hit it could
+# do nothing but read the source to find that out.
+#
+# It still refuses, because renaming somebody's real database is not a thing to do because a test run
+# wanted it. But it now says what will actually work, and `-adopt` is that thing asked for by name --
+# the same reason `-clean` is opt-in.
 if [ -e "$APPDATA" ] && [ ! -L "$APPDATA" ]; then
-  echo "error: $APPDATA exists but is not a symlink -- refusing to touch it." \
-    "Launch the app once with Developer Mode on so it can migrate this into" \
-    "production.sqlite + a symlink, then re-run this script." >&2
-  exit 1
+  if [ "$ADOPT" = "1" ]; then
+    if [ -e "$PRODUCTION" ]; then
+      echo "error: $PRODUCTION already exists, so adopting $APPDATA would overwrite a database" \
+        "that is already there. Move one of them aside by hand and decide which is real." >&2
+      exit 1
+    fi
+    mv "$APPDATA" "$PRODUCTION"
+    ln -s "$(basename "$PRODUCTION")" "$APPDATA"
+    echo "Adopted: appdata.sqlite was a plain file and is now a link to production.sqlite."
+  else
+    echo "error: $APPDATA exists but is not a symlink -- refusing to touch it." \
+      "It holds real data and this script will not rename it unasked." >&2
+    echo "  To make the split, which renames it to production.sqlite and leaves a link in its" >&2
+    echo "  place: scripts/switch-database.sh -adopt (add 'test' to switch straight afterwards)." >&2
+    exit 1
+  fi
 fi
 
 # Which database is in use right now, read off the symlink itself -- that is what the next launch
@@ -117,8 +162,8 @@ if [ "$TARGET" = "test" ] && [ ! -e "$APPDATA" ] && [ ! -L "$APPDATA" ]; then
   exit 1
 fi
 
-if pgrep -x Facet > /dev/null 2>&1; then
-  echo "warning: Facet is currently running -- it already has the old database file open" \
+if pgrep -x "$PROCESS_NAME" > /dev/null 2>&1; then
+  echo "warning: $PROCESS_NAME is currently running -- it already has the old database file open" \
     "and won't see this change until you quit and relaunch it." >&2
 fi
 

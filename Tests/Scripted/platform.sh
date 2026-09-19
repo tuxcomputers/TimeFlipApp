@@ -39,16 +39,12 @@ case "${PLATFORM_OVERRIDE:-$(uname -s)}" in
         ;;
 esac
 
-# **What is not built yet says so, at the moment it is reached.** The Linux app is item 11 of
-# `docs/linux-port.md` and the suite that drives it is item 12; until both exist, several of the functions
-# below have nothing to call. They fail through here rather than returning quietly, because a step that
-# does nothing and reports success is exactly the fault `CLAUDE.md` forbids -- and it would be reported
-# later, somewhere else, as the app misbehaving.
-platform_not_yet() {
-    echo "  not yet on Linux: $1" >&2
-    echo "  (docs/linux-port.md item ${2:-11})" >&2
-    return 1
-}
+# **Removed 2026-09-20, having been called from nowhere for some time.** `platform_not_yet` existed for
+# the functions below that had no Linux half yet, and there are none left: item 11 built the app and the
+# window-driving section further down is the rest of it. What is genuinely absent on this platform is now
+# refused *at the place it is absent*, saying why rather than pointing at a list -- `platform_click_right`
+# is the one, and its refusal explains that an AppIndicator has no right half rather than implying
+# somebody forgot to write one.
 
 # ---------------------------------------------------------------------------- where things are
 
@@ -156,6 +152,229 @@ platform_quit_app() {
                 echo "  falling back to a kill"
             fi
             ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------- driving the window
+
+# **The window half of the port, added 2026-09-20.** Everything above this was already here; what was
+# missing was that `lib.sh` reached the macOS accessibility scripts by name, so every check in the suite
+# was macOS-only however platform-aware this file had become. The Linux counterparts are
+# `scripts/at-*.py`, which take the same arguments for the same jobs.
+#
+# **The two families do not mean the same thing by the same attribute**, which is the reason these
+# wrappers exist rather than a variable holding a prefix. On macOS `AXIdentifier`, `AXTitle` and
+# `AXValue` are three attributes; on Linux a `GtkButton` reports its label as its accessible *name*, so
+# a control that wants an identifier has to overwrite it and its value goes in the description. A check
+# written against `--desc` would therefore be asking for the label on one platform and the value on the
+# other -- so no check names either family, and these decide.
+
+# Press a control by identifier.
+platform_press() {
+    case "$PLATFORM" in
+        mac)   python3 scripts/ax-press.py "$1" 2>&1 ;;
+        linux) python3 scripts/at-press.py "$1" 2>&1 ;;
+    esac
+}
+
+# Press a control by the words on it, which is how every dialogue button is addressed.
+platform_press_title() {
+    case "$PLATFORM" in
+        mac)   python3 scripts/ax-press.py --title "$1" 2>&1 ;;
+        # **No flag needed on this side**, and that is a fact about the platform rather than a shortcut:
+        # `facet_dialog_add_button` gives the button its title, and an unidentified `GtkButton` reports
+        # its label as its accessible name. So the words *are* the name here.
+        linux) python3 scripts/at-press.py "$1" 2>&1 ;;
+    esac
+}
+
+# Press by the description, for controls that carry their label there.
+platform_press_desc() {
+    case "$PLATFORM" in
+        mac)   python3 scripts/ax-press.py --desc "$1" 2>&1 ;;
+        linux) python3 scripts/at-press.py --desc "$1" 2>&1 ;;
+    esac
+}
+
+# A button of the dialogue that is up, addressed as part of the dialogue rather than of the window.
+platform_press_sheet() {
+    case "$PLATFORM" in
+        mac)   python3 scripts/ax-press.py --sheet --title "$1" 2>&1 ;;
+        # **A dialogue is a top-level of its own here, not a sheet on the window**, so there is nothing
+        # to scope to and the ordinary press finds it. `GtkDialoguePresenter` runs `gtk_dialog_run`,
+        # which spins a nested main loop, and the tree is readable and drivable throughout.
+        linux) python3 scripts/at-press.py "$1" 2>&1 ;;
+    esac
+}
+
+# Move to a Settings tab.
+#
+# **Two genuinely different gestures, which is why this is a step of its own.** A macOS segmented
+# control's segments carry their label as a description and are pressed; a GTK `page tab` implements no
+# Action interface at all and is *selected*, through the Selection interface of the tab list above it.
+# `Tests/Methods.md` Method 20.
+platform_select_tab() {
+    case "$PLATFORM" in
+        mac)   python3 scripts/ax-press.py --desc "$1" 2>&1 ;;
+        linux) python3 scripts/at-press.py --tab "$1" 2>&1 ;;
+    esac
+}
+
+# Write into a field.
+platform_set_field() {
+    case "$PLATFORM" in
+        mac)   python3 scripts/ax-set.py "$1" "$2" 2>&1 ;;
+        linux) python3 scripts/at-set.py "$1" "$2" 2>&1 ;;
+    esac
+}
+
+# The same, having put focus in the field first.
+platform_set_field_focused() {
+    case "$PLATFORM" in
+        mac)   python3 scripts/ax-set.py --focus "$1" "$2" 2>&1 ;;
+        # `at-set.py` writes through the accessible interface, which does not need or move focus, so
+        # there is no second form of it. Named the same so a check reads the same.
+        linux) python3 scripts/at-set.py "$1" "$2" 2>&1 ;;
+    esac
+}
+
+# A real keystroke, to whatever holds focus.
+platform_key() {
+    case "$PLATFORM" in
+        mac)   python3 scripts/ax-key.py "$@" 2>&1 ;;
+        linux) python3 scripts/at-key.py "$@" 2>&1 ;;
+    esac
+}
+
+# Press and hold, for the stepper repeat that an accessible action cannot reach.
+platform_hold() {
+    case "$PLATFORM" in
+        mac)   python3 scripts/ax-hold.py "$1" "$2" 2>&1 ;;
+        linux) python3 scripts/at-hold.py "$1" "$2" 2>&1 ;;
+    esac
+}
+
+# The whole tree, for the checks that grep it.
+platform_tree() {
+    case "$PLATFORM" in
+        mac)   python3 scripts/ax-dump.py 2>/dev/null ;;
+        linux) python3 scripts/at-dump.py 2>/dev/null ;;
+    esac
+}
+
+# The tree with each element's position and size.
+platform_tree_frames() {
+    case "$PLATFORM" in
+        mac)   python3 scripts/ax-dump.py --frames 2>/dev/null ;;
+        linux) python3 scripts/at-dump.py --frames 2>/dev/null ;;
+    esac
+}
+
+# The buttons of the dialogue that is up, one per line. Non-zero when there is no dialogue.
+platform_alert_buttons() {
+    case "$PLATFORM" in
+        mac)   python3 scripts/ax-alert.py 2>/dev/null ;;
+        linux) python3 scripts/at-alert.py 2>/dev/null ;;
+    esac
+}
+
+# Its wording instead.
+platform_alert_message() {
+    case "$PLATFORM" in
+        mac)   python3 scripts/ax-alert.py --message 2>/dev/null ;;
+        linux) python3 scripts/at-alert.py --message 2>/dev/null ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------- the status item
+
+# What the status item is showing, as a line a check can grep.
+#
+# **Neither platform has it in the accessibility tree**, and they answer that in opposite ways: macOS
+# puts the item in the menu bar's own tree, which `ax-dump.py --menu-bar` reads, and the tray here is a
+# D-Bus object with the words as properties on it. `Tests/Methods.md` Method 18.
+platform_status_item() {
+    case "$PLATFORM" in
+        mac)   python3 scripts/ax-dump.py --menu-bar 2>/dev/null | grep -m1 "id=status-item" || true ;;
+        linux) python3 scripts/tray-menu.py --label 2>/dev/null || true ;;
+    esac
+}
+
+# Open the status item's menu, so that its items can be addressed.
+#
+# **A no-op on Linux, and that is the honest answer rather than a gap.** The menu is a
+# `com.canonical.dbusmenu` object whose items can be read and chosen without it ever being opened, so
+# there is nothing to open: `platform_menu_press` below works whether or not this was called.
+platform_open_menu() {
+    case "$PLATFORM" in
+        mac)   python3 scripts/status-item-click.py 2>&1 ;;
+        linux) return 0 ;;
+    esac
+}
+
+# Choose an item of the status item's menu, **named by its identifier on both platforms**.
+#
+# `menu_press open-settings` reads the same in every check, and this decides how to reach it. On macOS
+# the identifier is what `AXIdentifier` carries and the press is by name. On Linux nothing carries it:
+# `com.canonical.dbusmenu` answers with the label and `enabled`, and the numeric ids it does give out
+# are libdbusmenu's own and are reassigned whenever the menu is rebuilt (measured 2026-09-13, see
+# `scripts/tray-menu.py`). So this side maps the identifier to the title.
+#
+# **Both sides of that mapping come from `StatusItemMenu`**, which is core and shared, so the titles
+# are not invented here -- `Item("Settings…", identifier: Identifier.settings)` is the line, and the
+# same build puts both halves on screen.
+#
+# **Two of the items change their wording with their state**, which is the whole of why this is a case
+# and not a lookup table. Pause reads *Resume* while paused and Lock reads *Unlock* while locked, and
+# they are still the same item doing the same job -- so both titles are offered and whichever the menu
+# is currently showing is the one that gets pressed.
+platform_menu_press() {
+    case "$PLATFORM" in
+        mac) python3 scripts/ax-press.py "$1" 2>&1 ;;
+        linux)
+            local titles output
+            case "$1" in
+                open-settings)    titles="Settings…" ;;
+                quit-app)         titles="Quit" ;;
+                toggle-pause)     titles="Pause|Resume" ;;
+                toggle-cube-lock) titles="Lock|Unlock" ;;
+                *)
+                    echo "  no tray item is known by the identifier $1." >&2
+                    echo "  the mapping is in platform_menu_press, beside StatusItemMenu.Identifier." >&2
+                    return 1 ;;
+            esac
+            local IFS='|'
+            for title in $titles; do
+                unset IFS
+                output=$(python3 scripts/tray-menu.py --press "$title" 2>&1) && {
+                    printf '%s\n' "$output"
+                    return 0
+                }
+            done
+            unset IFS
+            echo "  no tray item matching $1 (tried ${titles//|/ or })${output:+: $output}" >&2
+            return 1 ;;
+    esac
+}
+
+# **The right half of the status item, which is a macOS gesture and has no counterpart here.**
+#
+# It is not merely unimplemented: an `AppIndicator` publishes one activation and the panel decides what
+# a secondary click does, so there is no right half for the app to distinguish and nothing it could
+# listen for. The pause-on-right-click gesture that `12-daily-limit` and `62-forced-pause` turn on does
+# not exist on this platform, and the app does not pretend it does.
+#
+# So this refuses loudly rather than returning success, because a gesture that silently did nothing
+# would make the wait after it time out and blame the cube -- which is the exact failure `CLAUDE.md`
+# records twice.
+platform_click_right() {
+    case "$PLATFORM" in
+        mac)   python3 scripts/status-item-click.py --right "$@" 2>&1 ;;
+        linux)
+            echo "  the status item has no right half on Linux: an AppIndicator publishes one" >&2
+            echo "  activation and the panel owns the secondary click, so there is no gesture to" >&2
+            echo "  post. The checks that need it are item 12 of docs/linux-port.md." >&2
+            return 1 ;;
     esac
 }
 

@@ -34,6 +34,13 @@ except ImportError as exc:
 MENU_PATH = "/org/ayatana/NotificationItem/facet/Menu"
 MENU_IFACE = "com.canonical.dbusmenu"
 
+# The indicator itself, which is a different object from its menu and carries the words the status
+# item shows. `--label` reads these, and it is the Linux answer to `status_item` in `lib.sh`: on the
+# Mac that line comes out of the accessibility tree, and here the tray is not in the tree at all.
+ITEM_PATH = "/org/ayatana/NotificationItem/facet"
+ITEM_IFACE = "org.kde.StatusNotifierItem"
+PROPERTIES_IFACE = "org.freedesktop.DBus.Properties"
+
 
 def facet_connection(bus):
     """The app's unique bus name, found through the bus daemon by pid.
@@ -89,6 +96,38 @@ def read(menu):
     return lines(layout)
 
 
+def label_of(bus):
+    """What the tray is showing: its label, and the tooltip behind it.
+
+    **Two properties, because the panel decides which it draws.** `XAyatanaLabel` is the text beside
+    the icon and is what a person reads at a glance; `ToolTip` is the longer form. A check asserting
+    on the figure wants the first and a check asserting on the state usually wants the second, so
+    both are printed and the caller greps.
+
+    **Read through Properties.Get rather than GetAll**, because a panel that has never asked for a
+    property may leave it unset and `GetAll` then answers a dict missing the key -- which reads as an
+    empty label rather than as a property that was never published.
+    """
+    name = facet_connection(bus)
+    properties = dbus.Interface(bus.get_object(name, ITEM_PATH), PROPERTIES_IFACE)
+    out = []
+    for key in ("XAyatanaLabel", "Title", "ToolTip"):
+        try:
+            value = properties.Get(ITEM_IFACE, key)
+        except dbus.DBusException:
+            continue
+        if key == "ToolTip":
+            # A struct: icon name, icon pixmaps, title, description. The words are the last two.
+            try:
+                value = " ".join(str(part) for part in (value[2], value[3]) if part)
+            except (IndexError, TypeError):
+                value = str(value)
+        value = str(value)
+        if value:
+            out.append(f"{key}: {value}")
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -96,9 +135,25 @@ def main():
         metavar="LABEL",
         help="choose the item whose label is this, or begins with it",
     )
+    parser.add_argument(
+        "--label",
+        action="store_true",
+        help="print what the tray icon itself is showing, rather than its menu",
+    )
     arguments = parser.parse_args()
 
-    menu = menu_of(dbus.SessionBus())
+    bus = dbus.SessionBus()
+
+    if arguments.label:
+        lines_out = label_of(bus)
+        if not lines_out:
+            print("the tray item publishes no label, title or tooltip", file=sys.stderr)
+            return 1
+        for line in lines_out:
+            print(line)
+        return 0
+
+    menu = menu_of(bus)
     items = read(menu)
 
     if arguments.press is None:

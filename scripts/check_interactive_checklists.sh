@@ -61,12 +61,15 @@ done
 # writes `last-run-mac.md` and the Linux box will write `last-run-linux.md` beside it, and each is read
 # by the same rules: right branch, commit in this history, nothing under `Sources/` changed since.
 #
-# **Only the Mac one can fail this script today**, and that is deliberate rather than an oversight. There
-# is no Linux app to drive yet -- the UI is item 11 of `docs/linux-port.md` and the suite item 12 -- so a
-# Linux stamp cannot exist, and demanding one would paint every branch red on a check nobody could clear.
-# The Linux half is read and reported all the same, so the day it starts passing is visible before it is
-# enforced. **`LINUX_IS_ADVISORY=0` is the whole of turning it on**, and it belongs in the same change
-# that lands the first real Linux run.
+# **Only the Mac one can fail this script today**, and that is deliberate rather than an oversight. It
+# used to be because there was no Linux app to drive at all; that stopped being true when item 11 of
+# `docs/linux-port.md` built it and the window-driving half of `platform.sh` was written (2026-09-20).
+# What keeps it advisory now is narrower and is the only thing left: **no run has been made on the Linux
+# box**, so there is no stamp, and demanding one would paint every branch red on a check nobody has yet
+# had the chance to clear. The Linux half is read and reported all the same, so the day it starts passing
+# is visible before it is enforced. **`LINUX_IS_ADVISORY=0` is the whole of turning it on**, and it
+# belongs in the same change that lands the first real Linux run -- not in the change that made one
+# possible.
 #
 # Both are overridable so this script can be exercised against stamps that are not the real ones. Nothing
 # in CI sets either: writing a stamp by hand is the thing this exists to catch.
@@ -338,8 +341,11 @@ if check_the_suite_was_run "Linux box" "$LINUX_STAMP" "${#scripts[@]}"; then
   :
 elif [ "$LINUX_IS_ADVISORY" = "1" ]; then
   echo ""
-  echo "  ^ reported, not enforced. There is no Linux app to drive yet (linux-port.md items 11 and 12),"
-  echo "    so this cannot be cleared. Set LINUX_IS_ADVISORY=0 in this script once it can."
+  echo "  ^ reported, not enforced. The suite can now drive the Linux app -- item 11 built it and the"
+  echo "    window-driving half of platform.sh is written -- but no run has been made here yet, so"
+  echo "    there is no stamp to check. Set LINUX_IS_ADVISORY=0 in the same commit as the first"
+  echo "    passing Linux run, and not before: a gate turned on ahead of the thing it gates is a"
+  echo "    red check nobody can clear."
 else
   gate=1
 fi

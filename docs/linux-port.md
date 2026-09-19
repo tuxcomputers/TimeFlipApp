@@ -1070,42 +1070,95 @@ both are why the file keeps shrinking.
 
 ### 12 - Linux - The scripted suite on Linux
 
-**Low priority, by the owner's instruction of 2026-09-16.** The suite is not to be edited and not to be run
-until confirming a feature works genuinely requires it. That is the standing answer to anything below reading
-as imminent: none of it is a job waiting to be picked up.
+**The suite drives the Linux app now, and one thing stands between it and a full run: the database on this
+box has never been split** (2026-09-20). Everything above that is done and was exercised against the real
+window.
 
-**What follows from that, because each has already come up once:**
+**The owner lifted the freeze for this work.** `CLAUDE.md`'s standing instruction is that the suite is not
+to be edited or run until confirming a feature genuinely requires it; the instruction of 2026-09-20 --
+*update the scripted tests, the device is free and the keyboard and mouse are yours* -- is the exception,
+and it is what this item was done under. The standing instruction resumes after it.
 
-- **A stale stamp is not an outstanding job**, and `All tests pass` being red is the expected state. Do not
-  make it green by narrowing the pathspec, editing a stamp, setting `LINUX_IS_ADVISORY` or taking the check
-  out of the workflow. A red check that is honest is worth more than a green one that is arranged.
-- **Do not edit `lib.sh`, `run.sh`, `platform.sh` or a check script** as tidy-up or alongside unrelated work.
-  A check that cannot be run cannot be validated, and editing this layer blind is what handover 23 and 24 cost
-  in the other direction.
-- **`swift test` is unaffected** and is still the thing to run on every change, on both platforms. A hermetic
-  pass is not hardware confirmation, and a device-dependent change stays **unverified and deliberately so**,
-  which is a different sentence from unverified by oversight and the one to write.
+#### What was wrong, and it was not what this item had said
 
-**Where it had got to, so that nothing is re-derived when it comes back.** The harness is further along than
-the item has ever been, and none of this needs doing again:
+The item had been reading as "the harness is nearly there". It was, in one direction and not the other:
+`platform.sh` had the paths, the build, the launch, the quit and the process names, and **none of the
+window**. Every check reached `scripts/ax-press.py`, `ax-dump.py`, `ax-set.py`, `ax-alert.py`, `ax-key.py`
+and `ax-hold.py` **by name, out of `lib.sh`**, so the suite was macOS-only however platform-aware that one
+file had become.
 
-- **`Tests/Scripted/platform.sh` has no unfilled Linux branch left.** `platform_not_yet` is still defined and
-  is called from nowhere.
-- **`scripts/tray-menu.py` drives the tray over D-Bus**, and `Tests/Methods.md` Methods 18 and 19 are written
-  from real runs.
-- **`platform_quit_app` quit a running app through its own tray menu on 2026-09-13.**
-- **One known fault is deliberately left in place.** `lib.sh`'s `quit_app` never reaches `platform_quit_app`:
-  `run.sh` calls the port, every check script calls the older copy, which clicks the status item and presses
-  `quit-app` with `>/dev/null 2>&1` -- the swallowed failure `CLAUDE.md` names twice. It is
-  [handover-mac.md](handover-mac.md) item 30, it is the Mac's to make because only a full run can exercise it,
-  and under this priority it waits for that run rather than being fixed blind.
-- **`scripts/check_interactive_checklists.sh` already asks for a Linux stamp**, reporting the absence rather
-  than enforcing it (`LINUX_IS_ADVISORY=1`). Turning it on belongs in the same commit as the first passing
-  Linux run, not before.
+**`run.sh` had already stopped refusing, on its own**, which is what it was built to do: it asks SwiftPM
+whether the executable product exists rather than being told, so item 11 adding `FacetLinux` turned it
+green with nothing to remember to change.
+
+#### What was built
+
+- **`scripts/at-press.py`, `at-dump.py`, `at-set.py`, `at-alert.py`, `at-key.py`, `at-hold.py`**, over
+  `scripts/atspi_tree.py` -- the AT-SPI counterparts of the six `ax-*.py`, taking the same arguments for
+  the same jobs. `Tests/Methods.md` Method 20 is the technique; what is new is in its later paragraphs.
+- **`scripts/tray-menu.py --label`**, which reads what the status item is *showing* -- properties on the
+  `StatusNotifierItem` object, which is not the menu object.
+- **A window-driving half of `platform.sh`**: `platform_press`, `_press_title`, `_press_desc`,
+  `_press_sheet`, `_select_tab`, `_set_field`, `_set_field_focused`, `_key`, `_hold`, `_tree`,
+  `_tree_frames`, `_alert_buttons`, `_alert_message`, `_status_item`, `_open_menu`, `_menu_press`,
+  `_click_right`.
+- **`lib.sh` rewired through all of it.** Nothing in that file reaches a platform script directly any more,
+  and `press_return` -- which was inline AppleScript and Quartz -- goes through `platform_key`.
+- **`platform_not_yet` deleted**, having been called from nowhere. What is genuinely absent is refused at
+  the place it is absent, saying why.
+
+#### Three findings worth keeping
+
+- **Two tabs hold the same identifier on purpose**, and showing-state does not separate them: the field a
+  check is about to type into reads *not showing* on both, because it is revealed by pressing Create. The
+  search prunes unselected notebook pages instead.
+- **A control on a page that is not on show has a size but no position**, reported as `INT_MIN`. A size
+  test alone passes it, so a hold would post a real pointer event at the far corner of the screen.
+- **The dump has to print the macOS line shape**, because `lib.sh` parses `id=`, `size=w:` and whole
+  strings out of it. Proved by running `window_width` and `on_tab`'s own expressions, unmodified, against
+  the Linux dump.
+
+#### The one thing left, and it needs the owner
+
+**`~/.local/share/Facet/appdata.sqlite` on this box is a plain file holding real data.** The Mac keeps it as
+a symlink to `production.sqlite` or `test.sqlite`, and `lib.sh` refuses to run unless it resolves to
+`test.sqlite` -- correctly, since these scripts write real rows and nothing undoes them.
+
+**`scripts/switch-database.sh` could not have made that split, and had two faults of its own** (both fixed
+2026-09-20): it hardcoded `~/Library/Application Support/Facet`, so on Linux it resolved every path under a
+directory that does not exist; and its refusal advised launching the app *with Developer Mode on so it can
+migrate this into production.sqlite + a symlink*, which describes nothing in `FacetCore`, `FacetMac` or
+`FacetLinux`. The Mac's split predates the script and was made by hand. It now takes `SUPPORT` and
+`PROCESS_NAME` from `platform.sh`, and **`-adopt`** does the rename-and-link, asked for by name for the same
+reason `-clean` is.
+
+**It has not been run, because renaming the owner's real database is theirs to authorise.** The command is:
+
+```sh
+scripts/switch-database.sh -adopt test   # then Tests/Scripted/run.sh
+```
+
+A run now reaches the guard and stops there, which is the whole of what is left:
+
+    Quitting the running app first.
+    REFUSING TO RUN: appdata.sqlite points at '/home/harry/.local/share/Facet/appdata.sqlite', not test.sqlite.
+    Rebuilding test.sqlite from the DDL, so this run starts from nothing.
+    error: ... refusing to touch it. It holds real data and this script will not rename it unasked.
+
+#### What will still not work when it does run
+
+- **`click_right` and the double-click gestures have no counterpart and never will.** An `AppIndicator`
+  publishes one activation and the panel owns the secondary click, so there is no right half for the app to
+  distinguish. `12-daily-limit` and `62-forced-pause` turn on that gesture. `platform_click_right` refuses
+  loudly rather than returning success.
+- **`at-alert.py`'s positive path is unproven.** Its no-dialogue path was confirmed; raising a real
+  dialogue writes real rows, so it waits for the test database.
+- **`at-set.py`, `at-key.py` and `at-hold.py` are written and unrun** for the same reason.
+- **`LINUX_IS_ADVISORY` stays 1.** Turning it on belongs in the same commit as the first passing run, not
+  in the one that made a run possible.
 
 **Whether any of it can run headless is still the open question worth the most**, because it decides whether
-CI could ever run this half at all. It costs one `xvfb` install and one check, and it is cheap enough to be
-worth doing whenever the suite next comes up.
+CI could ever run this half. It costs one `xvfb` install and one check.
 
 ### 13 - Core - Repo restructure and the `CLAUDE.md` split
 
@@ -1428,31 +1481,20 @@ different questions, and that is more true at 1,340 shared tests than it was at 
 The corrected block says the counts were re-measured and what they were before, so the next reader can see the
 argument got stronger rather than wonder which figure to trust.
 
-### 24 - macOS - `lib.sh`'s `quit_app` bypasses `platform_quit_app`
+### 24 - ~~macOS~~ Linux - `lib.sh`'s `quit_app` bypasses `platform_quit_app` -- **done 2026-09-20**
 
-**[handover-mac.md](handover-mac.md) item 30, and Mac work that blocks item 12 outright.**
-`Tests/Scripted/platform.sh` exists so a check says *quit the app*
-and one file decides what that means. `run.sh` calls `platform_quit_app`; **every check script calls `lib.sh`'s
-`quit_app`**, which clicks the status item and presses `quit-app` itself, both macOS-only:
+**Done on the Linux box, which is not where this item said it would be done.** It was filed as the Mac's
+because `lib.sh` is 1,537 lines driving a real window and only a full run can exercise it. What made it
+Linux work instead was the freeze being lifted for item 12: the rewiring of `lib.sh` through the ports had
+to happen anyway, and `quit_app` was one of fifteen call sites in it rather than a change of its own.
 
-    click_left || red "  could not click the status item to quit; falling back to a kill below"
-    sleep 0.5
-    python3 scripts/ax-press.py quit-app >/dev/null 2>&1
+`quit_app` kept `close_settings` and kept the wait-then-kill; the pair in the middle is now
+`platform_quit_app`, with its output printed and its status reported rather than `>/dev/null 2>&1`.
 
-**The one the checks use is the older copy**, and that second line is the swallowed failure `CLAUDE.md` names
-twice: a press that never happened does nothing and says nothing, and the wait after it then times out and
-blames whatever it was waiting on. `platform_quit_app` already fixed exactly that on the macOS side.
-
-**The change is two lines**: `quit_app` keeps `close_settings` and keeps the wait-then-kill, and the pair in the
-middle becomes `platform_quit_app`. On macOS that is the same two calls in the same order with the reporting the
-port already has.
-
-**Why it is the Mac's**: `lib.sh` is 1,537 lines driving a real window, only a full run can exercise it, and
-editing this layer blind is what handover 23 and 24 cost in the other direction. **`platform_quit_app`'s Linux
-half is written and works** -- it quit a running app through its own tray menu on 2026-09-13 -- so this is the
-single thing between the Linux box and running `01-launch.sh`, which is otherwise completely portable.
-
-**Deferred with item 12** rather than fixed now, under the 2026-09-16 priority.
+**`platform_quit_app` was confirmed on Linux the same day**, quitting a running app through its tray menu,
+and `run.sh` was then seen quitting the app on its way into a run. **Its macOS half is unrun**: on that side
+it is the same two calls in the same order with the reporting the port already has, and the next full Mac
+run is what proves it.
 
 ### 25 - Core - The auto-pause write sets the cube to the wrong value for three round trips
 

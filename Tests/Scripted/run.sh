@@ -31,18 +31,19 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 # only the method differs.
 source Tests/Scripted/platform.sh || exit 2
 
-# **Refused here rather than discovered halfway down.** There is no Linux app to drive yet (item 11 of
-# `docs/linux-port.md`, with this suite's own Linux half item 12), so a run there would rebuild a database,
-# start a log, and then fail on the first thing that needs a window -- leaving a half-written record of a
-# run that never had anything to test. One clear refusal is better than that.
+# **Refused here rather than discovered halfway down.** Without an app to drive, a run would rebuild a
+# database, start a log, and then fail on the first thing that needs a window -- leaving a half-written
+# record of a run that never had anything to test. One clear refusal is better than that.
+#
+# **This stopped refusing on Linux of its own accord**, which is what it was written to do: it asks
+# SwiftPM whether the executable product exists rather than being told, so item 11 adding `FacetLinux`
+# turned it green with nothing here to remember to change (confirmed 2026-09-20).
 platform_app_is_declared
 case $? in
     0) ;;
-    1)  echo "There is no app to drive on this platform yet, so this suite cannot run here."
-        echo "Package.swift declares no executable product for $PLATFORM: that is item 11 of"
-        echo "docs/linux-port.md, and this suite's own Linux half is item 12."
-        echo "Everything else is ready -- platform.sh resolves $SUPPORT and would write $STAMP,"
-        echo "and the build and launch steps are written and waiting for something to build."
+    1)  echo "There is no app to drive on this platform, so this suite cannot run here."
+        echo "Package.swift declares no executable product for $PLATFORM."
+        echo "platform.sh resolves $SUPPORT and would write $STAMP."
         exit 2 ;;
     *)  echo "Cannot tell whether there is an app to drive; the reason is above."
         exit 2 ;;

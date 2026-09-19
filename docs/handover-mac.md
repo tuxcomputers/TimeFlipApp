@@ -34,33 +34,43 @@ for something is to write it down where the other will look.
    [handover-linux.md](handover-linux.md) for the other machine. A blank file on both sides is the
    finished state.
 
-## 30. `lib.sh`'s `quit_app` never reaches `platform_quit_app`, and is the worse of the two
+## 30. `quit_app` now reaches `platform_quit_app` -- **done here, and its macOS half is unrun**
 
-Two implementations of one operation, which is what `platform.sh` exists to prevent. `run.sh` calls
-`platform_quit_app`; every check script calls `lib.sh`'s `quit_app`, which clicks the status item and
-presses `quit-app` itself:
+**I did this one, which was yours.** It was yours because only a full run can exercise `lib.sh`, and it
+became mine because the owner lifted the suite freeze on 2026-09-20 to have the scripted tests updated for
+Linux -- and the rewiring of `lib.sh` through the ports had to happen anyway, with `quit_app` one of fifteen
+call sites in it rather than a change of its own.
 
-    click_left || red "  could not click the status item to quit; falling back to a kill below"
-    sleep 0.5
-    python3 scripts/ax-press.py quit-app >/dev/null 2>&1
+The change is the one your item proposed, unaltered: `quit_app` keeps `close_settings` and keeps the
+wait-then-kill, and the pair in the middle became `platform_quit_app`, with its output printed and its
+status reported rather than thrown away.
 
-**The one the checks use is the older copy.** That second line is the swallowed failure `CLAUDE.md`
-names twice -- a press that never happened does nothing and says nothing, and the wait after it then
-times out and blames whatever it was waiting on. `platform_quit_app` already fixed exactly that on
-the macOS side, and `quit_app` never got the fix because nothing pointed it at the port.
+**Confirmed on Linux**: `platform_quit_app` quit a running app through its tray menu, and `run.sh` was then
+watched quitting the app on its way into a run.
 
-**What I would do**: `quit_app` keeps `close_settings` and keeps the wait-then-kill, and the two
-lines in the middle become `platform_quit_app`. That is the whole change, and on macOS it is the same
-pair of calls in the same order with the reporting the port already has.
+**Unconfirmed on macOS, and this is the part I need you to read.** On your side the port is the same two
+calls in the same order with the reporting it already had, so I expect nothing to change -- but the whole
+point of the item was that only a real run proves it, and I have not made one. **The next full Mac run is
+what closes this**, and `99-quit.sh` and every script's teardown are where it would show.
 
-**Yours rather than mine because only a full run can exercise it.** `lib.sh` is 1,537 lines driving a
-real window, the suite is set aside here, and editing it blind is the thing handover 23 and 24 cost
-us in the other direction.
+**What else changed in that file that your run will be the first to exercise.** Fifteen call sites, all of
+the same shape -- a direct `python3 scripts/ax-*.py` became a `platform_*` call that runs the identical
+command on macOS. The ones worth knowing by name:
 
-**Why it matters now**: `platform_quit_app`'s Linux half is written and works -- it quit a running
-app through its own tray menu on 2026-09-13 -- but no check can use it while `quit_app` bypasses the
-port. It is the one thing standing between this box and running `01-launch.sh`, which is otherwise
-completely portable already.
+- **`press_return`** was inline AppleScript plus Quartz, duplicating what `ax-key.py` already does. It now
+  calls `platform_key return`. Its comment records that a second copy is what let the two drift on run 145,
+  which is exactly the argument for removing it.
+- **`select_tab`** went from `press_desc` to `platform_select_tab`, which on macOS is `ax-press.py --desc`:
+  the same command. It had to move because a GTK tab has no action to press at all.
+- **`status_item`** goes through `platform_status_item`, which on macOS is the same
+  `ax-dump.py --menu-bar | grep id=status-item`.
+- **`menu_press <identifier>` is new**, and six presses in `02`, `12`, `55`, `61` and `99` now use it
+  instead of `press open-settings` / `press quit-app` / `press toggle-cube-lock`. On macOS it is
+  `ax-press.py <identifier>`, unchanged; on Linux nothing carries the identifier to the tray, so the port
+  maps it to the title.
+
+**If any of that misbehaves on your run, the port is the place to look and not the check**: every one of
+these is a one-line `case` in `Tests/Scripted/platform.sh`.
 
 ## 34. Writing auto-pause sets the cube to the wrong value for three round trips, on both platforms
 
@@ -242,3 +252,21 @@ and is not somebody asking for a calendar, and the entries recorded meanwhile sw
 **One difference from your version, and it is the reason this one could be tested at all**: nothing here touches a
 pane. Every method answers with `Settled` -- a calendar, none, or a `Dialogue` to show -- and what a surface does
 about it is the surface's. That is the same split item 39 settled for `DeviceSettingRows`.
+
+## 44. `switch-database.sh` had two faults, and the Mac's split was made by hand
+
+Found while trying to make the Linux box runnable, and both are fixed -- but one of them says something
+about your machine that is worth knowing.
+
+**It hardcoded `~/Library/Application Support/Facet`**, so on Linux it resolved every path under a directory
+that does not exist and reported the absence of a database nobody had asked about. It now takes `SUPPORT`
+and `PROCESS_NAME` from `Tests/Scripted/platform.sh`, which is the one place the suite decides paths.
+**Nothing changes for you**: that file resolves the same directory the constant did.
+
+**Its refusal advised something that does not exist.** Given a plain `appdata.sqlite` it said *launch the
+app once with Developer Mode on so it can migrate this into production.sqlite + a symlink*. Nothing in
+`FacetCore`, `FacetMac` or `FacetLinux` does that -- `production.sqlite` appears in `Sources/` only in two
+comments. **Your split predates the script and was made by hand**, which is why nobody had found out.
+
+There is now a `-adopt` flag that performs the rename and the link, asked for by name for the same reason
+`-clean` is. You have no use for it; the Linux box does.

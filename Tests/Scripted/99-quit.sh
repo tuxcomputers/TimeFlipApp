@@ -144,7 +144,7 @@ since=$(mark)
 close_settings
 click_left
 sleep 0.5
-press quit-app
+menu_press quit-app
 
 # Waits for the process rather than sleeping a fixed time.
 waited=0
