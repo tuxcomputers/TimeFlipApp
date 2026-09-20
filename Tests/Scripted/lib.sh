@@ -1019,18 +1019,17 @@ BLUETOOTH_IS_OFF=0
 # off, which stops being true the moment somebody turns it back on -- so the way out asks, which is what stops a prompt
 # appearing in front of somebody who has already done the thing it is asking for (2026-08-22: a check failed, and this
 # asked for a radio that had been back on for a minute).
+# **Through the port**, which is where the platform difference lives. This used to run
+# `system_profiler SPBluetoothDataType` on both platforms -- a macOS tool -- so on Linux it printed nothing,
+# fell through to its catch-all, and answered "off" for a radio that was on. `00-setup` then asked the owner
+# to turn on Bluetooth they had already turned on, failed, and stopped the run (2026-09-20).
+#
+# **Only "on" is treated as on.** `platform_bluetooth_is_on` also answers *cannot tell*, and `require_bluetooth`
+# below is where that is given different words; everything else asking this question wants a plain yes or no,
+# and for those an unknown radio is not one it may proceed on.
 bluetooth_is_on() {
-    # Captured and matched rather than piped into `grep -q`, for the reason `tree_has` sets out: this file sets
-    # pipefail, `system_profiler` writes a great deal after the line that matches, and a pipeline killed by SIGPIPE
-    # reports the signal rather than the match. Answering "off" for a radio that is on would ask somebody to turn on
-    # Bluetooth they had already turned on.
-    #
-    # The literal is what the tool prints, `          State: On`, one space after the colon. If that ever changes this
-    # answers "off", which asks for a radio that is already on rather than proceeding on a wrong answer.
-    case "$(system_profiler SPBluetoothDataType 2>/dev/null)" in
-        *"State: On"*) return 0 ;;
-        *) return 1 ;;
-    esac
+    platform_bluetooth_is_on
+    [ $? -eq 0 ]
 }
 
 restore_bluetooth() {
@@ -1082,7 +1081,20 @@ watch_bluetooth() {
 # button on the Device tab reading perfectly correctly, so there is nothing on screen to check and no row to wait
 # for -- the app has not been asked to do anything yet.
 require_bluetooth() {
-    bluetooth_is_on && return 0
+    platform_bluetooth_is_on
+    local radio=$?
+    [ "$radio" -eq 0 ] && return 0
+
+    # **Cannot tell is not off, and must not put a banner in front of somebody.** The probe says this when
+    # the tool it asks is missing or there is no controller at all, and asking for a radio to be turned on in
+    # either case is advice that cannot be followed. The app's own scan is the better answer anyway: it
+    # reports `Scan unavailable: bluetoothOff` from the radio itself, and `50-device-scan` is where that
+    # lands. So this says what it could not establish and lets the run go on to find out.
+    if [ "$radio" -eq 2 ]; then
+        yellow "  cannot tell whether Bluetooth is on -- no bluetoothctl, or no controller"
+        yellow "  carrying on: if the radio really is off, the scan will say so from the app itself"
+        return 0
+    fi
 
     if ! action_required \
         "Turn Bluetooth ON" \
@@ -1095,8 +1107,7 @@ require_bluetooth() {
 
     # **Asked again rather than taken on trust**, which is this suite's first principle and cheap here: somebody can
     # answer y to a banner without having done the thing, and every check after this would then fail about the app.
-    bluetooth_is_on && return 0
-    return 1
+    bluetooth_is_on
 }
 
 # `expect_colours "name" "name cyan, glyph label, figure red"` -- one check on what the status item is drawn in.

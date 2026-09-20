@@ -378,6 +378,58 @@ platform_click_right() {
     esac
 }
 
+# ---------------------------------------------------------------------------- the radio
+
+# **Is the Bluetooth radio on? 0 yes, 1 no, 2 cannot tell.**
+#
+# Three answers rather than two, for the reason `platform_app_is_declared` has three: not being able to ask
+# says nothing about the answer, and this is the one probe in the suite whose wrong answer *asks the person
+# to do something they have already done*. `lib.sh`'s comment records that happening once from a different
+# cause on 2026-08-22.
+#
+# **It was `system_profiler SPBluetoothDataType` for both platforms until 2026-09-20**, which does not exist
+# on Linux -- so the command printed nothing, the `case` fell through to its catch-all, and the suite told
+# the owner to turn on a radio that was already on, then failed `00-setup` and stopped the run. A macOS tool
+# reached directly from a shared file, which is the same fault as `lib.sh` reaching `ax-press.py`, and it
+# survived that sweep because it is a system probe rather than a way of driving the window.
+platform_bluetooth_is_on() {
+    case "$PLATFORM" in
+        mac)
+            # Captured and matched rather than piped into `grep -q`, for the reason `tree_has` sets out:
+            # this is sourced into files that set pipefail, `system_profiler` writes a great deal after the
+            # line that matches, and a pipeline killed by SIGPIPE reports the signal rather than the match.
+            #
+            # The literal is what the tool prints, `          State: On`, one space after the colon.
+            local report
+            report="$(system_profiler SPBluetoothDataType 2>/dev/null)"
+            [ -z "$report" ] && return 2
+            case "$report" in
+                *"State: On"*) return 0 ;;
+                *) return 1 ;;
+            esac ;;
+        linux)
+            # **Asked of BlueZ, which is what the app itself talks to.** `BlueZRadio` reaches the same
+            # adapter over D-Bus, so the adapter's `Powered` property is the same fact the app will act on
+            # -- where `rfkill` answers a different question, whether the device is *blocked*, and an
+            # unblocked adapter can still be powered down.
+            #
+            # **Timed out**, because `bluetoothctl` waits on a D-Bus reply and a stuck bluetoothd would
+            # otherwise hang the whole run at its first setup step with nothing said.
+            command -v bluetoothctl >/dev/null 2>&1 || return 2
+            local report
+            report="$(timeout 5 bluetoothctl show 2>/dev/null)"
+            [ -z "$report" ] && return 2
+            case "$report" in
+                *"Powered: yes"*) return 0 ;;
+                *"Powered: no"*) return 1 ;;
+                # No controller at all: `bluetoothctl show` prints `No default controller available`. That
+                # is not the radio being off, it is there being no radio, and the two want different words
+                # in front of somebody -- so it is the third answer rather than the second.
+                *) return 2 ;;
+            esac ;;
+    esac
+}
+
 # ---------------------------------------------------------------------------- facts about the run
 
 # When the binary under test was built. `stat` takes opposite flags on the two systems, and the BSD one
@@ -387,6 +439,22 @@ platform_binary_built_at() {
     case "$PLATFORM" in
         mac)   stat -f '%Sm' -t '%Y-%m-%d %H:%M:%S' "$BINARY" 2>/dev/null || echo "" ;;
         linux) stat -c '%y' "$BINARY" 2>/dev/null | cut -d'.' -f1 || echo "" ;;
+    esac
+}
+
+# **A unix epoch formatted as a date, which the two systems spell incompatibly rather than merely
+# differently.** `date -r` exists on both and means opposite things: BSD reads it as *this epoch*, GNU as
+# *this file\'s modification time*. So the macOS spelling on Linux goes looking for a file named
+# `1789900000`, fails with `No such file or directory`, and prints **nothing** -- and a comparison against
+# an empty string is false, which is a wrong answer rather than an error.
+#
+# That is what failed `00-setup` on the first real Linux run (2026-09-20): `the seeds are dated
+# 2026-09-20, not today`, on the twentieth. Same shape as `platform_binary_built_at` above, whose comment
+# records `stat` doing the same thing in the other direction.
+platform_date_from_epoch() {
+    case "$PLATFORM" in
+        mac)   date -r "$1" "+$2" ;;
+        linux) date -d "@$1" "+$2" ;;
     esac
 }
 

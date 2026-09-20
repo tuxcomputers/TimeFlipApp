@@ -202,7 +202,10 @@ else
                    JOIN time_entry te ON te.device_event_id = de.device_event_id
                   WHERE te.duration_seconds != CAST(te.duration_seconds AS INTEGER)
                   ORDER BY de.start_epoch LIMIT 1;")
-    [ "$dated" = "$(date -r $hour_ago '+%Y-%m-%d')" ] || trouble "the seeds are dated $dated, not today"
+    # Through the port: `date -r` is an epoch on BSD and a filename on GNU, and the macOS spelling prints
+    # nothing on Linux rather than failing -- which read as seeds dated wrongly on the day they were right.
+    [ "$dated" = "$(platform_date_from_epoch "$hour_ago" '%Y-%m-%d')" ] \
+        || trouble "the seeds are dated $dated, not $(platform_date_from_epoch "$hour_ago" '%Y-%m-%d')"
 fi
 
 # ---------------------------------------------------------------------------- the app, up once for both
