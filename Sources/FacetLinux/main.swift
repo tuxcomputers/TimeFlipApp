@@ -498,9 +498,26 @@ let settingsWindow = SettingsWindow(
     deviceReadings: SettingsWindow.DeviceReadings(
         battery: { radio?.batteryPercent },
         isReachingForCube: { radio?.isReachingForCube ?? false },
-        pair: {
-            debugLog?.record(.pair, "Pairing was chosen from the Device tab")
-            radio?.pair(
+        // **The two names are read here, at the moment the scan starts**, rather than held from launch: they are
+        // what decides which advertisements are in the running, and a name the app learned since it started has to
+        // count. Same place the Mac reads them, and for the same reason.
+        isScanning: { radio?.isScanning ?? false },
+        scan: { includeEverything in
+            radio?.startScan(
+                filterToTimeFlip: !includeEverything,
+                remembered: settings.string("device_name", field: "name"),
+                previouslyKnown: settings.string("device_name", field: "previous_name")
+            )
+        },
+        stopScan: { radio?.stopScan() },
+        // **Which PINs to present is decided here, at the moment somebody presses a row**, and handed to the radio
+        // rather than worked out inside it -- which keeps the policy in `DeviceLoginRules` where it is testable
+        // with no cube. It is the source-of-truth rule\'s shape: the candidates are assembled when they are needed,
+        // so a PIN set on the last connection is read back off disk on this one. The PIN to rotate *to* is asked
+        // for here for a sharper reason -- a release build picks fresh random digits every time it is asked.
+        connect: { id in
+            radio?.connect(
+                to: id,
                 presenting: DeviceLoginRules.candidates(
                     stored: DevicePINSource(keychain: devicePINs, debugLog: debugLog).stored()
                 ),
@@ -756,6 +773,12 @@ if let radio {
     // **The one confirmation a rename ever gets**, arriving a second or two into a connection. It is also what
     // notices a cube renamed in the vendor's app. Whether to adopt it is `CubeReports`', and so is the check that
     // it came from the cube this app is actually paired to.
+    // **What a scan is doing goes straight to the tab**, there being no table behind it: an advertisement is
+    // something the radio heard, and the list on screen is the last thing it said.
+    radio.onDevicesChanged = { devices in settingsWindow.devicesFound(devices) }
+    radio.onScanningChanged = { isScanning in settingsWindow.scanningChanged(isScanning) }
+    radio.onScanMessage = { message in settingsWindow.scanMessageChanged(message) }
+
     radio.onDeviceName = { id, name in reports.nameArrived(name, from: id) }
 
     // What the cube says it is, arriving after the pairing rather than with it: the four Device Information reads

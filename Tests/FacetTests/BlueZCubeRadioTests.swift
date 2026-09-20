@@ -161,6 +161,68 @@ final class BlueZCubeRadioTests {
         #expect(published.last?.isEmpty == true)
     }
 
+    // MARK: - browsing, for the Device tab
+
+    /// **The rule a room with two cubes needs**, and the reason the Device tab lists rather than pairs. A browse
+    /// hears everything and hands the choice to whoever is looking; it must never log in to one by itself.
+    @Test func testABrowseListsWhatItHeardAndConnectsToNothing() {
+        var published: [[ScannedDevice]] = []
+        radio.onDevicesChanged = { published.append($0) }
+
+        radio.startScan(filterToTimeFlip: true, remembered: "TimeFlip v2.0", previouslyKnown: nil)
+        link.add(ours, named: "TimeFlip v2.0", address: "E8:DB:D8:CF:F9:0F")
+        look()
+
+        #expect(published.last?.count == 1)
+        #expect(radio.isScanning)
+
+        // The window closing is what would hand a reach's findings to the sequence. A browse stops there.
+        closeTheWindow()
+        #expect(link.connects.isEmpty)
+        #expect(!radio.isReachingForCube)
+    }
+
+    /// **The filter is the default and the box is the way out of it**, which is what finds a cube somebody renamed
+    /// without telling this app. BlueZ lists the whole room, so an unfiltered browse is the only way to see one.
+    @Test func testAFilteredBrowseHidesWhatIsNotACubeAndAllDevicesShowsIt() {
+        var published: [[ScannedDevice]] = []
+        radio.onDevicesChanged = { published.append($0) }
+
+        radio.startScan(filterToTimeFlip: true, remembered: "TimeFlip v2.0", previouslyKnown: nil)
+        link.add(theirs, named: "Headphones", address: "AA:BB:CC:DD:EE:FF")
+        look()
+        #expect(published.last?.isEmpty == true)
+
+        radio.stopScan()
+        radio.startScan(filterToTimeFlip: false, remembered: "TimeFlip v2.0", previouslyKnown: nil)
+        look()
+        #expect(published.last?.count == 1)
+    }
+
+    /// Pressing a row is the whole of the pairing, and it is a login to that device and no other.
+    @Test func testChoosingARowLogsInToThatDevice() {
+        radio.startScan(filterToTimeFlip: true, remembered: "TimeFlip v2.0", previouslyKnown: nil)
+        link.add(ours, named: "TimeFlip v2.0", address: "E8:DB:D8:CF:F9:0F")
+        look()
+
+        radio.connect(to: ours, presenting: ["123456"], rotatingTo: nil)
+
+        #expect(!radio.isScanning)
+        #expect(link.connects == [ours])
+    }
+
+    /// **A browse cannot start on top of a reach**, which would be two conversations with one adapter.
+    @Test func testABrowseIsRefusedWhileAlreadyReaching() {
+        reachForOurs()
+        var published: [[ScannedDevice]] = []
+        radio.onDevicesChanged = { published.append($0) }
+
+        radio.startScan(filterToTimeFlip: true, remembered: nil, previouslyKnown: nil)
+
+        // Nothing was cleared and nothing was announced: the reach's own scan is still the one running.
+        #expect(published.isEmpty)
+    }
+
     // MARK: - trying what answered
 
     @Test func testTheRememberedIdentifierIsTriedFirst() {

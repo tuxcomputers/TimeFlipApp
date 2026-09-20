@@ -34,6 +34,8 @@ final class BlueZCubeRadio: CubeRadio {
     /// Every device this scan has seen, whether or not it is a cube.
     var onDevicesChanged: (([ScannedDevice]) -> Void)?
     var onScanningChanged: ((Bool) -> Void)?
+    /// What to say under the Scan button: why a scan could not run, or that one is listening. Empty clears it.
+    var onScanMessage: ((String) -> Void)?
     var onLoginBegan: ((DeviceHandle) -> Void)?
     var onLoginEnded: ((DeviceHandle, DeviceLoginOutcome) -> Void)?
     /// The link going, deliberately or not. **Not the same as a login ending**: a login that failed never had a link.
@@ -97,6 +99,22 @@ final class BlueZCubeRadio: CubeRadio {
     /// What this scan has seen. **Not a fact being remembered**: it is the last answer BlueZ gave, kept only so a
     /// change can be published, and `forgetWhatWasFound` empties it.
     private var found: [ScannedDevice] = []
+
+    /// Whether this scan is somebody browsing rather than the app reaching for a cube it knows.
+    ///
+    /// **The two want opposite things from the same scan.** A reach wants the window cut short the moment the
+    /// remembered cube answers, and wants what it found handed to `CubeReachSequence` to be tried; a browse wants
+    /// the whole window, wants nothing tried, and wants every answer drawn so that somebody can pick one. Added
+    /// 2026-09-20 with the Device tab's scan list, which is what a room with more than one cube needs.
+    private var isBrowsing = false
+
+    /// Whether a browse is listing everything it hears rather than only what looks like a TimeFlip.
+    ///
+    /// **A filtered browse is the default and this is the way out of it.** The filter is `DeviceScanRules`, which
+    /// matches the vendor name and the names this cube has carried -- so it finds a renamed device and hides a cube
+    /// that has been renamed to something nobody told this app about. That second case is the whole reason the
+    /// escape hatch exists, and it is the same reasoning as the Mac's *All Devices* box.
+    private var showsEverything = false
 
     /// The charge the connected cube last reported, or `nil` when there is no live reading.
     ///
@@ -236,6 +254,68 @@ final class BlueZCubeRadio: CubeRadio {
         beginScan()
     }
 
+    // MARK: - browsing, for the Device tab
+
+    /// Start a scan that only looks, so that somebody can pick from what it hears.
+    ///
+    /// **Separate from `pair` rather than a flag on it**, because the two differ in what happens when the window
+    /// closes rather than in how the looking is done. `pair` takes the first cube that accepts a PIN, which is right
+    /// when there is one cube and wrong the moment there are two -- a work room with several on the desk would have
+    /// this app log in to whichever answered first. The Mac has always drawn the list; this is the Linux half of it
+    /// (2026-09-20).
+    func startScan(filterToTimeFlip: Bool, remembered: String?, previouslyKnown: String?) {
+        guard !isReachingForCube else {
+            debugLog?.record(.scan, "Already busy with a device; not scanning")
+            return
+        }
+        guard !isScanning else {
+            debugLog?.record(.scan, "A scan is already running; not starting another")
+            return
+        }
+        // Read at the moment the scan starts, for the reason the Mac reads them here: they are what decides which
+        // advertisements are in the running, and a name the app learned since it launched has to count.
+        self.remembered = remembered
+        self.previouslyKnown = previouslyKnown
+        showsEverything = !filterToTimeFlip
+        isBrowsing = true
+        found = []
+        onDevicesChanged?(found)
+        onScanMessage?("Looking for devices...")
+        debugLog?.record(.scan, "Scanning to list what is there (allDevices=\(showsEverything))")
+        beginScan()
+    }
+
+    /// Stop a browse early, because somebody pressed the button again.
+    func stopScan() {
+        guard isScanning else { return }
+        debugLog?.record(.scan, "The scan was stopped")
+        closeTheScan()
+        isBrowsing = false
+        onScanMessage?("")
+    }
+
+    /// Log in to the one that was chosen from the list.
+    ///
+    /// **The scan is closed first.** A discovery still running behind a login is a radio doing two things at once,
+    /// and BlueZ answers a connect more slowly while it is advertising-hunting.
+    func connect(to id: DeviceHandle, presenting candidates: [String], rotatingTo: String?) {
+        guard !isReachingForCube else {
+            debugLog?.record(.login, "Already busy with a device; the choice is ignored")
+            return
+        }
+        if isScanning { closeTheScan() }
+        isBrowsing = false
+        onScanMessage?("")
+        debugLog?.record(.login, "Chosen from the list: \(label(for: id))")
+        beginAttempt(on: id, presenting: candidates, rotatingTo: rotatingTo)
+    }
+
+    /// What to call a device on screen, which is `DeviceScanRules` rather than this file\'s opinion.
+    func label(for id: DeviceHandle) -> String {
+        guard let device = found.first(where: { $0.id == id }) else { return id.value }
+        return DeviceScanRules.label(for: device)
+    }
+
     func forgetWhatWasFound() {
         guard !found.isEmpty else { return }
         found = []
@@ -248,15 +328,12 @@ final class BlueZCubeRadio: CubeRadio {
     private func beginScan() {
         do {
             guard try link.powerOn() else {
-                // **Through the sequence rather than around it**, so a reach that cannot even look is ended the
-                // same way as one that looked and found nothing: it drops its state, cancels its settle wait and
-                // reports once through `finished`. Reporting here directly would leave a sequence still running.
-                reach.giveUp(because: "the Bluetooth adapter would not power on")
+                giveUpBeforeLooking(because: "the Bluetooth adapter would not power on")
                 return
             }
             try link.startDiscovery()
         } catch {
-            reach.giveUp(because: Self.describe(error))
+            giveUpBeforeLooking(because: Self.describe(error))
             return
         }
         isScanning = true
@@ -273,8 +350,29 @@ final class BlueZCubeRadio: CubeRadio {
             // otherwise be a cube that was in the room and was never tried.
             refreshWhatIsThere()
             closeTheScan()
+            // **A browse stops here.** What it found is on screen and the next move is somebody pressing a row;
+            // handing the list to the sequence would log in to one of them unasked, which is the thing the list
+            // exists to stop.
+            guard !isBrowsing else { return }
             beginTryingWhatWasFound()
         }
+    }
+
+    /// A scan that could not even start, reported to whoever asked for it.
+    ///
+    /// **Two callers wanting two different things said.** A reach is ended through the sequence rather than around
+    /// it, so that it drops its state, cancels its settle wait and reports once through `finished` -- reporting
+    /// directly would leave a sequence still running. A browse has no sequence at all, so the message goes to the
+    /// tab, where it is the status line under the Scan button.
+    private func giveUpBeforeLooking(because reason: String) {
+        guard isBrowsing else {
+            reach.giveUp(because: reason)
+            return
+        }
+        isBrowsing = false
+        isScanning = false
+        debugLog?.record(.scan, "Scan unavailable: \(reason)")
+        onScanMessage?(reason)
     }
 
     /// Reads the tree and publishes what changed.
@@ -288,12 +386,26 @@ final class BlueZCubeRadio: CubeRadio {
         }
         guard devices != found else { return }
         found = devices
-        onDevicesChanged?(devices)
+        // **A browse publishes what is in the running; a reach publishes what it heard.** BlueZ lists the whole
+        // room -- monitors, lamps, headphones -- where CoreBluetooth filters as the advertisement arrives, so a
+        // browse has to filter on this side of the callback or the Device tab draws a row for the television
+        // (measured 2026-09-20: a filtered scan listed eleven devices, one of them a cube).
+        //
+        // **A reach is left unfiltered deliberately.** Nothing draws that list -- the tab lists nothing at all
+        // while a cube is paired, which is the only time a reach runs -- so what it publishes is a report of what
+        // the adapter said, and narrowing it would lose the headphones that explain why a window found no cube.
+        // `beginTryingWhatWasFound` applies `eligible` for itself before anything is tried.
+        onDevicesChanged?(isBrowsing ? eligible(from: devices) : devices)
     }
 
     /// One turn of the scan: read the tree, and cut the window short if the remembered cube is already there.
     private func readWhatIsThere() {
         refreshWhatIsThere()
+
+        // **A browse runs its whole window.** Cutting it short is a reach deciding it has what it came for, and a
+        // browse has not come for anything in particular: ending early would hide the second cube in the room from
+        // somebody who opened this list precisely because there is more than one.
+        guard !isBrowsing else { return }
 
         // **Whether an advertisement is worth cutting the window short for is `CubeReachSequence`'s question**,
         // and the answer is the remembered handle and nothing else. It answers `true` once per reach, and the
@@ -308,7 +420,11 @@ final class BlueZCubeRadio: CubeRadio {
     }
 
     private func eligible(from devices: [ScannedDevice]) -> [ScannedDevice] {
-        devices.filter {
+        // **Unfiltered only while browsing with the box ticked**, never while reaching. A reach hands what this
+        // answers to `CubeReachSequence`, which presents a PIN to each in turn -- so widening it here would have the
+        // app logging in to whatever else is in the room.
+        if isBrowsing && showsEverything { return devices }
+        return devices.filter {
             DeviceScanRules.isEligible($0, remembered: remembered, previouslyKnown: previouslyKnown)
         }
     }

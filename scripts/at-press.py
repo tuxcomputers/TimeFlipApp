@@ -87,8 +87,13 @@ def main():
     if action.nActions < 1:
         sys.exit(f"{wanted!r} is a {role_of(node)} and offers no actions to perform")
 
+    # **The role is read before the press, not after.** Pressing a control often rebuilds the pane it is in, and a
+    # node read back afterwards is a handle to a destroyed widget: AT-SPI answers `invalid`, which reads as the press
+    # having gone somewhere odd when it went exactly where it should. Seen 2026-09-20 on the Device tab\'s Scan
+    # button, which redraws its own row.
+    role = role_of(node)
     action.doAction(0)
-    print(f"pressed {wanted!r} ({role_of(node)})")
+    print(f"pressed {wanted!r} ({role})")
     return 0
 
 

@@ -59,7 +59,17 @@ final class DevicePane {
     private let debugLog: DebugLog?
     private let battery: () -> Int?
     private let isReachingForCube: () -> Bool
-    private let pair: () -> Void
+    /// Whether the radio is scanning, **asked at the moment the button is drawn** rather than held, which is the
+    /// same treatment `isReachingForCube` gets and for the same reason: the radio scans on its own when it goes
+    /// looking for a paired cube, so a window opened in the middle of that must not come back offering to start
+    /// one. `showScanning` below is only what prompts the redraw.
+    private let isScanning: () -> Bool
+    /// Start a scan that lists what it hears. The flag is *All Devices*: drop the name filter.
+    private let scan: (Bool) -> Void
+    /// Stop a scan that is running, because the button was pressed again.
+    private let stopScan: () -> Void
+    /// Log in to the row that was pressed.
+    private let connect: (DeviceHandle) -> Void
     private let forget: () -> Void
     private let reset: () -> Void
 
@@ -73,6 +83,13 @@ final class DevicePane {
     private let readings: UnsafeMutablePointer<GtkWidget>
     private let moreRows: UnsafeMutablePointer<GtkWidget>
     private let controls: UnsafeMutablePointer<GtkWidget>
+    /// The rows a scan drew, in a box of their own under the controls.
+    ///
+    /// **Cleared by the same pass that clears the others, and that is load-bearing rather than tidy.** `redraw`
+    /// replaces `signals`, which is what owns the boxed closures behind every handler; a row left alive in here
+    /// across that would keep a handler pointing at a freed box. So either everything rebuilt together or scan rows
+    /// carry a signal bag of their own, and together is the one with no second rule to remember.
+    private let scanResults: UnsafeMutablePointer<GtkWidget>
     private let settingRows: UnsafeMutablePointer<GtkWidget>
     private var sections: [PanelSection] = []
     private var signals = GtkSignals()
@@ -80,6 +97,17 @@ final class DevicePane {
     /// The name cell on show, held for the reason every `EditableNameCell` is: it owns the handlers on its own
     /// widgets, and GTK retains the widgets rather than the Swift object around them.
     private var nameCell: EditableNameCell?
+
+    /// What the scan has found, what it is doing, and what to say about it.
+    ///
+    /// **Held rather than read, and this is the exception the first design rule allows for.** There is no table
+    /// behind a scan: the radio hears an advertisement and says so, and what is on screen is the last thing it
+    /// said. Nothing else can change it, and `showFound` replaces the whole list rather than adding to it -- so a
+    /// device that has dropped out cannot linger here, because nothing here remembers it independently.
+    private var foundDevices: [ScannedDevice] = []
+    private var scanMessage = ""
+    /// Whether *All Devices* is ticked, kept across the redraw that a scan starting causes.
+    private var showsEverything = false
     private var values = Values(
         isCubePaired: false,
         isCubeConnected: false,
@@ -102,7 +130,10 @@ final class DevicePane {
         dialogues: DialoguePresenter,
         battery: @escaping () -> Int?,
         isReachingForCube: @escaping () -> Bool,
-        pair: @escaping () -> Void,
+        isScanning: @escaping () -> Bool,
+        scan: @escaping (Bool) -> Void,
+        stopScan: @escaping () -> Void,
+        connect: @escaping (DeviceHandle) -> Void,
         forget: @escaping () -> Void,
         reset: @escaping () -> Void,
         debugLog: DebugLog?
@@ -112,7 +143,10 @@ final class DevicePane {
         self.dialogues = dialogues
         self.battery = battery
         self.isReachingForCube = isReachingForCube
-        self.pair = pair
+        self.isScanning = isScanning
+        self.scan = scan
+        self.stopScan = stopScan
+        self.connect = connect
         self.forget = forget
         self.reset = reset
         self.debugLog = debugLog
@@ -127,6 +161,7 @@ final class DevicePane {
         readings = SettingsWidgets.column()
         moreRows = SettingsWidgets.column()
         controls = SettingsWidgets.row(spacing: Int(SettingsMetrics.rowSpacing))
+        scanResults = SettingsWidgets.column(spacing: Int(SettingsMetrics.rowSpacing))
         settingRows = SettingsWidgets.column()
 
         let timeflip = PanelSection(
@@ -159,6 +194,7 @@ final class DevicePane {
         facet_box_pack_start(timeflipRows, readings, 0, 1, 0)
         facet_box_pack_start(timeflipRows, more.widget, 0, 1, 0)
         facet_box_pack_start(timeflipRows, controls, 0, 1, 0)
+        facet_box_pack_start(timeflipRows, scanResults, 0, 1, 0)
         facet_box_pack_start(widget, timeflip.widget, 0, 1, 0)
         facet_box_pack_start(widget, settingsSection.widget, 0, 1, 0)
     }
@@ -205,6 +241,7 @@ final class DevicePane {
         for child in SettingsWidgets.children(of: readings)
             + SettingsWidgets.children(of: moreRows)
             + SettingsWidgets.children(of: controls)
+            + SettingsWidgets.children(of: scanResults)
             + SettingsWidgets.children(of: settingRows)
         {
             gtk_widget_destroy(child)
@@ -212,6 +249,7 @@ final class DevicePane {
         signals = GtkSignals()
         nameCell = nil
         drawTimeFlip()
+        drawScanResults()
         drawSettings()
         gtk_widget_show_all(widget)
     }
@@ -260,16 +298,49 @@ final class DevicePane {
         // **Which controls are offered is `DevicePairingRules`'**, asked here rather than decided: an app with a
         // cube on record offers to forget it, and one without offers to go and find one.
         if DevicePairingRules.showsScanControls(isCubePaired: values.isCubePaired) {
-            let button = gtk_button_new_with_label("Pair a cube")!
-            SettingsWidgets.identify(button, "device-pair")
+            // **A list rather than one button that pairs, and the difference matters in a room with two cubes.**
+            // This drew a single *Pair a cube* until 2026-09-20, which scanned and logged in to whichever answered
+            // first -- fine on a desk with one, and on a work desk with several it picks for you and gives no way
+            // to say which. The Mac has always drawn the list; this is the same controls, the same identifiers and
+            // the same wording, so a check written once drives both.
+            let scanning = isScanning()
+            let button = gtk_button_new_with_label(scanning ? "Stop Scan" : "Scan for Devices")!
+            SettingsWidgets.identify(button, "device-scan")
             // Dead while a login is already out, for the reason forgetting is: a second attempt on top of the first
             // is two conversations with one cube.
             gtk_widget_set_sensitive(button, isReachingForCube() ? 0 : 1)
             signals.connect(button, "clicked") { [weak self] in
-                self?.debugLog?.record(.pair, "Button clicked: Pair a cube")
-                self?.pair()
+                guard let self else { return }
+                if scanning {
+                    debugLog?.record(.click, "Button clicked: Stop Scan")
+                    stopScan()
+                } else {
+                    debugLog?.record(.click, "Button clicked: Scan for Devices (allDevices=\(showsEverything))")
+                    scan(showsEverything)
+                }
             }
             facet_box_pack_start(controls, button, 0, 0, 0)
+
+            // **A filtered scan is the default and this is the way out of it.** The filter matches the vendor name
+            // and the names this cube has carried, which is what finds a renamed device -- and is also what hides a
+            // cube somebody renamed without telling this app. That second case is the whole reason it is here.
+            let allBox = gtk_check_button_new_with_label("All Devices")!
+            SettingsWidgets.identify(allBox, "device-scan-all")
+            facet_toggle_set_active(allBox, showsEverything ? 1 : 0)
+            gtk_widget_set_sensitive(allBox, isReachingForCube() ? 0 : 1)
+            signals.connect(allBox, "toggled") { [weak self] in
+                guard let self else { return }
+                showsEverything = facet_toggle_get_active(allBox) != 0
+            }
+            facet_box_pack_start(controls, allBox, 0, 0, 0)
+
+            // **Why a scan could not run, or that one is listening.** Absent when there is nothing to say, rather
+            // than an empty row holding space open.
+            if !scanMessage.isEmpty {
+                let status = SettingsWidgets.label(scanMessage)
+                SettingsWidgets.identify(status, "device-scan-status", saying: scanMessage)
+                facet_box_pack_start(controls, status, 0, 1, 0)
+            }
         }
         if DevicePairingRules.showsPairedControls(isCubePaired: values.isCubePaired) {
             let button = gtk_button_new_with_label("Forget this cube")!
@@ -306,6 +377,60 @@ final class DevicePane {
             }
             facet_box_pack_start(controls, wipe, 0, 0, 0)
         }
+    }
+
+    /// One row per device the scan heard, each pressable.
+    ///
+    /// **A paired app lists nothing, whoever is asking.** The radio publishes on every advertisement, so the rule
+    /// cannot live only where the tab is drawn from the table: a scan still running when a pairing lands would
+    /// otherwise draw rows straight back under controls that no longer offer any way to stop it. Same reasoning as
+    /// the Mac\'s `showFound`.
+    private func drawScanResults() {
+        guard !values.isCubePaired else { return }
+        for device in DeviceScanRules.ordered(
+            foundDevices,
+            remembered: settings.string("device_name", field: "name"),
+            previouslyKnown: settings.string("device_name", field: "previous_name")
+        ) {
+            let label = DeviceScanRules.label(for: device)
+            let row = gtk_button_new_with_label(label)!
+            SettingsWidgets.identify(row, "device-scan-result-\(device.id.value)", saying: label)
+            // **The rows go dead rather than merely being ignored.** A second press during the several seconds a
+            // connect takes is the obvious thing to do when nothing has visibly happened, and a control that quietly
+            // discards it is the one that looks broken.
+            gtk_widget_set_sensitive(row, isReachingForCube() ? 0 : 1)
+            let handle = device.id
+            signals.connect(row, "clicked") { [weak self] in
+                guard let self else { return }
+                debugLog?.record(.click, "Device clicked: \(label)")
+                connect(handle)
+            }
+            facet_box_pack_start(scanResults, row, 0, 1, 0)
+        }
+    }
+
+    // MARK: - what a scan is doing
+
+    /// The devices found so far, handed over whole.
+    ///
+    /// **Handed the whole list rather than each arrival**, so this holds no list of its own beyond the last answer:
+    /// what is on screen is what the scanner last said, and a device that has dropped out cannot linger.
+    func showFound(_ devices: [ScannedDevice]) {
+        guard devices != foundDevices else { return }
+        foundDevices = devices
+        redraw()
+    }
+
+    /// The radio started or stopped scanning, so the button\'s title is out of date.
+    func showScanning(_ isScanning: Bool) {
+        redraw()
+    }
+
+    /// What to say under the button, or nothing.
+    func showScanMessage(_ message: String) {
+        guard message != scanMessage else { return }
+        scanMessage = message
+        redraw()
     }
 
     // MARK: - what the cube is set to

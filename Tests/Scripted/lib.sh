@@ -411,6 +411,12 @@ pair_a_cube() {
     # pointing away from the fault for the second time in this function -- run 170 (2026-09-07) stopped here, because
     # `56-manual-mode` runs a scan to prove the radio came back and the window it leaves behind outlasted the sleep
     # that was meant to cover it.
+    # **A scan already listening is waited out, not pressed into.** The Scan button is the one button either way:
+    # pressing it during a scan stops that scan instead of starting one, so the wait below then sits out its whole
+    # minute for a `Scan started` row nothing is going to write, and answers with the radio. That is a diagnosis
+    # pointing away from the fault for the second time in this function -- run 170 (2026-09-07) stopped here, because
+    # `56-manual-mode` runs a scan to prove the radio came back and the window it leaves behind outlasted the sleep
+    # that was meant to cover it.
     case "$(element device-scan)" in
         *"Stop Scan"*)
             step "a scan is already running; waiting for it to end before starting one"
@@ -449,7 +455,7 @@ pair_a_cube() {
         return 1
     fi
 
-    row=$(tree | grep -m1 -o "device-scan-result-[0-9A-Fa-f-]*")
+    row=$(tree | grep -m1 -o "device-scan-result-[0-9A-Za-z:-]*")
     if [ -z "$row" ]; then
         press device-scan
         PAIR_REASON="the app logged a device but drew no row to press"

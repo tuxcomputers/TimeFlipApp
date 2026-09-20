@@ -48,7 +48,10 @@ final class SettingsWindow {
     struct DeviceReadings {
         var battery: () -> Int?
         var isReachingForCube: () -> Bool
-        var pair: () -> Void
+        var isScanning: () -> Bool
+        var scan: (Bool) -> Void
+        var stopScan: () -> Void
+        var connect: (DeviceHandle) -> Void
         var forget: () -> Void
         /// Wipes the cube, and answers what became of it. **The outcome comes back rather than being acted on**,
         /// because what to say about it is `FactoryResetOutcome.message(for:)` and what to do about it is the
@@ -121,6 +124,14 @@ final class SettingsWindow {
     func deviceChanged() {
         shown?.device.reload()
     }
+
+    /// What a scan is doing, forwarded to the Device tab if it is on screen.
+    ///
+    /// **Silently nothing while the window is shut**, which is correct rather than defensive: the window and its
+    /// panes are destroyed on close here, and the next open reads the radio\'s state for itself.
+    func devicesFound(_ devices: [ScannedDevice]) { shown?.device.showFound(devices) }
+    func scanningChanged(_ isScanning: Bool) { shown?.device.showScanning(isScanning) }
+    func scanMessageChanged(_ message: String) { shown?.device.showScanMessage(message) }
 
     /// An account was connected, so a sweep becomes possible. **Assigned rather than taken at init**, for the
     /// reason `onTimingChanged` is: what it reaches is built after this window.
@@ -251,7 +262,10 @@ final class SettingsWindow {
             dialogues: dialogues,
             battery: deviceReadings.battery,
             isReachingForCube: deviceReadings.isReachingForCube,
-            pair: deviceReadings.pair,
+            isScanning: deviceReadings.isScanning,
+            scan: deviceReadings.scan,
+            stopScan: deviceReadings.stopScan,
+            connect: deviceReadings.connect,
             forget: { [weak self] in
                 self?.deviceReadings.forget()
                 // Redrawn from the table afterwards, and the bar told: forgetting a cube changes what this tab is

@@ -1068,6 +1068,66 @@ a task. Two more decisions came out of the window after it was written (`ManualC
 both are why the file keeps shrinking.
 
 
+### 11a - Linux - The UI audit, and the Device tab\'s scan list (2026-09-20)
+
+**Set by the owner**: *the operation of the UI has to match on both systems as closely as possible, do an audit to
+find out and fix anything that does not* -- and, specifically, *there could be multiple devices that could be paired
+in a work environment, the list has to be presented for the user to select one*.
+
+#### The one that mattered, and it is fixed
+
+**The Linux Device tab drew a single *Pair a cube* button where the Mac draws a scan list.** It scanned and logged in
+to whichever cube answered first, which is fine on a desk with one and wrong the moment there are two: on a work desk
+with several, the app picked for you and there was no way to say which. Found because `00-setup` could not pair --
+`pair_a_cube` looks for `device-scan`, and this platform had no such control.
+
+**It now draws what the Mac draws**, with the same identifiers, the same wording and the same debug messages, so one
+check drives both:
+
+| | |
+|---|---|
+| `device-scan` | *Scan for Devices* / *Stop Scan* |
+| `device-scan-all` | *All Devices*, the way out of the name filter |
+| `device-scan-status` | why a scan could not run, or that one is listening |
+| `device-scan-result-<id>` | one pressable row per device heard |
+
+`BlueZCubeRadio` gained `startScan(filterToTimeFlip:remembered:previouslyKnown:)`, `stopScan()`,
+`connect(to:presenting:rotatingTo:)` and `label(for:)`. **A browse is separate from `pair` rather than a flag on
+it**, because the two differ in what happens when the window closes: a reach hands what it found to
+`CubeReachSequence` to be tried, and a browse hands it to whoever is looking.
+
+**`onDevicesChanged` already existed and nothing consumed it.** The radio had been publishing the list all along.
+
+**Confirmed on the cube**, 2026-09-20: a filtered scan drew one row (`TimeFlip v2.0`), *All Devices* drew twelve, and
+pressing the row logged `Device clicked` -> `Chosen from the list` -> `PIN accepted` -> `Paired with TimeFlip v2.0`.
+
+**Two faults found while confirming it**, both fixed:
+
+- **BlueZ lists the whole room where CoreBluetooth filters as the advertisement arrives**, so the first filtered
+  scan drew eleven rows including a television and a lamp. A browse now filters before publishing. **A reach is
+  left unfiltered deliberately** -- nothing draws that list, and the headphones in it are what explain why a
+  window found no cube. `BlueZCubeRadioTests` pins both halves.
+- **`pair_a_cube` matched a result row with `[0-9A-Fa-f-]*`**, which is a UUID. A BlueZ handle is a MAC address and
+  the pattern stopped at the first colon.
+
+#### What else the audit found, and what is left
+
+Identifiers were diffed across both targets. Setting aside CSS classes and GTK signal names, what remains:
+
+- **Renames of the same control**, which are the cheap ones and are **not yet done**: `app-show-seconds` against
+  `app-display-seconds`, `faces-timing-heading` against `faces-timing-column-heading`, `faces-categories-heading`
+  against `faces-categories-column-heading`, `app-google-calendar` against `app-google-calendar-name`.
+- **The Google control is one button on the Mac and two here**: `app-google-button` against `app-google-connect`
+  plus `app-google-disconnect`.
+- **Sub-identifiers the Linux `PanelSection` does not set**: every `*-section-heading` and `*-section-panel`, plus
+  `device-led`, `settings-panes`, `app-google-email`, `app-google-note`, `app-debug-*`.
+- **Genuinely platform-specific, and not to be matched**: `main-menu-*` is the macOS application menu bar, which
+  this platform does not have. The status item\'s right half is the other one -- an `AppIndicator` publishes one
+  activation and the panel owns the secondary click, so `click_right` has no counterpart and refuses loudly.
+
+**The renames are the next thing to do**, being mechanical and each one a check that would otherwise need writing
+twice.
+
 ### 12 - Linux - The scripted suite on Linux
 
 **The suite drives the Linux app now, and one thing stands between it and a full run: the database on this
