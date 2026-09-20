@@ -18,7 +18,7 @@ close_settings
 
 # The title is drawn from the database every time rather than pushed at it, so it is also the quickest
 # read on whether the app is following what is recorded.
-title=$(python3 scripts/ax-dump.py --menu-bar 2>/dev/null | grep -m1 "id=status-item" || true)
+title=$(platform_status_item)
 if [ -n "$title" ]; then
     pass "the status item is in the menu bar"
     grey "          $title"
@@ -33,12 +33,27 @@ fi
 
 # ---------------------------------------------------------------------------- the left half
 
+# **One check either way, because the fact being checked is different on each platform and both are real.**
+#
+# On macOS the menu has to be opened, and opening it is a real mouse event on a real screen: a status item
+# exposes no accessible action at all, so the left half being what opens it is a thing worth turning on.
+#
+# On Linux there is no click to make. The tray menu is a `com.canonical.dbusmenu` object whose items can be read
+# and chosen without it ever being shown, and the panel owns whatever a pointer does to the icon -- so "a left
+# click opens the menu" is not a fact about this platform, and asserting it would be asserting something the app
+# does not and should not do. What is true here, and worth the same one check, is that the menu is reachable at
+# all: everything below this line depends on it.
 since=$(mark)
-click_left || fail "the status item would not click, so nothing below could be checked"
-sleep 0.8
-expect_log "a left click opens the menu" "$since" "%side=left%showMenu%"
+if [ "$PLATFORM" = "mac" ]; then
+    click_left || fail "the status item would not click, so nothing below could be checked"
+    sleep 0.8
+    expect_log "a left click opens the menu" "$since" "%side=left%showMenu%"
+else
+    check "the menu can be read without being opened" "yes" \
+        "$(platform_menu_tree | grep -q "id=open-settings" && echo yes || echo no)"
+fi
 
-menu=$(python3 scripts/ax-dump.py --menu-bar 2>/dev/null)
+menu=$(platform_menu_tree)
 check_contains "the menu offers Settings" "$menu" "id=open-settings"
 check_contains "the menu offers Quit" "$menu" "id=quit-app"
 # One item, not two: the same control says Pause or Resume depending on what is happening, because

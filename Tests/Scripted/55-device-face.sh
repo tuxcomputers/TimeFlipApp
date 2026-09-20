@@ -129,7 +129,7 @@ press_cube_lock() {
         fail "the status item was clicked and the dropdown did not open, so there was no Lock item to press"
         return 1
     fi
-    if ! python3 scripts/ax-press.py toggle-cube-lock >/dev/null 2>&1; then
+    if ! menu_press toggle-cube-lock >/dev/null 2>&1; then
         fail "the dropdown is open but has no toggle-cube-lock item to press"
         return 1
     fi
@@ -192,7 +192,7 @@ if [ "$(sql "SELECT json_extract(setting_value, '\$.enabled') FROM setting WHERE
     click_left
     sleep 0.8
     # One item saying two things rather than two items, so what it currently offers is worth reading before pressing it.
-    check_contains "and the dropdown offers to unlock it" "$(python3 scripts/ax-dump.py --menu-bar 2>/dev/null)" "Unlock"
+    check_contains "and the dropdown offers to unlock it" "$(platform_menu_tree)" "Unlock"
     menu_press toggle-cube-lock
     sleep 1.5
 

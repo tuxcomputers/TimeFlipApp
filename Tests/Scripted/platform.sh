@@ -312,48 +312,112 @@ platform_open_menu() {
     esac
 }
 
+# **The titles a menu identifier can be showing on Linux**, printed one per line.
+#
+# Nothing carries the identifier to the tray: `com.canonical.dbusmenu` answers with the label and `enabled`,
+# and the numeric ids it gives out are libdbusmenu's own and are reassigned whenever the menu is rebuilt
+# (measured 2026-09-13, see `scripts/tray-menu.py`). So this side maps the identifier to the words.
+#
+# **Both sides of the mapping come from `StatusItemMenu`**, which is core and shared, so the titles are not
+# invented here -- `Item("Settings…", identifier: Identifier.settings)` is the line, and the same build puts
+# both halves on screen.
+#
+# **Two items change their wording with their state**, which is why this answers a list rather than a string:
+# Pause reads *Resume* while paused and Lock reads *Unlock* while locked, and they are the same item either way.
+platform_menu_titles() {
+    case "$1" in
+        open-settings)    printf 'Settings…\n' ;;
+        quit-app)         printf 'Quit\n' ;;
+        toggle-pause)     printf 'Pause\nResume\n' ;;
+        toggle-cube-lock) printf 'Lock\nUnlock\n' ;;
+        status-item)      printf '\n' ;;
+        *)
+            echo "  no tray item is known by the identifier $1." >&2
+            echo "  the mapping is in platform_menu_titles, beside StatusItemMenu.Identifier." >&2
+            return 1 ;;
+    esac
+}
+
 # Choose an item of the status item's menu, **named by its identifier on both platforms**.
 #
-# `menu_press open-settings` reads the same in every check, and this decides how to reach it. On macOS
-# the identifier is what `AXIdentifier` carries and the press is by name. On Linux nothing carries it:
-# `com.canonical.dbusmenu` answers with the label and `enabled`, and the numeric ids it does give out
-# are libdbusmenu's own and are reassigned whenever the menu is rebuilt (measured 2026-09-13, see
-# `scripts/tray-menu.py`). So this side maps the identifier to the title.
-#
-# **Both sides of that mapping come from `StatusItemMenu`**, which is core and shared, so the titles
-# are not invented here -- `Item("Settings…", identifier: Identifier.settings)` is the line, and the
-# same build puts both halves on screen.
-#
-# **Two of the items change their wording with their state**, which is the whole of why this is a case
-# and not a lookup table. Pause reads *Resume* while paused and Lock reads *Unlock* while locked, and
-# they are still the same item doing the same job -- so both titles are offered and whichever the menu
-# is currently showing is the one that gets pressed.
+# `menu_press open-settings` reads the same in every check, and this decides how to reach it. On macOS the
+# identifier is what `AXIdentifier` carries and the press is by name; on Linux it goes through the mapping above
+# and whichever title the menu is currently showing is the one pressed.
 platform_menu_press() {
     case "$PLATFORM" in
         mac) python3 scripts/ax-press.py "$1" 2>&1 ;;
         linux)
             local titles output
-            case "$1" in
-                open-settings)    titles="Settings…" ;;
-                quit-app)         titles="Quit" ;;
-                toggle-pause)     titles="Pause|Resume" ;;
-                toggle-cube-lock) titles="Lock|Unlock" ;;
-                *)
-                    echo "  no tray item is known by the identifier $1." >&2
-                    echo "  the mapping is in platform_menu_press, beside StatusItemMenu.Identifier." >&2
-                    return 1 ;;
-            esac
-            local IFS='|'
-            for title in $titles; do
-                unset IFS
+            titles=$(platform_menu_titles "$1") || return 1
+            while IFS= read -r title; do
+                [ -z "$title" ] && continue
                 output=$(python3 scripts/tray-menu.py --press "$title" 2>&1) && {
                     printf '%s\n' "$output"
                     return 0
                 }
-            done
-            unset IFS
-            echo "  no tray item matching $1 (tried ${titles//|/ or })${output:+: $output}" >&2
+            done <<EOF
+$titles
+EOF
+            echo "  no tray item matching $1${output:+: $output}" >&2
             return 1 ;;
+    esac
+}
+
+# **The whole of the status item's menu, as lines a check can grep.**
+#
+# The two platforms keep it in completely different places -- macOS in the menu bar's own accessibility tree,
+# Linux in a D-Bus object -- so this is the step and the method differs. `Tests/Methods.md` Method 18.
+#
+# The Linux form carries the item labels and the tray's own words, which is what the macOS dump carries too.
+platform_menu_tree() {
+    case "$PLATFORM" in
+        mac)   python3 scripts/ax-dump.py --menu-bar 2>/dev/null ;;
+        linux)
+            # **Each line gains the identifier the macOS dump carries**, because that is what a check reads:
+            # `check_contains "the menu offers Settings" "$menu" "id=open-settings"`. Nothing carries the
+            # identifier across D-Bus, so it is put back here from the same mapping `platform_menu_titles` holds
+            # -- which is `StatusItemMenu.Identifier`, the app's own, rather than a name invented for the suite.
+            #
+            # **Only the items that have one.** The category lines and the separators carry no identifier on
+            # either platform, and a line without one prints as it is.
+            python3 scripts/tray-menu.py --label 2>/dev/null
+            python3 scripts/tray-menu.py 2>/dev/null | while IFS= read -r line; do
+                local identifier=""
+                case "$line" in
+                    *"'Settings…'"*)        identifier="open-settings" ;;
+                    *"'Quit'"*)             identifier="quit-app" ;;
+                    *"'Pause'"*|*"'Resume'"*) identifier="toggle-pause" ;;
+                    *"'Lock'"*|*"'Unlock'"*)  identifier="toggle-cube-lock" ;;
+                esac
+                if [ -n "$identifier" ]; then
+                    printf '%s   id=%s\n' "$line" "$identifier"
+                else
+                    printf '%s\n' "$line"
+                fi
+            done ;;
+    esac
+}
+
+# **One item of that menu, by identifier**, for the checks that read what a line says or whether it is dead.
+#
+# On macOS that is the line carrying `id=<identifier>`. On Linux the identifier reaches nothing, so the mapping
+# above turns it into the titles the item can be showing and the matching line comes back -- including the
+# `(insensitive)` that `tray-menu.py` prints, which is what a check asking whether the line is dead reads.
+platform_menu_item() {
+    case "$PLATFORM" in
+        mac) python3 scripts/ax-dump.py --menu-bar 2>/dev/null | grep -m1 "id=$1" || true ;;
+        linux)
+            local titles menu
+            titles=$(platform_menu_titles "$1") || return 1
+            menu=$(python3 scripts/tray-menu.py 2>/dev/null) || true
+            while IFS= read -r title; do
+                [ -z "$title" ] && continue
+                # Matched on the quoted label `tray-menu.py` prints, so that `Lock` cannot match `Unlock`.
+                printf '%s\n' "$menu" | grep -m1 "'$title" && return 0
+            done <<EOF
+$titles
+EOF
+            return 0 ;;
     esac
 }
 

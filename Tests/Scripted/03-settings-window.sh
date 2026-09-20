@@ -51,7 +51,7 @@ for tab in Faces Categories Report App Device; do
     select_tab "$tab"
     expect_log "the $tab tab can be selected" "$since" "Settings tab selected: $tab"
 
-    pane=$(python3 scripts/ax-dump.py 2>/dev/null | grep -c "id=settings-pane-$(echo "$tab" | tr '[:upper:]' '[:lower:]')" || true)
+    pane=$(tree | grep -c "id=settings-pane-$(echo "$tab" | tr '[:upper:]' '[:lower:]')" || true)
     if [ "${pane:-0}" -gt 0 ]; then
         pass "the $tab pane is on screen"
     else
@@ -155,7 +155,7 @@ sleep 1
 # itself that would have been Delete Calendar.
 check "deleting asks first, and offers a way out" "Delete Calendar|Cancel" "$(alert_buttons)"
 check_contains "and the question names the calendar" \
-    "$(python3 scripts/ax-alert.py --message 2>/dev/null)" "$doomed"
+    "$(platform_alert_message)" "$doomed"
 
 press_title "Delete Calendar"
 expect_log "confirming deletes it at Google" "$since" "Google calendar deleted,%" 45

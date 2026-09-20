@@ -429,7 +429,7 @@ sleep 1
 expect_log "reinstating onto an active name is refused, naming what is in the way" "$since" \
     "%$CREATE_NEW reinstate REFUSED: category_id $holder is active under that name%"
 check "the row is still retired" "0" "$(sql "SELECT active FROM category WHERE category_id = $blocked;")"
-check_contains "and the alert says which name" "$(python3 scripts/ax-alert.py --message 2>/dev/null)" "already in use"
+check_contains "and the alert says which name" "$(platform_alert_message)" "already in use"
 press_title OK
 sleep 0.5
 
@@ -510,7 +510,7 @@ sleep 1
 check "taking an active name offers a way through and a way out" "Cancel|Rename anyway" \
     "$(alert_buttons | tr '|' '\n' | sort | paste -sd '|' -)"
 check_contains "and the alert says what it costs" \
-    "$(python3 scripts/ax-alert.py --message 2>/dev/null)" "brought back"
+    "$(platform_alert_message)" "brought back"
 
 # **Return must not agree with it, and this is the only way to know.** `CategoryRenameRules` documented that
 # Cancel led and Return dismissed, and on 2026-08-16 that was measured to be false: Return was agreeing to
@@ -639,7 +639,7 @@ check "the limit is back to zero, to hold up from" "0" "$(sql "SELECT daily_limi
 
 since=$(mark)
 announce "holding the up arrow steps 1 to 10, then by fives"
-python3 scripts/ax-hold.py "category-limit-$ID-up" 3.0 >/dev/null 2>&1
+platform_hold "category-limit-$ID-up" 3.0 >/dev/null 2>&1
 sleep 1.5
 up=$(python3 Tests/Scripted/stepper-timing.py "$since" "$RENAMED" 2>/dev/null)
 up_values=$(printf '%s' "$up" | sed -n 's/^values=//p')
@@ -675,7 +675,7 @@ check "the limit is at forty, to hold down from" "40" "$(sql "SELECT daily_limit
 # was -- so the extra time is spent proving nothing further happens rather than waiting for it to finish.
 since=$(mark)
 announce "holding the down arrow steps 39 to 30, then by fives"
-python3 scripts/ax-hold.py "category-limit-$ID-down" 4.5 >/dev/null 2>&1
+platform_hold "category-limit-$ID-down" 4.5 >/dev/null 2>&1
 sleep 1.5
 down=$(python3 Tests/Scripted/stepper-timing.py "$since" "$RENAMED" 2>/dev/null)
 down_values=$(printf '%s' "$down" | sed -n 's/^values=//p')

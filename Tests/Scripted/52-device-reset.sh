@@ -86,7 +86,7 @@ if ! alert_is_open; then
 fi
 pass "it asks before wiping anything"
 
-check_contains "the sheet says what is about to happen" "$(python3 scripts/ax-alert.py --message 2>/dev/null)" "cannot be undone"
+check_contains "the sheet says what is about to happen" "$(platform_alert_message)" "cannot be undone"
 
 # **Cancel is drawn first and that is AppKit's doing, not the code's**: a button titled Cancel is relocated to the left
 # whatever order it was added in, which is why the key equivalents are set by hand. Asserted in the drawn order so a

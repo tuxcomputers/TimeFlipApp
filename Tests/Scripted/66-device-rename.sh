@@ -80,7 +80,7 @@ set_field_focused device-name-field "Cube 🎲"
 press_return
 sleep 1
 
-message=$(python3 scripts/ax-alert.py --message 2>/dev/null)
+message=$(platform_alert_message)
 check_contains "a name the device cannot store is refused with a reason" "$message" "The TimeFlip can only store plain"
 check_contains "and the alert says whose limit it is" "$message" "not something this app has decided"
 check_contains "and what will work instead" "$message" "18 characters"
@@ -133,7 +133,7 @@ check_contains "the Name row shows what the table now holds" "$(element device-n
 
 # **Said at the moment somebody is watching**, because everywhere else will go on showing the old name: the cube
 # never changes its advertised name, so a Bluetooth scan lists it as a TimeFlip for ever.
-message=$(python3 scripts/ax-alert.py --message 2>/dev/null)
+message=$(platform_alert_message)
 check_contains "and the app says the scan will go on showing the old name" "$message" "advertising"
 press_sheet OK
 sleep 1

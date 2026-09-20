@@ -179,7 +179,7 @@ lock_without_pausing "timing"
 
 click_left
 sleep 0.8
-pause_item() { python3 scripts/ax-dump.py --menu-bar 2>/dev/null | grep -m1 "id=toggle-pause" || true; }
+pause_item() { platform_menu_item toggle-pause; }
 
 case "$(pause_item)" in
     *disabled*) pass "the dropdown greys out Pause while the cube is locked" ;;

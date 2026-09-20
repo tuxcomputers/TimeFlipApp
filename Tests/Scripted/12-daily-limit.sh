@@ -207,7 +207,7 @@ done
 # otherwise be the one state it never mentions to somebody who cannot see it -- and the colour itself comes out of
 # `debug_log`, the accessibility tree carrying none (see `expect_colours` in lib.sh).
 
-item=$(python3 scripts/ax-dump.py --menu-bar 2>/dev/null | grep -m1 "id=status-item" || true)
+item=$(platform_status_item)
 check_contains "the status item says the limit is reached" "$item" "daily limit reached"
 check_contains "and it still names the category" "$item" "$NAME"
 # **The red lands on the figure and the name stays cyan**, which is where this parts from the archive's whole-line
@@ -226,7 +226,7 @@ expect_colours "the figure is drawn red, and only the figure" "name cyan, glyph 
 # in `AXMenuBar` until its menu is open, so this opens it first (`02` for why).
 click_left
 sleep 1
-menu=$(python3 scripts/ax-dump.py --menu-bar 2>/dev/null)
+menu=$(platform_menu_tree)
 check_contains "the dropdown's pause control is still there" "$menu" "id=toggle-pause"
 resume=$(printf '%s' "$menu" | grep -m1 "id=toggle-pause" || true)
 check_contains "it reads Resume" "$resume" "Resume"
@@ -280,7 +280,7 @@ check "and raising it did not start the clock by itself" "0" \
 
 # The menu bar stops saying it, which is the half a user actually sees. Nothing was clicked between the edit and this,
 # so what redrew the item is the edit -- there is no tick running to have done it.
-item=$(python3 scripts/ax-dump.py --menu-bar 2>/dev/null | grep -m1 "id=status-item" || true)
+item=$(platform_status_item)
 # Matched with `case` rather than piped into `grep -q`: a status test through a pipe is not reliable under the
 # `pipefail` this suite sets, and the shape is kept out of the suite entirely rather than allowed where the
 # left-hand side happens to be short enough to get away with it. See `tree_has` in lib.sh.
