@@ -425,3 +425,62 @@ Findings 1 to 3 are the subject of an issue against `DI-GROUP/TimeFlip.Docs`. Th
 **Finding 4 is different in kind and should be raised separately.** The other three are behaviour the spec is silent about; this one is a documented statement that is the wrong way round, and it is the sort of error that costs somebody a day. Either the firmware or the document is wrong, and the vendor is the only one who can say which was intended.
 
 **Finding 6 is worth raising too**, and it is a question rather than a correction: the spec does not say what a client should observe after `0xFF`, and on this firmware the answer is *nothing at all* — the command is acknowledged, the device is genuinely erased, and the connection carries on as though it had not been. Any client that waits for the device to react is waiting for something that never comes. A single documented signal, on the System State characteristic or as a disconnect, would make a reset confirmable without a reconnect.
+
+## 12. A factory-reset cube reports a stale clock, not an unset one
+
+**Measured 2026-09-20**, on the same cube, immediately after a factory reset. Asked `0x07`, it answered:
+
+```
+07 00 00 00 00 5E B9 20 63
+```
+
+`0x5EB92063` is **1589190755**, which is 11 May 2020: about six and a half years behind. Not zero, not
+absent, and not implausible on its face.
+
+**Why it matters is the test somebody will write.** A reset clears the clock, and
+`DeviceLogin.setTheClock` exists because a cube with no clock has nothing to stamp a history frame with. The
+obvious way to ask whether the clock needs setting is to look for zero, or for a value too small to be a real
+date. **Both are fooled here.** 1589190755 is a real date and passes any plausibility check that is not
+comparing it against the host.
+
+**The only honest test is drift from this machine's clock**, which is what `DeviceCommandRules.readBack`
+already does with its tolerance for exactly this command. This finding is written down so nobody replaces it
+with a cheaper check.
+
+`0x08` then set it and `0x07` read back `07 00 00 00 00 6A AF 80 14`, which is the value sent, so the write
+itself behaves as the spec says.
+
+## 13. On a cube with no history, the trailing bytes of a frame carry its clock
+
+**Measured 2026-09-20**, the same session. A `0x01 FF FF FF FF` single-event request against a cube with
+nothing recorded answered:
+
+```
+00 00 00 00 00 00 00 00 00 00 00 00 00 5E B9 1F C8     before the clock was set
+00 00 00 00 00 00 00 00 00 00 00 00 00 6A AF 80 14     after it was set
+```
+
+Bytes 0 to 3 are **event 0**, which `docs/timeflip.md` already records as meaning the cube has no such event.
+What was not recorded is bytes 13 to 16, the field the spec calls the duration. **They are not zero, and they
+are the cube's own clock**: `5EB91FC8` is 1589190600 and `6AAF8014` is 1789886484, each matching what `0x07`
+said at that moment.
+
+**So the all-zero sentinel test does not catch an empty answer.** A parser that checks the documented sentinel
+and then reads the duration gets 1,589,190,600 seconds for an event that does not exist. The check has to be
+`event == 0` **before** anything else is parsed.
+
+Confirmed in the same session that a real frame is unaffected: after one flip the answer was
+`00 00 00 01 02 00 00 00 00 6A AF 80 53 00 00 00 16`, which reads as event 1, face 2, 22 seconds, with the
+duration **big-endian** as `docs/timeflip.md` says was seen on 2026-01 firmware.
+
+### The evidence for 12 and 13 is not in the evidence file
+
+**Both were measured by [`probe/timeflip-btleplug`](../probe/timeflip-btleplug/), a Rust program using
+`btleplug`, rather than by this app.** It writes no `debug_log` rows, so there is nothing to copy into
+`timeflip2-firmware-evidence.sqlite` and no row ids to quote. The raw bytes above are its verbatim stdout,
+and re-running it reproduces them.
+
+**Said plainly rather than worked around.** Every other finding here cites rows because the app produced
+them; these two cannot, and a reader deciding how much to trust them should know which kind they are. What
+does not change is the rule at the top of this file: they are measurements from real hardware, and where they
+disagree with the spec the hardware wins.

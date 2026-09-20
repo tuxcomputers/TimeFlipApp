@@ -46,9 +46,9 @@ over D-Bus, and Windows would be a third implementation against WinRT. Every oth
 database, an OAuth flow) has many cross-platform answers. The radio has almost none.
 
 [`btleplug`](https://github.com/deviceplug/btleplug) is one async API over CoreBluetooth, BlueZ and WinRT,
-host/central role only, no Bluetooth Classic, which is exactly this app's use. **Untested against the cube.**
-It is the deciding factor and it is also the single largest unverified claim in this document. See *Open
-questions*.
+host/central role only, no Bluetooth Classic, which is exactly this app's use. **Measured against the cube on
+2026-09-20 and it does all of it**, which is the section below. It was the deciding factor and the single
+largest unverified claim in this document, and it is neither of those any more.
 
 The rest of the stack follows without difficulty, all **untested**:
 
@@ -75,6 +75,42 @@ is currently on.
 **Python and Go.** `bleak` is a genuinely good cross-platform BLE library, but Python's self-contained
 packaging conflicts with requirement 2 and its desktop UI story is weak. Go's BLE libraries are markedly less
 mature than `btleplug` for the central role. Neither was pursued.
+
+---
+
+## The radio, measured
+
+**2026-09-20, against the cube, on macOS.** [`probe/timeflip-btleplug`](../probe/timeflip-btleplug/) is the
+program, about 230 lines, and its README carries the transcript. Every mechanism this app's macOS driver
+depends on, from one crate:
+
+| Step | Result on FW_v3.64 |
+|---|---|
+| Unfiltered scan, matched as `DeviceScanRules.isEligible` does | found, rssi -65 |
+| Connect and discover | 15 characteristics, 4 services |
+| PIN on the password characteristic, with response | accepted (`02`) |
+| Device Information and Battery, plain reads | model 2.0, FW_v3.64, 100% |
+| Command channel: `0x07` read, `0x08` write, `0x07` read back | set and confirmed exactly |
+| History `0x01 FF FF FF FF`, **read rather than notify** | `00 00 00 01 02 00 00 00 00 6A AF 80 53 00 00 00 16` |
+
+That frame parses as event 1, face 2, started 1789886547, 22 seconds, duration **big-endian**.
+
+**The scan is the part worth dwelling on**, because it is where Qt was rejected. A service-filtered scan found
+nothing: this cube does not advertise its 128-bit UUID at all, which is why `BluetoothRadio` scans
+`withServices: nil` and matches on service **or** name. `btleplug` does unfiltered scanning and hands over the
+advertised name and services, so the app's own eligibility rule ports across unchanged. A backend that can
+only reach already-paired devices, which is Qt on Windows, could not do this at all.
+
+**Two firmware facts came out of the run** and are findings 12 and 13 of
+[`timeflip2-firmware-observations.md`](timeflip2-firmware-observations.md): a factory-reset cube reports a
+stale clock rather than an unset one, and the trailing bytes of an empty history frame carry that clock rather
+than a duration. Both would have cost a session to rediscover, and the second was caught by this probe
+misreading it first.
+
+**What this does not say.** It was run on macOS only, so CoreBluetooth is the backend that has been exercised
+and BlueZ and WinRT have not. That is a much smaller question than the one just closed -- the API is the same
+and the Linux port has already proved the protocol works over BlueZ from Swift -- but it is not nothing, and
+the honest statement is that one of three platforms is measured.
 
 ---
 
@@ -233,9 +269,8 @@ Each of these is a thing to run, not a thing to think about further.
    backend and needs no GTK or libappindicator. It answers: does left click produce an event, does left click
    *also* open the menu (the old bug shape, which would spend the click whatever events arrive), does right
    click open the menu silently, and does the title text appear beside the icon. **Not yet run.**
-2. **Whether `btleplug` can drive this cube.** Log in with the PIN, read a history frame, receive a face turn.
-   The entire language recommendation rests on this and it has not been attempted. It is a few hours of work
-   and it should happen before any rewrite is committed to, not after.
+2. ~~**Whether `btleplug` can drive this cube.**~~ **Answered 2026-09-20: it can.** See *The radio, measured*
+   below. This was the one that mattered and it is no longer open.
 3. **The scripted suite's hold on the status item.** `MenuBarController` sets an accessibility identifier on
    the status item button, which is how `scripts/status-item-click.py` finds it. `tray-icon` exposes no
    equivalent API, so that script and every scripted check that presses the status item would need rewriting
