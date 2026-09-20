@@ -208,14 +208,47 @@ The historical click bugs are largely closed: `mate-panel`
 [`mate-indicator-applet` #33](https://github.com/mate-desktop/mate-indicator-applet/issues/33), is a
 **different applet**: the Indicator Applet, not the Notification Area.
 
+### The menu bar on MATE, measured
+
+**2026-09-18, on the Linux box, with the `ksni` backend.** A probe put an icon, a title and a three-item menu
+in the tray and printed every event with its button and state. What came back:
+
+```
+23.53s  tray  Click { ... button: Left,   button_state: Up }
+32.00s  tray  Click { ... button: Middle, button_state: Up }
+53.25s  menu  Quit
+59.27s  menu  Pause
+64.67s  menu  Settings...
+```
+
+- **Left click reaches the app and opens no menu.** Confirmed by the owner watching the screen, which is the
+  half the log cannot show: *the left click only produced that message, no menu appeared*. So the click is
+  free, and pause and resume on left click is available on MATE.
+- **Middle click reaches the app too**, which is a spare gesture if one is ever wanted.
+- **Right click produced no event, and the menu opened.** The three `menu` lines are the owner choosing items
+  from it. That is the documented KSNI split working exactly as wanted: the host owns right click and shows
+  the menu the app registered, so the app never needs the event.
+- **`rect` came back as zeros**, as the crate documents: the StatusNotifier protocol does not expose the
+  icon rectangle.
+
+**So the shape asked for is available on all three platforms**: left click for pause and resume, right click
+for the menu. macOS and Windows give the app both clicks; MATE gives it the left one and handles the right
+one itself, which amounts to the same behaviour by a different route.
+
+**What was not recorded is which applet it ran in**, and that is the one gap. The paragraph below is why it
+matters: a result from the Notification Area applet generalises, and one from the Indicator Applet is a result
+about an applet with an open left/right click bug that happened not to bite. The behaviour observed was the
+correct one either way, so this is a question about how far the finding travels rather than about whether it
+holds on that machine.
+
 **The Linux box is already running the wrong applet for this.** `linux-port.md` records it as Linux Mint 22.3
 on MATE 1.26.1 under X11, with `libayatana-appindicator3` and **`mate-indicator-applet`** present. That is the
 Indicator Applet, which is precisely the one whose left and right click bug is still open, rather than the
 Notification Area applet whose bugs are closed and which also speaks XEmbed. **Any test of click behaviour has
 to say which applet it ran against**, or it measures the wrong thing and answers the wrong question.
 
-**So left-click pause and right-click menu is plausible on MATE and unproven. UNTESTED, and it is the open
-question that matters most.** A probe exists to settle it; see *Open questions*.
+**Measured 2026-09-18 and it works**, which the section above sets out. This paragraph used to say it was the
+open question that mattered most, and it was; the probe that settled it is described there.
 
 **The XEmbed route is closed from Rust.** It would guarantee full click control, but it needs `GtkStatusIcon`,
 and [the GTK3 Rust bindings are unmaintained with RUSTSEC
@@ -227,8 +260,8 @@ GTK4 removed `StatusIcon` entirely. **Untested**, from those advisories.
 - **The Settings window**: identical on all three. Achievable.
 - **The menu's contents and behaviour**: identical on all three. Achievable, provided the menu is the primary
   route to everything.
-- **Left click as a shortcut**: macOS and Windows yes, MATE probably. Where it is unavailable the user loses a
-  shortcut, not a capability.
+- **Left click as a shortcut**: macOS, Windows and MATE, all yes, the last measured 2026-09-18. Where it is
+  unavailable on some other desktop the user loses a shortcut, not a capability.
 - **Text beside the icon**: macOS and MATE yes, Windows never.
 
 **The design rule that follows:** put Pause and Resume as the first item of the menu on every platform, and
@@ -264,11 +297,9 @@ known end date.** It is recorded here because the option is open now and closes 
 
 Each of these is a thing to run, not a thing to think about further.
 
-1. **What MATE actually does with a left click.** A probe was written on 2026-09-18 that puts an icon, a title
-   and a three-item menu in the tray and prints every event with its button and state. It uses the `ksni`
-   backend and needs no GTK or libappindicator. It answers: does left click produce an event, does left click
-   *also* open the menu (the old bug shape, which would spend the click whatever events arrive), does right
-   click open the menu silently, and does the title text appear beside the icon. **Not yet run.**
+1. ~~**What MATE actually does with a left click.**~~ **Answered 2026-09-18: the design works.** See *The menu
+   bar on MATE, measured* above. The applet it ran in was not recorded, which is the one thing still worth
+   knowing.
 2. ~~**Whether `btleplug` can drive this cube.**~~ **Answered 2026-09-20: it can.** See *The radio, measured*
    below. This was the one that mattered and it is no longer open.
 3. **The scripted suite's hold on the status item.** `MenuBarController` sets an accessibility identifier on
