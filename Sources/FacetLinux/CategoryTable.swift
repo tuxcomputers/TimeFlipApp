@@ -38,6 +38,9 @@ final class CategoryTable {
     /// The rows, and the handlers on them, thrown away together. **Not a copy of anything true** -- it is what GTK
     /// was handed, kept only so it can be taken back, which is the same thing `MenuBar.shown` is.
     private let signals = GtkSignals()
+    /// The limit fields on show, held for the reason the panes hold theirs: each owns the handlers on its own
+    /// widgets, and GTK retains the widgets rather than the Swift object around them.
+    private var steppers: [SteppedNumberField] = []
 
     /// Which faces hold a category, and whether they are locked, which is what decides whether a row can be edited at
     /// all. Asked per row as the row is built, so it is read when it is needed rather than passed in alongside the
@@ -72,6 +75,7 @@ final class CategoryTable {
         }
         signals.removeAll()
         nameCells.removeAll()
+        steppers.removeAll()
 
         // The caption row goes with the categories rather than above them permanently: columns with nothing under
         // them are a table pretending to be empty for a reason, when the truth is there is nothing to show.
@@ -240,26 +244,20 @@ final class CategoryTable {
         refusal: CategoryEditRules.EditRefusal?,
         help: String?
     ) -> UnsafeMutablePointer<GtkWidget> {
-        let field = gtk_spin_button_new_with_range(
-            Double(CategoryEditRules.disabledDailyLimit),
-            Double(CategoryEditRules.maximumDailyLimitMinutes),
-            1
-        )!
-        SettingsWidgets.identify(field, "category-limit-\(category.id)")
-        facet_spin_set_value(field, Double(category.dailyLimitMinutes))
-        gtk_widget_set_sensitive(field, refusal == nil ? 1 : 0)
-        gtk_widget_set_tooltip_text(field, help)
-        signals.connect(field, "value-changed") { [weak self] in
-            let minutes = Int(facet_spin_get_value_as_int(field))
-            // The value the field already holds is not a change worth writing: GTK emits this as the row is built
-            // and as a value is put back, and a write per redraw would be a `debug_log` row per redraw.
-            guard minutes != category.dailyLimitMinutes else { return }
+        // **Two real arrows, carrying `-up` and `-down`.** `04-categories` holds one for three seconds and expects
+        // the figure to have run, which is a gesture a `GtkSpinButton` cannot offer a script: its arrows are not
+        // separate accessible objects. `SteppedNumberField` is the shared answer.
+        let field = SteppedNumberField(
+            value: category.dailyLimitMinutes,
+            range: CategoryEditRules.disabledDailyLimit...CategoryEditRules.maximumDailyLimitMinutes,
+            suffix: "min",
+            identifier: "category-limit-\(category.id)",
+            live: refusal == nil
+        ) { [weak self] minutes in
             self?.onSetDailyLimit?(category, minutes)
         }
-
-        let cell = SettingsWidgets.row(spacing: 4)
-        facet_box_pack_start(cell, field, 0, 0, 0)
-        facet_box_pack_start(cell, SettingsWidgets.secondary("min"), 0, 0, 0)
-        return SettingsWidgets.cell(cell, width: Layout.limitColumnWidth)
+        steppers.append(field)
+        gtk_widget_set_tooltip_text(field.widget, help)
+        return SettingsWidgets.cell(field.widget, width: Layout.limitColumnWidth)
     }
 }

@@ -98,6 +98,11 @@ final class DevicePane {
     /// widgets, and GTK retains the widgets rather than the Swift object around them.
     private var nameCell: EditableNameCell?
 
+    /// The number fields on show. Held for the reason `nameCell` is: each owns the handlers on its own widgets, and
+    /// GTK retains the widgets rather than the Swift object around them, so a dropped reference is a field that
+    /// draws and does nothing.
+    private var steppers: [SteppedNumberField] = []
+
     /// What the scan has found, what it is doing, and what to say about it.
     ///
     /// **Held rather than read, and this is the exception the first design rule allows for.** There is no table
@@ -248,6 +253,7 @@ final class DevicePane {
         }
         signals = GtkSignals()
         nameCell = nil
+        steppers = []
         drawTimeFlip()
         drawScanResults()
         drawSettings()
@@ -586,17 +592,19 @@ final class DevicePane {
         live: Bool,
         onChange: @escaping (Int) -> Void
     ) -> UnsafeMutablePointer<GtkWidget> {
-        let field = gtk_spin_button_new_with_range(Double(range.lowerBound), Double(range.upperBound), 1)!
-        SettingsWidgets.identify(field, identifier)
-        facet_spin_set_value(field, Double(value))
-        gtk_widget_set_sensitive(field, live ? 1 : 0)
-        signals.connect(field, "value-changed") { [weak self] in
-            guard self != nil else { return }
-            let wanted = Int(facet_spin_get_value_as_int(field))
-            guard wanted != value else { return }
-            onChange(wanted)
-        }
-        return row(label, control: field, suffix: suffix, live: live)
+        // **A field with two real arrows, not a `GtkSpinButton`.** The spin button looked and behaved right and
+        // was the wrong answer from outside: its arrows are not separate accessible objects, so a check can
+        // neither press one nor count one. `SteppedNumberField` says why that matters and what depends on it.
+        let field = SteppedNumberField(
+            value: value,
+            range: range,
+            suffix: suffix,
+            identifier: identifier,
+            live: live,
+            onChange: onChange
+        )
+        steppers.append(field)
+        return row(label, control: field.widget, live: live)
     }
 
     private func row(

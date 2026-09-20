@@ -67,10 +67,18 @@ final class FacesPane {
 
         // **Plain headings above their content, not on a panel**, which is `CLAUDE.md`'s distinction: these name what
         // is under them rather than operating it, and this tab is the only one left with any.
-        let timingColumn = column(heading: "Timing", identifier: "faces-timing-column")
+        let timingColumn = column(
+            heading: "Timing",
+            identifier: "faces-timing-column",
+            headingIdentifier: "faces-timing-heading"
+        )
         facet_box_pack_start(timingColumn, timingView.widget, 0, 1, 0)
 
-        let categoriesColumn = column(heading: "Categories", identifier: "faces-categories-column")
+        let categoriesColumn = column(
+            heading: "Categories",
+            identifier: "faces-categories-column",
+            headingIdentifier: "faces-categories-heading"
+        )
         gtk_widget_set_size_request(categoriesColumn, Int32(Layout.categoriesColumnWidth), -1)
         facet_box_pack_start(categoriesColumn, categoryList.widget, 0, 1, 0)
         // Under the list rather than at the foot of the column, so it stays with what it adds to: the panel is as
@@ -133,12 +141,19 @@ final class FacesPane {
         createControl.onSave = { [weak self] typed in self?.categoryEdits.create(typed, startsTiming: true) }
     }
 
-    private func column(heading: String, identifier: String) -> UnsafeMutablePointer<GtkWidget> {
+    /// **The heading's identifier is given rather than derived.** It used to be `"\(identifier)-heading"`, which
+    /// produced `faces-timing-column-heading` where the Mac names the same label `faces-timing-heading` -- two names
+    /// for one thing, which is the hazard `CLAUDE.md` opens with, and a check written once then drives one platform.
+    private func column(
+        heading: String,
+        identifier: String,
+        headingIdentifier: String
+    ) -> UnsafeMutablePointer<GtkWidget> {
         let column = SettingsWidgets.column(spacing: Layout.sectionSpacing)
         SettingsWidgets.identify(column, identifier)
         let label = SettingsWidgets.plainLabel(heading)
         facet_label_set_markup(label, "<b>\(heading)</b>")
-        SettingsWidgets.identify(label, "\(identifier)-heading", saying: heading)
+        SettingsWidgets.identify(label, headingIdentifier, saying: heading)
         facet_box_pack_start(column, label, 0, 0, 0)
         return column
     }

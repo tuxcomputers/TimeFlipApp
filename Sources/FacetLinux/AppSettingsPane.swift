@@ -68,6 +68,9 @@ final class AppSettingsPane {
     private let googleRows: UnsafeMutablePointer<GtkWidget>
     private let debugRows: UnsafeMutablePointer<GtkWidget>
     private var signals = GtkSignals()
+    /// The number fields on show, held for the reason `DevicePane` holds its own: each owns the handlers on its
+    /// widgets, and GTK retains the widgets rather than the Swift object around them.
+    private var steppers: [SteppedNumberField] = []
 
     /// What the table said when the window opened, and what the rows are drawn from.
     ///
@@ -227,6 +230,7 @@ final class AppSettingsPane {
             gtk_widget_destroy(child)
         }
         signals = GtkSignals()
+        steppers = []
         drawPreferences()
         drawGoogle()
         drawDebug()
@@ -306,7 +310,7 @@ final class AppSettingsPane {
         // anywhere in this app behaves the same way.
         let cell = EditableNameCell(
             name: storedCalendar.name ?? GoogleCalendarRules.defaultName,
-            identifier: "app-google-calendar-name",
+            identifier: "app-google-calendar",
             isEnabled: !isCalendarChanging
         )
         cell.onCommit = { [weak self] typed in self?.renameCalendar(to: typed) }
@@ -495,7 +499,7 @@ final class AppSettingsPane {
 
     private func secondsRow() -> UnsafeMutablePointer<GtkWidget> {
         let box = gtk_check_button_new_with_label("Show seconds in the menu bar")!
-        SettingsWidgets.identify(box, "app-display-seconds")
+        SettingsWidgets.identify(box, "app-show-seconds")
         facet_toggle_set_active(box, values.showsSeconds ? 1 : 0)
         signals.connect(box, "toggled") { [weak self] in
             guard let self else { return }
@@ -511,47 +515,53 @@ final class AppSettingsPane {
     /// **12 on the control and 24 in the row**, which is `AppSettingsRules`' conversion in both directions: the
     /// archive offered a clock-face hour, and the table holds what a comparison needs.
     private func resetRow() -> UnsafeMutablePointer<GtkWidget> {
-        let field = gtk_spin_button_new_with_range(1, 12, 1)!
-        SettingsWidgets.identify(field, "app-daily-reset")
-        facet_spin_set_value(field, Double(AppSettingsRules.hour12(from: values.dailyResetHour24)))
-        signals.connect(field, "value-changed") { [weak self] in
+        let field = SteppedNumberField(
+            value: AppSettingsRules.hour12(from: values.dailyResetHour24),
+            range: 1...12,
+            suffix: "am",
+            identifier: "app-daily-reset",
+            live: true
+        ) { [weak self] hour12 in
             guard let self else { return }
-            let hour12 = Int(facet_spin_get_value_as_int(field))
-            guard hour12 != AppSettingsRules.hour12(from: values.dailyResetHour24) else { return }
             apply(.dailyResetHour12(hour12)) { [weak self] in
                 self?.values.dailyResetHour24 = AppSettingsRules.hour24(fromFace: hour12)
             }
         }
-        return row("The day starts at", control: field, suffix: "am")
+        steppers.append(field)
+        return row("The day starts at", control: field.widget)
     }
 
     private func fetchRow() -> UnsafeMutablePointer<GtkWidget> {
         let minutes = AppSettingsRules.minutes(fromSeconds: values.fetchIntervalSeconds)
-        let field = gtk_spin_button_new_with_range(1, 60, 1)!
-        SettingsWidgets.identify(field, "app-fetch-interval")
-        facet_spin_set_value(field, Double(minutes))
-        signals.connect(field, "value-changed") { [weak self] in
+        let field = SteppedNumberField(
+            value: minutes,
+            range: 1...60,
+            suffix: "min",
+            identifier: "app-fetch-interval",
+            live: true
+        ) { [weak self] wanted in
             guard let self else { return }
-            let wanted = Int(facet_spin_get_value_as_int(field))
-            guard wanted != AppSettingsRules.minutes(fromSeconds: values.fetchIntervalSeconds) else { return }
             apply(.fetchIntervalMinutes(wanted)) { [weak self] in
                 self?.values.fetchIntervalSeconds = AppSettingsRules.seconds(fromMinutes: wanted)
             }
         }
-        return row("Ask the cube for its history every", control: field, suffix: "min")
+        steppers.append(field)
+        return row("Ask the cube for its history every", control: field.widget)
     }
 
     private func blipRow() -> UnsafeMutablePointer<GtkWidget> {
-        let field = gtk_spin_button_new_with_range(0, 60, 1)!
-        SettingsWidgets.identify(field, "app-blip-time")
-        facet_spin_set_value(field, Double(values.blipSeconds))
-        signals.connect(field, "value-changed") { [weak self] in
+        let field = SteppedNumberField(
+            value: values.blipSeconds,
+            range: 0...60,
+            suffix: "sec",
+            identifier: "app-blip-time",
+            live: true
+        ) { [weak self] wanted in
             guard let self else { return }
-            let wanted = Int(facet_spin_get_value_as_int(field))
-            guard wanted != values.blipSeconds else { return }
             apply(.blipSeconds(wanted)) { [weak self] in self?.values.blipSeconds = wanted }
         }
-        return row("Ignore turns shorter than", control: field, suffix: "sec")
+        steppers.append(field)
+        return row("Ignore turns shorter than", control: field.widget)
     }
 
     // MARK: - the debug trace

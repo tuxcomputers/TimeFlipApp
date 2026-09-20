@@ -74,6 +74,11 @@ final class PanelSection {
         let heading = gtk_label_new(nil)!
         facet_label_set_markup(heading, "<b>\(Self.escaped(title))</b>")
         facet_label_set_xalign(heading, 0)
+        // **Named the way the Mac names it**, `<identifier>-heading`, because checks address the heading rather
+        // than the section for anything about the words: `08-app-settings` reads `app-debug-section-heading` and
+        // `04-categories` reads `categories-inactive-section-heading`. It carried no identifier at all here, so
+        // those checks found nothing on this platform.
+        SettingsWidgets.identify(heading, "\(identifier)-heading", saying: title)
         facet_expander_set_label_widget(widget, heading)
 
         // Inside the panel, under the heading: `headingSpacing` between the heading line and what folds away, and

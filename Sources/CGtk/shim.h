@@ -228,6 +228,11 @@ static inline void facet_entry_set_placeholder(GtkWidget *entry, const char *tex
 /* In characters, and `-1` for no limit. What it is for is the same thing `EditableNameCell.maximumLength`
    is for on the Mac: a length is the one limit a field can hold honestly, because what is on screen is then
    what will be written. */
+static inline void facet_entry_set_width_chars(GtkWidget *entry, int chars) {
+    gtk_entry_set_width_chars(GTK_ENTRY(entry), chars);
+    gtk_entry_set_max_width_chars(GTK_ENTRY(entry), chars);
+}
+
 static inline void facet_entry_set_max_length(GtkWidget *entry, int length) {
     gtk_entry_set_max_length(GTK_ENTRY(entry), length);
 }
@@ -236,6 +241,25 @@ static inline void facet_entry_set_max_length(GtkWidget *entry, int length) {
 static inline void facet_entry_select_all(GtkWidget *entry) {
     gtk_editable_select_region(GTK_EDITABLE(entry), 0, -1);
 }
+
+// **A repeating timer, for a stepper arrow that is being held.**
+//
+// `g_timeout_add` is a plain function, but its `GSourceFunc` returns `gboolean` to say whether to keep going, and
+// the two G_SOURCE constants are macros Swift cannot see. Wrapped so the Swift side deals in a callback and an id.
+static inline unsigned int facet_timeout_add(unsigned int milliseconds, GSourceFunc run, gpointer data) {
+    return g_timeout_add(milliseconds, run, data);
+}
+
+static inline void facet_source_remove(unsigned int id) {
+    if (id != 0) {
+        g_source_remove(id);
+    }
+}
+
+// What a `GSourceFunc` returns to be called again, and to stop. `G_SOURCE_CONTINUE` and `G_SOURCE_REMOVE` are
+// macros.
+static inline gboolean facet_source_continue(void) { return G_SOURCE_CONTINUE; }
+static inline gboolean facet_source_remove_value(void) { return G_SOURCE_REMOVE; }
 
 static inline int facet_spin_get_value_as_int(GtkWidget *spin) {
     return gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(spin));

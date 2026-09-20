@@ -5,11 +5,11 @@ Written by `Tests/Scripted/run.sh` at the end of every run, and committed.
 run, and a stamp that does not describe a real run is worse than no stamp at all.
 
     branch:   feature/linuxPort
-    commit:   2a694de04d7dc8b595b26c21b94018c0faca3710
+    commit:   095531b91aeaca8ee7dfdc6f0f64777ecb13c535
     tree:     dirty
     database: rebuilt from the DDL
-    started:  2026-09-20 11:00:00
-    finished: 2026-09-20 11:01:16
+    started:  2026-09-20 11:30:11
+    finished: 2026-09-20 11:31:33
     outcome:  failed
     scripts:  1 of 32 run, 0 with failures
     short:    31 ran fewer checks than they declare
@@ -20,7 +20,7 @@ run, and a stamp that does not describe a real run is worse than no stamp at all
 
 | script | expected | passed | failed | time |
 |---|---|---|---|---|
-| 00-setup | 1 | 1 | 0 | 1m 16s |
+| 00-setup | 1 | 1 | 0 | 1m 21s |
 | 01-launch | 9 | 0 | 0 | - |
 | 02-menu-bar | 9 | 0 | 0 | - |
 | 03-settings-window | 32 | 0 | 0 | - |
@@ -52,7 +52,7 @@ run, and a stamp that does not describe a real run is worse than no stamp at all
 | 65-auto-pause | 19 | 0 | 0 | - |
 | 66-device-rename | 22 | 0 | 0 | - |
 | 99-quit | 14 | 0 | 0 | - |
-| **total** | **794** | **1** | **0** | **1m 16s** |
+| **total** | **794** | **1** | **0** | **1m 21s** |
 
 > The working tree had uncommitted changes when this ran, so it is not evidence about the
 > commit it names. CI refuses a stamp in this state.
