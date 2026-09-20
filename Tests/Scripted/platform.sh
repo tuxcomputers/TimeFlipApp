@@ -451,13 +451,50 @@ sys.exit(0 if any(p.get("name") == sys.argv[1] for p in described.get("products"
 }
 
 # **Swift has to be found before it can be asked anything.** It is on `PATH` from Xcode on the Mac and is
-# deliberately not on `PATH` on the Linux box, so this says the line that puts it there rather than leaving
-# a `command not found` to be interpreted.
+# deliberately not on `PATH` on the Linux box, where it lives under `~/.local/swift`.
+#
+# **This used to print the `export` line and give up**, which was honest and was still the wrong shape: a
+# script that knows the path well enough to print it knows it well enough to use it, and every run of the
+# suite on this box began with the same two-line ceremony. Changed 2026-09-20, after `run.sh` refused for
+# exactly that reason.
+#
+# **It says what it did rather than doing it quietly**, which is the half that matters: a toolchain nobody
+# chose is the sort of thing that should be visible in a log when a build behaves oddly.
+#
+# **An already-set `PATH` wins**, because putting swift there is a deliberate act and this must not
+# second-guess it. And **more than one toolchain is a refusal rather than a guess** -- picking the
+# alphabetically-last of two would be choosing somebody's compiler for them, and the resulting failure
+# would be attributed to the code.
 platform_swift_is_available() {
     command -v swift >/dev/null 2>&1 && return 0
-    echo "  swift is not on PATH." >&2
-    echo "  export PATH=\"\$HOME/.local/swift/swift-6.2-RELEASE-ubuntu24.04/usr/bin:\$PATH\"" >&2
-    return 1
+
+    local found=()
+    local candidate
+    for candidate in "$HOME"/.local/swift/*/usr/bin/swift; do
+        [ -x "$candidate" ] && found+=("$candidate")
+    done
+
+    case "${#found[@]}" in
+        0)
+            echo "  swift is not on PATH, and there is no toolchain under ~/.local/swift." >&2
+            echo "  install one, or put it on PATH yourself:" >&2
+            echo "  export PATH=\"\$HOME/.local/swift/<version>/usr/bin:\$PATH\"" >&2
+            return 1 ;;
+        1)
+            local bin
+            bin="$(dirname "${found[0]}")"
+            export PATH="$bin:$PATH"
+            echo "  swift was not on PATH; using the toolchain at $bin"
+            return 0 ;;
+        *)
+            echo "  swift is not on PATH and there is more than one toolchain under ~/.local/swift," >&2
+            echo "  so this will not choose one for you:" >&2
+            for candidate in "${found[@]}"; do
+                echo "    $(dirname "$candidate")" >&2
+            done
+            echo "  put the one you want on PATH and run this again." >&2
+            return 1 ;;
+    esac
 }
 
 # **Builds the app, and says everything it did wrong.** The caller decides what a failure means; this

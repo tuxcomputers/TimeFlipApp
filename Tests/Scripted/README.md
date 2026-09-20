@@ -97,6 +97,16 @@ Tests/Scripted/run.sh --keep-running  # leave the app up afterwards, to look at 
 Tests/Scripted/run.sh --keep 09       # one script, against the database as it stands
 ```
 
+**`00-setup` is a prerequisite and not merely the first script**, and skipping it fails in a way that
+points at the app. A rebuilt database has `debug` off -- `011_setting.sql` seeds
+`{"enabled":false,"directory":""}` -- and `00-setup` is what turns it on. So an app launched without it
+has no logger at all, by design, and every check polling the trace reports something like
+
+    FAIL  no debug_log row matching 'Launch mode:%' within 20s
+
+which reads as a launch that went wrong rather than as a trace nobody enabled. `Tests/Scripted/run.sh 01`
+on its own does exactly this (measured 2026-09-20). Run `00` first, then the subset with `--keep`.
+
 Running a subset still rebuilds the database unless `--keep` is given, and most scripts depend on what
 the ones above them made -- `09-report` needs the entries `06` records. `--keep` is usually what you
 want when running one on its own.
