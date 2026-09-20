@@ -158,6 +158,90 @@ is the right answer, and it is also the cheaper one.
 
 ---
 
+## The tables, measured
+
+**2026-09-20, on macOS.** [`probe/slint-editable-table`](../probe/slint-editable-table/) is a six-row list
+whose clock column is rewritten by `set_row_data` **once a second on every row, including the row being
+edited**, which is the Faces tab's Timing column against the Categories tab's rename. It reports every event to
+stdout, so the transcript is the evidence.
+
+**The question that could have ended this: does a model update take the text out from under whoever is
+typing?** `CLAUDE.md` requires that it must not, because that "clamps 1 on the way to 15". It does not:
+
+```
+15.65s  row 3: edit opened
+17.83s  row 3: field now holds "XAdmin"
+19.99s  row 3: field now holds "XYAdmin"
+22.16s  row 3: field now holds "XYZAdmin"
+```
+
+Roughly two ticks passed between each keystroke, every one of them calling `set_row_data` on that row. The text
+accumulated and was never reset to the stored name.
+
+**The commit may be asynchronous, which is the database rule expressed in UI.** Return does not change the
+name on screen; the name changes when the table has it:
+
+```
+5832.96s  row 3: Return pressed with "Well there"; the row still shows the stored name
+5833.76s  row 3: the table now holds "Well there", so the row adopts it
+```
+
+**Everything `EditableNameCell` does, Slint does**, confirmed by the owner driving it by hand: click the name
+to open it, Return commits, Escape abandons, a click anywhere else abandons, and the stored name is untouched
+by either. Two of those need writing rather than coming free, and neither is exotic: a `LineEdit` does not
+focus itself, so an edit opens with `init => { field.focus(); }`, and Escape is claimed by a `FocusScope`
+around the field, AppKit having needed its own workaround at the same spot for a different reason.
+
+**Accessibility works, and that was not a given.** `accessible-id` arrives as `AXIdentifier` on macOS:
+`scripts/ax-dump.py` shows `id=category-name-3`, `id=category-edit-3`, `id=probe-status`, and the open field as
+`AXTextField id=category-name-field-3`. Per-row identifiers built by string concatenation inside a `for` come
+through intact, so the locator model the scripted suite is written around converts rather than being reinvented.
+One constraint found by hitting it: `accessible-id` is refused unless `accessible-role` is set alongside it.
+
+**What this cost to find, and it is a warning about probing rather than about Slint.** Three of the four
+problems first reported from this harness were artifacts of driving it with synthetic clicks: click-to-edit
+"not working", the caret opening at position 0 rather than where the click landed, and a full-window
+`TouchArea` "swallowing" row clicks, which led to it being deleted on a theory that was simply wrong. A human
+click settled all three in one minute. **The residue is real and is now open question 3**: synthetic clicks do
+not reach a Slint `TouchArea`, which is how `Tests/Scripted` drives everything.
+
+**What was not tested**: sorting, a row leaving the list while it is being edited, the icon grid, and any of
+this on Linux or Windows.
+
+---
+
+## Driving it from a script, measured
+
+**2026-09-20, against the same harness, using `Tests/Scripted`'s own mechanisms rather than anything new.**
+
+| Mechanism | The script that uses it | Result |
+|---|---|---|
+| `AXPress` by `AXIdentifier` | `scripts/ax-press.py` | **Works.** `pressed category-edit-3` and the edit opened |
+| Writing `AXValue` | `scripts/ax-set.py` | **Works**, and fires Slint's own `edited` callback |
+| A real `CGEvent` keystroke | `scripts/ax-key.py` | **Works.** Return committed, and the asynchronous write landed 800ms later |
+| `AXPress` on a bare `TouchArea` | -- | **Does nothing, and reports success** |
+
+**The correction this section exists to record.** It was concluded first that the driver layer would have to be
+replaced, on the evidence that synthetic clicks did not reach a `TouchArea`. That conclusion was wrong, and it
+was wrong because the probing was done with System Events `click at`, which **is not how this suite drives
+anything**. `ax-press.py` performs an accessibility action and `ax-set.py` writes a property; neither goes near
+a coordinate. Both work on Slint unchanged. The lesson is about measuring the thing the app actually does
+rather than a convenient stand-in for it.
+
+**The one design rule that follows**: anything a check must press has to be a `Button`, or carry an
+accessibility action of its own. A bare `TouchArea` is invisible to `AXPress` -- and `ax-press.py` prints
+`pressed` and exits 0 against one, which is a silent pass and exactly the shape `CLAUDE.md` has a section
+about. A guard belongs in that script when the conversion happens.
+
+**Two tooling changes, both one-liners.** `ax-set.py` hardcodes `pgrep -x Facet` and `ax-key.py` refuses to run
+unless Facet is running, so neither takes `--app` the way `ax-press.py` does. Their mechanisms were reproduced
+inline to measure this.
+
+**What was not tested**: the status item, which is open question 4 and a different tree, and any of this on
+Linux or Windows.
+
+---
+
 ## The menu bar
 
 **This is the only part of the app where requirement 3 cannot be fully met, and the reason is the operating
@@ -302,7 +386,11 @@ Each of these is a thing to run, not a thing to think about further.
    knowing.
 2. ~~**Whether `btleplug` can drive this cube.**~~ **Answered 2026-09-20: it can.** See *The radio, measured*
    below. This was the one that mattered and it is no longer open.
-3. **The scripted suite's hold on the status item.** `MenuBarController` sets an accessibility identifier on
+3. ~~**Driving a Slint window from a script.**~~ **Answered 2026-09-20: the suite's own mechanisms work.**
+   See *Driving it from a script, measured* below. This entry read, for about an hour, that the driver layer
+   needed replacing; that was wrong and the section says why.
+
+4. **The scripted suite's hold on the status item.** `MenuBarController` sets an accessibility identifier on
    the status item button, which is how `scripts/status-item-click.py` finds it. `tray-icon` exposes no
    equivalent API, so that script and every scripted check that presses the status item would need rewriting
    against whatever handle the Rust item does expose. **The Linux port has already solved the same problem
@@ -310,19 +398,26 @@ Each of these is a thing to run, not a thing to think about further.
    a Linux check addresses a tray item **by its label**. That is the pattern macOS would adopt, which makes
    this a conversion rather than an invention. It is still a real line item against a 32-script suite whose
    front door is the status item.
-4. **Editable tables in Slint.** The prototype is static. The real Categories and Faces tabs have editable
-   cells, sorting, and rows driven by the database. A prototype flatters a toolkit; the cost arrives with live
-   editing.
+5. ~~**Editable tables in Slint.**~~ **Answered 2026-09-20: they work.** See *The tables, measured* below.
+   What is still untested is sorting, a row leaving the list mid-edit, and the icon grid.
 
 ---
 
 ## The scratch work
 
-Both were built on 2026-09-18, live outside this repository, and are **not committed**:
+**Two are committed**, being the ones that answered something:
 
-- `~/temp/facet-ui-prototype` -- the Slint Settings window, all five tabs, working tab bar and folds, no
-  functionality behind anything.
-- `~/temp/tray-probe` -- the MATE click probe described in open question 1, with a README listing what to
-  watch for.
+- [`probe/timeflip-btleplug`](../probe/timeflip-btleplug/) -- the radio, open question 2.
+- [`probe/slint-editable-table`](../probe/slint-editable-table/) -- the tables and the scripting, open
+  questions 3 and 5.
 
-They are throwaways. What they established is recorded above, which is the part that has to survive them.
+**Two are not**, and were built on 2026-09-18 outside this repository:
+
+- `~/temp/facet-ui-prototype` -- the Slint Settings window, all five tabs, working tab bar and folds, nothing
+  behind any of it. It answered what the UI looks like, which the screenshots and *The UI, measured* record.
+- `~/temp/tray-probe` -- the MATE click probe of open question 1. It answered its question on the Linux box
+  and the transcript is in *The menu bar on MATE, measured*.
+
+**The two uncommitted ones are throwaways and what they established is recorded above**, which is the part
+that has to survive them. The two committed ones are kept because a measurement is worth more with the thing
+that produced it beside it, and because both can be re-run.
