@@ -556,9 +556,28 @@ relink_a_cube() {
 free_the_cube() {
     local freeing
     freeing=$(mark)
+    # **The app has to have asked the cube what state it is in before that menu item means anything.**
+    # `DeviceLogin.askWhatStateItIsIn` is what makes the Lock line honest, and its own comment says why: a freshly
+    # connected app would otherwise have to guess which way the item reads, and the guess it makes -- unlocked -- is
+    # exactly wrong for the cube this app locked on the way out last time. The answer is a `0x10` round trip and
+    # lands a second or so after the login.
+    #
+    # **Without this wait the item is pressed while it still says Lock, and the cube gets locked instead of freed.**
+    # Measured on Linux 2026-09-20: `Asking the cube what state it is in` at :02, `Menu item clicked: Lock` at :03,
+    # and `The cube is locked and paused` at :03 -- the answer arriving after the press it should have decided. The
+    # race is not Linux-specific; that platform is simply where it was lost first.
+    wait_for "$freeing" "The cube is %locked and %" 25 >/dev/null || {
+        red "  the app never read the cube state, so the Lock item cannot be trusted either way"
+        return 1
+    }
     click_left
     sleep 0.8
-    press toggle-cube-lock
+    # **Through the menu port**, because this is a status-item item and not a window control. `press` searches the
+    # accessibility tree, which on Linux the tray is not in at all -- it is a D-Bus object -- so this reported
+    # `nothing in the tree matches name toggle-cube-lock` while the item sat in the menu (2026-09-20). The six
+    # presses in the check scripts were converted when `menu_press` was added and this one, being inside a helper,
+    # was missed.
+    menu_press toggle-cube-lock
     wait_for "$freeing" "The cube is unlocked" 20 >/dev/null || return 1
     wait_for "$freeing" "The cube is running" 20 >/dev/null || return 1
     # **And then on the table, which is a second thing rather than the same one said twice.** The rows above say the
@@ -1508,7 +1527,15 @@ press_sheet() { platform_press_sheet "$1" >/dev/null 2>&1; }
 
 # One element's line from the tree, so a check reads the thing it is about rather than searching the
 # whole window -- and a failure prints that line rather than several hundred.
-element() { tree | grep -m1 "id=$1 " || true; }
+# **Matched to the end of the identifier, not to a space after it.** This was `grep -m1 "id=$1 "`, which requires
+# something to follow -- and a line whose last token is the identifier then never matches. On macOS every element
+# has a title or a value after its id, so it never came up; on Linux a control with neither ends the line there, and
+# `pair_a_cube` reported that the Scan button was not on screen while looking straight at it (2026-09-20).
+#
+# **The trailing space was doing real work and is kept as an alternative**, which is why this is not simply
+# `grep "id=$1"`: `device-scan` is a prefix of `device-scan-all`, `-status` and every `-result-<id>`, so a loose
+# match answers about the wrong element. `on_tab` already spells it this way and its comment records the same trap.
+element() { tree | grep -m1 -E "id=$1($|[[:space:]])" || true; }
 
 # `window_width <identifier>` -- how wide a window is on screen, in points, or empty if it is not there.
 #

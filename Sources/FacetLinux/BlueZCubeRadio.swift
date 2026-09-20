@@ -73,6 +73,21 @@ final class BlueZCubeRadio: CubeRadio {
     /// is a cube leaving the room: it is not on the path of anything a person is waiting for.
     static let linkPollSeconds: TimeInterval = 2
 
+    /// How long to leave BlueZ to finish dropping a link before asking it to make a new one, and how many times to
+    /// wait that long before giving up.
+    ///
+    /// **Because a disconnect here is a round trip, not a call.** CoreBluetooth hands the link back synchronously
+    /// enough that the core\'s one-second settle covers it; BlueZ answers `Disconnect` immediately and goes on
+    /// tearing the link down afterwards, and a `Connect` issued into that window is refused with
+    /// `le-connection-abort-by-local` -- the local end aborting a connection it has not finished ending.
+    ///
+    /// Measured 2026-09-20 while pairing a cube whose PIN was not the vendor default: the first candidate was
+    /// refused at :20, the link let go at :24, the connect for the second candidate refused at :25, and the reach
+    /// ended reporting *the device was not this app\'s cube* -- about a cube that had never been asked the only
+    /// PIN that would have worked.
+    static let disconnectSettleSeconds: TimeInterval = 1.5
+    static let connectAttempts = 4
+
     // MARK: - what it is doing
 
     private let link: BlueZLink
@@ -168,6 +183,8 @@ final class BlueZCubeRadio: CubeRadio {
     private var resolvePoll: ScheduledWake?
     private var resolveDeadline: ScheduledWake?
     private var linkPoll: ScheduledWake?
+    /// The wait between a link being let go and the next connect being tried. Held so it is not dropped on the floor.
+    private var connectRetry: ScheduledWake?
 
     private var login: DeviceLogin?
 
@@ -337,6 +354,11 @@ final class BlueZCubeRadio: CubeRadio {
             return
         }
         isScanning = true
+        // **The Mac's wording, verbatim, and that is the point of it.** A check waits on this row to know the
+        // radio came up -- `pair_a_cube` gives it sixty seconds and then reports that the radio never answered --
+        // and a message that says the same thing in different words is a check that has to be written twice.
+        // Added 2026-09-20, having been absent: the wait timed out on Linux and blamed the hardware.
+        debugLog?.record(.scan, "Scan started, listening for advertisements")
         debugLog?.record(.scan, "Scanning for up to \(Int(Self.scanSeconds))s")
 
         scanPoll = scheduler.wake(in: Self.scanPollSeconds, repeating: true) { [weak self] in
@@ -385,6 +407,19 @@ final class BlueZCubeRadio: CubeRadio {
             return
         }
         guard devices != found else { return }
+        // **Once per device rather than once per advertisement**, which is the Mac's rule and its wording: BlueZ's
+        // tree is re-read on every poll, so anything already seen would otherwise be logged again each turn. Both
+        // names go in the line, because the list is exactly where they disagree and a label nobody chose is
+        // explicable from this row and guesswork without it.
+        let alreadySeen = Set(found.map(\.id))
+        for device in devices where !alreadySeen.contains(device.id) {
+            debugLog?.record(
+                .scan,
+                "Found \(device.id.value): peripheral \(device.peripheralName ?? ""), "
+                    + "advertised \(device.advertisedName ?? "")"
+                    + (device.advertisesTimeFlipService ? ", TimeFlip service" : "")
+            )
+        }
         found = devices
         // **A browse publishes what is in the running; a reach publishes what it heard.** BlueZ lists the whole
         // room -- monitors, lamps, headphones -- where CoreBluetooth filters as the advertisement arrives, so a
@@ -464,12 +499,37 @@ final class BlueZCubeRadio: CubeRadio {
         connectToTheAttempt()
     }
 
-    private func connectToTheAttempt() {
+    private func connectToTheAttempt(attemptsLeft: Int = BlueZCubeRadio.connectAttempts) {
         guard let attempt else { return }
+        connectRetry?.cancel()
+        connectRetry = nil
+
+        // **Asked of BlueZ rather than assumed from the last thing this app did**, which is the same rule the rest
+        // of this project follows about the database and about the cube: the previous candidate\'s link may still
+        // be coming down, and only the adapter knows.
+        if attemptsLeft > 1, let device = try? link.device(attempt.id), device.isConnected {
+            debugLog?.record(.login, "The previous link is still up, so the connect waits for it to drop")
+            connectRetry = scheduler.wake(in: Self.disconnectSettleSeconds) { [weak self] in
+                self?.connectToTheAttempt(attemptsLeft: attemptsLeft - 1)
+            }
+            return
+        }
+
         do {
             try link.connect(attempt.id)
         } catch {
-            debugLog?.record(.login, "Could not connect: \(Self.describe(error))")
+            let reason = Self.describe(error)
+            // **A local abort is the teardown, not a refusal**, so it is waited out rather than counted against the
+            // device. Giving up here reports `unreachable` about a cube that is in the room and answering, and the
+            // reach then moves on without ever presenting the PIN that would have worked.
+            if attemptsLeft > 1, reason.contains("le-connection-abort-by-local") {
+                debugLog?.record(.login, "The adapter was still letting go, so the connect is tried again")
+                connectRetry = scheduler.wake(in: Self.disconnectSettleSeconds) { [weak self] in
+                    self?.connectToTheAttempt(attemptsLeft: attemptsLeft - 1)
+                }
+                return
+            }
+            debugLog?.record(.login, "Could not connect: \(reason)")
             giveUpOnThisDevice(.unreachable)
             return
         }
@@ -551,6 +611,11 @@ final class BlueZCubeRadio: CubeRadio {
             // another one behind a link that is up. It drops the reach and cancels the settle wait.
             reach.candidateEnded(.loggedIn)
             watchTheLink()
+            // **The Mac's line, verbatim**, and the one a check waits on to know a link is actually up:
+            // `relink_a_cube` gives it ninety seconds and then reports that the relaunched app never reached the
+            // cube. It was absent here, so a reconnect that worked in four seconds was reported as a failure after
+            // ninety (2026-09-20). `BluetoothRadio` writes it at the same point, once per login however it ended.
+            debugLog?.record(.login, "\(id.value): \(DeviceLoginOutcome.loggedIn)")
             onLoginEnded?(id, .loggedIn)
             return
         }
@@ -600,6 +665,8 @@ final class BlueZCubeRadio: CubeRadio {
     private func endReach(reporting outcome: DeviceLoginOutcome, for id: DeviceHandle) {
         closeTheScan()
         attempt = nil
+        // The other end of the same line: a reach that ran out of candidates says so the way the Mac does.
+        debugLog?.record(.login, "\(id.value): \(outcome)")
         onLoginEnded?(id, outcome)
     }
 

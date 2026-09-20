@@ -5,21 +5,22 @@ Written by `Tests/Scripted/run.sh` at the end of every run, and committed.
 run, and a stamp that does not describe a real run is worse than no stamp at all.
 
     branch:   feature/linuxPort
-    commit:   f97c5fa64703723fc41eff5bff3f692258cd688a
-    tree:     clean
+    commit:   2a694de04d7dc8b595b26c21b94018c0faca3710
+    tree:     dirty
     database: rebuilt from the DDL
-    started:  2026-09-20 10:11:33
-    finished: 2026-09-20 10:12:09
+    started:  2026-09-20 11:00:00
+    finished: 2026-09-20 11:01:16
     outcome:  failed
-    scripts:  1 of 32 run, 1 with failures
-    short:    32 ran fewer checks than they declare
+    scripts:  1 of 32 run, 0 with failures
+    short:    31 ran fewer checks than they declare
+    filter:   00
     checks:   1 in total
-              0 passed
-              1 failed
+              1 passed
+              0 failed
 
 | script | expected | passed | failed | time |
 |---|---|---|---|---|
-| 00-setup | 1 | 0 | 1 | 0m 32s (0m 04s) |
+| 00-setup | 1 | 1 | 0 | 1m 16s |
 | 01-launch | 9 | 0 | 0 | - |
 | 02-menu-bar | 9 | 0 | 0 | - |
 | 03-settings-window | 32 | 0 | 0 | - |
@@ -51,9 +52,10 @@ run, and a stamp that does not describe a real run is worse than no stamp at all
 | 65-auto-pause | 19 | 0 | 0 | - |
 | 66-device-rename | 22 | 0 | 0 | - |
 | 99-quit | 14 | 0 | 0 | - |
-| **total** | **794** | **0** | **1** | **0m 32s (0m 04s)** |
+| **total** | **794** | **1** | **0** | **1m 16s** |
 
-A bracketed figure is time the script spent waiting for a person, already taken out of the time beside it.
+> The working tree had uncommitted changes when this ran, so it is not evidence about the
+> commit it names. CI refuses a stamp in this state.
 
 The full record, including the app's own log rows and the accessibility tree at each failure,
 is in `logs/testlog.sqlite` on the machine that ran it. That file is not in the repository.

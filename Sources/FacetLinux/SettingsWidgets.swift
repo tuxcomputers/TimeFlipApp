@@ -110,6 +110,17 @@ enum SettingsWidgets {
         facet_set_accessible_name(widget, name)
         if let value {
             facet_set_accessible_description(widget, value)
+        } else if let label = facet_button_label(widget) {
+            // **A button falls back to the words on it**, because overwriting the accessible name is what put them
+            // out of reach. GTK reports a button's label as its name; this app needs that slot for the identifier,
+            // and the label is then reachable from nowhere at all -- no Text interface, no child label object
+            // (measured 2026-09-20). On macOS `AXIdentifier` and `AXTitle` are separate attributes and nothing has
+            // to give way.
+            //
+            // **It goes in the description, which is where this app puts what a control shows**, so it is the
+            // convention rather than an exception to it. `pair_a_cube` asserting that Scan currently reads
+            // *Stop Scan* is what found this: the suite could see the button and not a word on it.
+            facet_set_accessible_description(widget, label)
         }
     }
 

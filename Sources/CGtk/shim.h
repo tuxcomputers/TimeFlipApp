@@ -345,6 +345,23 @@ static inline void facet_set_accessible_name(GtkWidget *widget, const char *name
    nowhere. The Mac keeps the two apart for free, `AXIdentifier` and `AXValue` being different attributes;
    here the second one is the description. Measured 2026-09-16: with only the name set, a category name cell
    came back as `push button 'category-name-1' ''` with no text interface and no child label. */
+// **What a button says on it, which AT-SPI otherwise loses on this app entirely.**
+//
+// A `GtkButton` reports its label as its accessible *name*, and every control here overwrites that name with its
+// identifier -- so once `identify` has run, the words on the button are reachable from nowhere: the button exposes
+// no Text interface and no child label object (measured 2026-09-20 against the Device tab's Scan button).
+//
+// That matters because checks assert on them. `pair_a_cube` asks whether the Scan button currently reads
+// `Stop Scan`, which is how it tells a scan already listening from one it may start.
+//
+// Returns NULL for anything that is not a button, and for a button with no label.
+static inline const char *facet_button_label(GtkWidget *widget) {
+    if (!GTK_IS_BUTTON(widget)) {
+        return NULL;
+    }
+    return gtk_button_get_label(GTK_BUTTON(widget));
+}
+
 static inline void facet_set_accessible_description(GtkWidget *widget, const char *description) {
     AtkObject *accessible = gtk_widget_get_accessible(widget);
     if (accessible != NULL) {

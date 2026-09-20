@@ -298,7 +298,16 @@ final class BlueZCubeRadioTests {
         #expect(link.connects == [ours, theirs], "and it is tried, rather than the reach ending on the shortcut")
     }
 
-    @Test func testAConnectThatFailsMovesOnRatherThanEndingTheReach() {
+    /// **A local abort is the adapter still letting go, so it is waited out before it is believed** -- and only
+    /// when waiting stops helping is the device called unreachable.
+    ///
+    /// **This test used to assert the giving up happened at once**, which was the behaviour until 2026-09-20 and
+    /// was measured wrong that day: pairing a cube whose PIN was not the vendor default refused the first
+    /// candidate, let the link go, had the connect for the second candidate refused with this very error, and ended
+    /// the reach reporting *the device was not this app\'s cube* -- about a cube in the room that had never been
+    /// asked the only PIN that would have worked. BlueZ answers `Disconnect` immediately and goes on tearing the
+    /// link down afterwards, so a `Connect` issued into that window is refused by the local end.
+    @Test func testALocalAbortIsWaitedOutAndOnlyThenGivenUpOn() {
         link.connectFailure = BlueZRadio.Failure.refused("le-connection-abort-by-local")
         reachForOurs()
         link.add(ours, named: "TimeFlip v2.0")
@@ -306,7 +315,19 @@ final class BlueZCubeRadioTests {
         closeTheWindow()
         settle()
 
+        // Nothing has been decided yet: the first refusal only bought another wait.
+        #expect(outcomes.isEmpty)
+
+        waitOutTheTeardown()
+
         #expect(outcomes.map(\.outcome) == [.unreachable])
+    }
+
+    /// Every wait `connectToTheAttempt` will make between a refused connect and the next try.
+    private func waitOutTheTeardown() {
+        for _ in 0..<BlueZCubeRadio.connectAttempts {
+            clock.tickAll(after: BlueZCubeRadio.disconnectSettleSeconds)
+        }
     }
 
     // MARK: - the PIN is the answer
