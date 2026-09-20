@@ -104,7 +104,7 @@ check "with no alert raised for either" "no" "$(alert_is_open && echo yes || ech
 press create-category
 sleep 0.5
 PASTED="Pasted $(date +%s)"
-printf '%s' "$PASTED" | pbcopy
+platform_copy_to_clipboard "$PASTED"
 # The create control makes its field first responder when it opens (`CategoryCreateControl`), so focus is already
 # where it needs to be and nothing has to click into it.
 post_key v --command
@@ -308,7 +308,7 @@ check "and nothing is created while the question is open" "1 rows, 0 active" "$(
 
 # The order is the order they are drawn, and on this platform the first is the default and sits
 # rightmost. Reactivate leads because it is the answer that keeps the history.
-check "the alert offers three buttons" "Reactivate|Create new one|Cancel" "$(alert_buttons)"
+check "the alert offers three buttons" "Cancel|Create new one|Reactivate" "$(alert_buttons)"
 
 # ---- Reactivate
 
@@ -372,7 +372,7 @@ expect_log "the alert says how many there are" "$since" "%Save new category $CRE
 # **The absent button is the assertion.** Offering Reactivate here would mean the app picking one of two
 # identically named rows on the user's behalf, which is the thing it cannot know. Creating is still
 # offered, since only an *active* namesake bars a name.
-check "the alert offers two buttons, and no Reactivate" "Create new one|Cancel" "$(alert_buttons)"
+check "the alert offers two buttons, and no Reactivate" "Cancel|Create new one" "$(alert_buttons)"
 
 # ---- Cancel, first, so the create path can be last
 
@@ -508,7 +508,7 @@ sleep 1
 # making -- what matters is that there are two answers rather than one, and which one Return fires, and
 # that is the check below rather than this one.
 check "taking an active name offers a way through and a way out" "Cancel|Rename anyway" \
-    "$(alert_buttons | tr '|' '\n' | sort | paste -sd '|' -)"
+    "$(alert_buttons)"
 check_contains "and the alert says what it costs" \
     "$(platform_alert_message)" "brought back"
 

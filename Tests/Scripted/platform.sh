@@ -286,6 +286,20 @@ platform_alert_message() {
     esac
 }
 
+# **Put text on the clipboard, for the one check that pastes.**
+#
+# `pbcopy` is a one-liner because macOS has a pasteboard server holding the bytes. X11 has no such thing: the
+# clipboard is a protocol, the program that copied keeps the text and hands it over when asked, so a process that
+# sets it and exits takes the text with it. `scripts/at-clipboard.py` says the rest, and it exists rather than a
+# call to `xclip` because neither `xclip` nor `xsel` is installed on the Linux box and this needs only pygobject,
+# which driving the window already requires.
+platform_copy_to_clipboard() {
+    case "$PLATFORM" in
+        mac)   printf '%s' "$1" | pbcopy ;;
+        linux) python3 scripts/at-clipboard.py --set "$1" >/dev/null ;;
+    esac
+}
+
 # ---------------------------------------------------------------------------- the status item
 
 # What the status item is showing, as a line a check can grep.

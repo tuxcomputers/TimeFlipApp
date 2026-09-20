@@ -153,7 +153,7 @@ sleep 1
 # first. That is also why the app sets the alert's key equivalents explicitly instead of trusting
 # position to keep Return harmless: the rightmost button is the one Return activates, and left to
 # itself that would have been Delete Calendar.
-check "deleting asks first, and offers a way out" "Delete Calendar|Cancel" "$(alert_buttons)"
+check "deleting asks first, and offers a way out" "Cancel|Delete Calendar" "$(alert_buttons)"
 check_contains "and the question names the calendar" \
     "$(platform_alert_message)" "$doomed"
 

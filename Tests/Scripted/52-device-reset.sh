@@ -91,7 +91,7 @@ check_contains "the sheet says what is about to happen" "$(platform_alert_messag
 # **Cancel is drawn first and that is AppKit's doing, not the code's**: a button titled Cancel is relocated to the left
 # whatever order it was added in, which is why the key equivalents are set by hand. Asserted in the drawn order so a
 # future change that lets Return land on the destructive answer fails here.
-check "the sheet offers exactly Cancel and Reset Device, in that order" "Cancel|Reset Device" "$(alert_buttons)"
+check "the sheet offers exactly Cancel and Reset Device" "Cancel|Reset Device" "$(alert_buttons)"
 
 # ---------------------------------------------------------------------------- declining it
 #

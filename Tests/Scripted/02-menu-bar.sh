@@ -49,8 +49,18 @@ if [ "$PLATFORM" = "mac" ]; then
     sleep 0.8
     expect_log "a left click opens the menu" "$since" "%side=left%showMenu%"
 else
-    check "the menu can be read without being opened" "yes" \
-        "$(platform_menu_tree | grep -q "id=open-settings" && echo yes || echo no)"
+    # **Polled rather than asked once.** The tray is a D-Bus object the app registers as it starts, and
+    # registering it is not instant: asked immediately after a relaunch it is simply not there yet, which is
+    # what failed a full run while `02 --keep` passed against an app that had been up for a while.
+    reachable=no
+    for _ in $(seq 1 20); do
+        if platform_menu_tree | grep -q "id=open-settings"; then
+            reachable=yes
+            break
+        fi
+        sleep 0.5
+    done
+    check "the menu can be read without being opened" "yes" "$reachable"
 fi
 
 menu=$(platform_menu_tree)

@@ -134,6 +134,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--app", default="FacetLinux", help="the application to dump")
     parser.add_argument("--frames", action="store_true", help="include position and size")
+    parser.add_argument(
+        "--all-tabs",
+        action="store_true",
+        help="include notebook pages that are not on show (off by default)",
+    )
     arguments = parser.parse_args()
 
     root = application(arguments.app)
@@ -146,8 +151,17 @@ def main():
     windows = [child for child in root if child is not None and role_of(child) in ("frame", "dialog", "alert")]
     if not windows:
         print(f"{arguments.app} is running with no windows open", file=sys.stderr)
+    # **Pages that are not on show are left out, the way every other tool here leaves them out.**
+    #
+    # `lib.sh` reads this output as the window: `element` takes the *first* line carrying an identifier, and this
+    # window has the same identifier on more than one tab on purpose -- `create-category`, `category-name-field`
+    # and `save-category` are the Categories tab's create control and the Faces tab's. Dumping both meant
+    # `element category-name-field` answered about the tab nobody was looking at, so a paste that had landed
+    # perfectly was read back as an empty field (measured 2026-09-20).
+    #
+    # `--all-tabs` is there for looking at the whole window by hand, which is the only thing that wants it.
     for window in windows:
-        for node, depth in walk(window):
+        for node, depth in walk(window, whole_tree=arguments.all_tabs):
             print(f"{'  ' * depth}{role_of(node)}  {describe(node, arguments.frames)}")
     return 0
 

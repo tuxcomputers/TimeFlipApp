@@ -72,7 +72,10 @@ final class ColourList {
 
         let button = gtk_button_new()!
         facet_button_flatten(button)
-        SettingsWidgets.identify(button, "colour-row-\(colour.id)")
+        // **Named by the colour rather than by its row number**, which is what the Mac's `ColourList` does:
+        // `colour-option-Red`. A check says which colour it is choosing, and a number would make it say which
+        // position the colour happened to be in -- two names for one thing, and the check reads worse besides.
+        SettingsWidgets.identify(button, "colour-option-\(colour.name)", saying: colour.name)
         gtk_widget_set_tooltip_text(button, isSelected ? "\(colour.name), selected" : colour.name)
         facet_container_add(button, line)
         return button

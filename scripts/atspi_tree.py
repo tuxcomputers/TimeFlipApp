@@ -21,6 +21,7 @@ the other.
 """
 
 import sys
+import time
 
 import pyatspi
 
@@ -30,22 +31,51 @@ import pyatspi
 MAX_DEPTH = 40
 
 
+# How long to keep asking the registry for the app before giving up, and how often.
+#
+# **Because the answer is not stable while a modal dialogue is up.** `GtkDialoguePresenter` runs
+# `gtk_dialog_run`, which spins a nested main loop, and during it the app drops out of the desktop
+# enumeration for a moment -- so a single lookup answers "no application called FacetLinux is on the
+# accessibility bus" about an app that is on screen with a dialogue waiting to be answered. Measured
+# 2026-09-20: `press_title Rename` failed that way, the dialogue went unanswered, and the check read the
+# unchanged name back out of the table and blamed the rename.
+LOOKUP_SECONDS = 5.0
+LOOKUP_INTERVAL = 0.2
+
+
 def application(name="FacetLinux"):
     """The running app's accessible root, or a refusal saying which of the two things went wrong.
 
     **Not found and not running are different answers**, for the reason `platform_app_is_declared`
     returns three values rather than two: an app that is up but exposes no accessible tree is an
     at-spi bus problem, and reporting it as "the app is not running" sends somebody to the wrong file.
+
+    **Polled rather than asked once**, for the reason above.
     """
-    try:
-        desktop = pyatspi.Registry.getDesktop(0)
-    except Exception as error:                                          # noqa: BLE001
-        sys.exit(f"cannot reach the accessibility bus: {error}")
-    for candidate in desktop:
-        if candidate is not None and candidate.name == name:
-            return candidate
+    deadline = time.monotonic() + LOOKUP_SECONDS
+    seen = []
+    while True:
+        try:
+            desktop = pyatspi.Registry.getDesktop(0)
+        except Exception as error:                                      # noqa: BLE001
+            sys.exit(f"cannot reach the accessibility bus: {error}")
+        seen = []
+        for candidate in desktop:
+            if candidate is None:
+                continue
+            seen.append(candidate.name)
+            if candidate.name == name:
+                return candidate
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(LOOKUP_INTERVAL)
+
+    # **What was there instead**, because the two ways this fails want different files looked at: an empty
+    # list is the bridge not running, and a list without this app in it is the app not running.
+    listed = ", ".join(repr(candidate) for candidate in seen) or "nothing at all"
     sys.exit(
-        f"no application called {name} is on the accessibility bus.\n"
+        f"no application called {name} is on the accessibility bus after {LOOKUP_SECONDS:g}s.\n"
+        f"  the bus lists: {listed}\n"
         f"  if it is running, at-spi may not be: check `pgrep -x {name}` first,\n"
         f"  and that GTK_MODULES does not exclude the atk bridge."
     )

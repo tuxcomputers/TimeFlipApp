@@ -1507,7 +1507,17 @@ on_tab() { tree | grep -cE "id=$1(\$|[[:space:]])" || true; }
 # a grep over the tree would count a `Cancel` belonging to something else -- reporting the button as
 # present when the alert never offered it. Empty when no sheet is up, which fails such a check instead
 # of passing it silently.
-alert_buttons() { platform_alert_buttons | tr '\n' '|' | sed 's/|$//'; }
+# **Sorted, so the answer does not depend on which way the platform walks the dialogue.**
+#
+# The two report opposite orders for the same arrangement and neither is wrong. NSAlert's accessibility tree
+# enumerates its buttons last-added-first, so macOS answers `Delete Calendar|Cancel` for a dialogue whose choices
+# read `["Cancel", "Delete Calendar"]`; GTK packs them in order and is walked left to right, so Linux answers
+# `Cancel|Delete Calendar` for the same dialogue drawn the same way round. What these checks are about is which
+# buttons are offered -- several of them turn on one being *absent* -- and that is a set rather than a sequence.
+#
+# `LC_ALL=C` so the order is the same on both machines whatever locale they are in. `04-categories` had already
+# sorted at one call site for this reason; doing it here is that fix made general.
+alert_buttons() { platform_alert_buttons | LC_ALL=C sort | tr '\n' '|' | sed 's/|$//'; }
 
 # Whether a sheet is up at all. Worth its own check before opening the next one: an alert nobody
 # dismissed is modal, so every later press lands on nothing and the failures arrive somewhere else.
